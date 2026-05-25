@@ -27,3 +27,6 @@ build/
 *.log
 *.sqlite3
 *.db
+
+example/
+example
