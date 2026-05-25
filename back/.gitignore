@@ -28,5 +28,7 @@ build/
 *.sqlite3
 *.db
 
-example/
+./example/*.xlsx
+./example/*.csv
 example
+example/
