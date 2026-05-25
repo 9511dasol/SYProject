@@ -1,0 +1,29 @@
+# 파이썬 일반 설정
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 가상 환경
+venv/
+.venv/
+env/
+.env
+
+# FastAPI 및 개발 환경
+.env
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# IDE 및 에디터 설정
+.vscode/
+.idea/
+.DS_Store
+
+# 로그 및 데이터베이스
+*.log
+*.sqlite3
+*.db
