@@ -26,8 +26,17 @@ body {
   font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
 }
 
-/* 페이지 앵커 이동 시 sticky 헤더 높이 보정 */
+/* 페이지 앵커 이동 시 헤더 높이 보정 (h-14 = 3.5rem) */
 [id="saved-report"],
 [id="upload-data"] {
-  scroll-margin-top: 5.5rem;
+  scroll-margin-top: 4rem;
+}
+
+/* 스크롤바 숨김 유틸리티 */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }

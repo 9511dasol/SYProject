@@ -133,6 +133,19 @@ export interface TaskStatusResponse {
 }
 
 
+export interface RowFormData {
+  report_date: string;         // "YYYY-MM-DD"
+  campaign_type: string;
+  impressions: number;
+  clicks: number;
+  cost: number;
+  conversions: number;         // DB: conversions (= total_conv in frontend)
+  conversion_revenue: number;  // DB: conversion_revenue (= revenue in frontend)
+  signup: number;
+  purchase: number;
+  apply: number;
+}
+
 export interface AnalysisResult {
   processedRows: number;
   aiComment: string;

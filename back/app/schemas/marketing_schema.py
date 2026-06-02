@@ -49,6 +49,19 @@ class ReportResponse(BaseModel):
     undo_id: str = ""
 
 
+class RowUpsertBody(BaseModel):
+    report_date: str          # "YYYY-MM-DD"
+    campaign_type: str
+    impressions: int = 0
+    clicks: int = 0
+    cost: float = 0.0
+    conversions: int = 0
+    conversion_revenue: float = 0.0
+    signup: float = 0.0
+    purchase: float = 0.0
+    apply: float = 0.0
+
+
 class TaskStatus(str, Enum):
     PENDING = "pending"
     PROCESSING = "processing"

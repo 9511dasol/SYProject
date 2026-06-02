@@ -13,6 +13,7 @@ from app.schemas.marketing_schema import (
     MediaSummary,
     ReportResponse,
     RowDiff,
+    RowUpsertBody,
     TaskStatus,
     TaskStatusResponse,
     UploadTaskResponse,
@@ -402,6 +403,10 @@ async def get_summary(
         report_dict = report.model_dump()
         report_dict['comment'] = repo.get_comment(year, month)
         return ReportResponse(**report_dict)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"리포트 집계 중 오류가 발생했습니다: {exc}")
     finally:
         db.close()
 
@@ -528,6 +533,55 @@ async def save_excel_data(
     else:
         msg = f"{saved}개 행을 저장했습니다."
     return {"saved_rows": saved, "deleted_rows": deleted if replace else 0, "message": msg}
+
+
+@router.post("/rows")
+async def upsert_row(body: RowUpsertBody) -> dict:
+    """단일 행 (report_date, campaign_type) UPSERT"""
+    df = pd.DataFrame([{
+        "report_date": body.report_date,
+        "campaign_type": body.campaign_type,
+        "impressions": body.impressions,
+        "clicks": body.clicks,
+        "cost": body.cost,
+        "conversions": body.conversions,
+        "conversion_revenue": body.conversion_revenue,
+        "signup": body.signup,
+        "purchase": body.purchase,
+        "apply": body.apply,
+    }])
+    try:
+        saved, _, _ = MarketingRepository(None).save_mapped_dataframe(df)  # type: ignore[arg-type]
+        return {"saved": saved, "message": "저장되었습니다."}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"저장 실패: {exc}")
+
+
+@router.delete("/rows")
+async def delete_row(
+    report_date: str = Query(...),
+    campaign_type: str = Query(...),
+) -> dict:
+    """단일 행 삭제 — (report_date, campaign_type) 기준"""
+    from sqlalchemy import text as _text
+    from app.core.database import engine as _engine
+    try:
+        with _engine.begin() as conn:
+            result = conn.execute(
+                _text(
+                    "DELETE FROM marketing_data "
+                    "WHERE report_date = :d AND campaign_type = :c"
+                ),
+                {"d": report_date, "c": campaign_type},
+            )
+        deleted = result.rowcount
+        if deleted == 0:
+            raise HTTPException(status_code=404, detail="삭제할 행을 찾을 수 없습니다.")
+        return {"deleted": deleted, "message": "삭제되었습니다."}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"삭제 실패: {exc}")
 
 
 @router.post("/export")

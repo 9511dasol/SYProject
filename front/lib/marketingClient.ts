@@ -1,5 +1,5 @@
 import axios, { isAxiosError } from 'axios';
-import type { ExcelReport, ReportData, TaskStatusResponse, UploadTaskResponse } from '@/types/marketing';
+import type { ExcelReport, ReportData, RowFormData, TaskStatusResponse, UploadTaskResponse } from '@/types/marketing';
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000',
@@ -194,6 +194,31 @@ export async function getSaveExcelTaskStatus(taskId: string): Promise<{
     return data;
   } catch (err) {
     throw new Error(extractError(err, '저장 상태 조회 실패'));
+  }
+}
+
+export async function upsertMarketingRow(
+  body: RowFormData,
+): Promise<{ saved: number; message: string }> {
+  try {
+    const { data } = await api.post('/api/marketing/rows', body);
+    return data as { saved: number; message: string };
+  } catch (err) {
+    throw new Error(extractError(err, '행 저장 실패'));
+  }
+}
+
+export async function deleteMarketingRow(
+  reportDate: string,
+  campaignType: string,
+): Promise<{ deleted: number; message: string }> {
+  try {
+    const { data } = await api.delete('/api/marketing/rows', {
+      params: { report_date: reportDate, campaign_type: campaignType },
+    });
+    return data as { deleted: number; message: string };
+  } catch (err) {
+    throw new Error(extractError(err, '행 삭제 실패'));
   }
 }
 
