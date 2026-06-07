@@ -66,8 +66,8 @@ function SectionHeader({
         {step}
       </span>
       <div>
-        <h2 className="text-lg font-semibold text-slate-900 tracking-tight">{title}</h2>
-        <p className="text-sm text-slate-500 mt-1 leading-relaxed">{description}</p>
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-fg tracking-tight">{title}</h2>
+        <p className="text-sm text-slate-500 dark:text-fg-muted mt-1 leading-relaxed">{description}</p>
       </div>
     </div>
   );
@@ -315,10 +315,10 @@ export default function HomeClient() {
           <p className="text-xs font-semibold uppercase tracking-wider text-blue-600 mb-2">
             Marketing Data Pipeline
           </p>
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight mb-2">
+          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-fg tracking-tight mb-2">
             무엇을 하시겠어요?
           </h2>
-          <p className="text-sm text-slate-500 mb-6 max-w-xl leading-relaxed">
+          <p className="text-sm text-slate-500 dark:text-fg-muted mb-6 max-w-xl leading-relaxed">
             이미 저장된 데이터가 있으면 리포트부터 확인하고, 새 파일이 있다면 업로드를 시작하세요.
           </p>
 
@@ -329,18 +329,18 @@ export default function HomeClient() {
                   key={action.id}
                   onClick={openUpload}
                   className={`group relative flex gap-4 p-5 rounded-2xl border bg-linear-to-br
-                    ${action.accent} bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5
+                    ${action.accent} bg-white dark:bg-surface dark:border-border shadow-sm hover:shadow-md hover:-translate-y-0.5
                     transition-all duration-200 text-left`}
                 >
                   <span className={`flex items-center justify-center w-11 h-11 rounded-xl ${action.iconBg} text-white shadow-sm shrink-0`}>
                     <i className={`bx ${action.icon} text-xl`} />
                   </span>
                   <div className="min-w-0 pt-0.5">
-                    <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 group-hover:text-slate-900">
+                    <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-fg group-hover:text-slate-900 dark:group-hover:text-fg">
                       {action.title}
-                      <i className="bx bx-right-arrow-alt text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                      <i className="bx bx-right-arrow-alt text-slate-400 dark:text-fg-subtle group-hover:translate-x-0.5 transition-transform" />
                     </span>
-                    <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{action.description}</p>
+                    <p className="text-xs text-slate-500 dark:text-fg-muted mt-1.5 leading-relaxed">{action.description}</p>
                   </div>
                 </button>
               ) : (
@@ -348,29 +348,29 @@ export default function HomeClient() {
                   key={action.id}
                   href={action.href}
                   className={`group relative flex gap-4 p-5 rounded-2xl border bg-linear-to-br
-                    ${action.accent} bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5
+                    ${action.accent} bg-white dark:bg-surface dark:border-border shadow-sm hover:shadow-md hover:-translate-y-0.5
                     transition-all duration-200`}
                 >
                   <span className={`flex items-center justify-center w-11 h-11 rounded-xl ${action.iconBg} text-white shadow-sm shrink-0`}>
                     <i className={`bx ${action.icon} text-xl`} />
                   </span>
                   <div className="min-w-0 pt-0.5">
-                    <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 group-hover:text-slate-900">
+                    <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-fg group-hover:text-slate-900 dark:group-hover:text-fg">
                       {action.title}
-                      <i className="bx bx-right-arrow-alt text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                      <i className="bx bx-right-arrow-alt text-slate-400 dark:text-fg-subtle group-hover:translate-x-0.5 transition-transform" />
                     </span>
-                    <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{action.description}</p>
+                    <p className="text-xs text-slate-500 dark:text-fg-muted mt-1.5 leading-relaxed">{action.description}</p>
                   </div>
                 </a>
               ),
             )}
           </div>
 
-          <ol className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-500">
+          <ol className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-500 dark:text-fg-muted">
             {(['연·월 선택 후 리포트 확인', 'CSV / Excel 업로드', 'DB 저장 후 대시보드 재조회'] as const).map(
               (step, i) => (
                 <li key={i} className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-semibold text-[10px]">
+                  <span className="w-5 h-5 rounded-full bg-slate-100 dark:bg-surface-2 text-slate-600 dark:text-fg-muted flex items-center justify-center font-semibold text-[10px]">
                     {i + 1}
                   </span>
                   {step}
@@ -382,7 +382,7 @@ export default function HomeClient() {
 
         {/* 리포트 대시보드 */}
         <section id="saved-report" className="scroll-mt-20">
-          <div className="rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm shadow-slate-200/50 p-5 sm:p-7">
+          <div className="rounded-2xl border border-slate-200/80 dark:border-border bg-white/90 dark:bg-surface shadow-sm shadow-slate-200/50 dark:shadow-black/20 p-5 sm:p-7">
             <SectionHeader
               step="01"
               title="리포트"

@@ -1,0 +1,28 @@
+당신은 퍼포먼스 마케팅 전문 애널리스트입니다.
+아래의 {{ c.curr_year }}년 {{ c.curr_month }}월 vs {{ c.prev_year }}년 {{ c.prev_month }}월 광고 성과 비교 데이터를 바탕으로
+경영진이 바로 읽을 수 있는 월간 성과 요약 코멘트를 작성해 주세요.
+
+## 전체 합산 (당월 vs 전월)
+| 지표 | 전월 | 당월 | 변화율 |
+|------|------|------|--------|
+| 총 광고비 | {{ "{:,.0f}".format(c.prev_cost) }}원 | {{ "{:,.0f}".format(c.curr_cost) }}원 | {{ c.cost_chg }}% |
+| 총 전환수 | {{ c.prev_conversions }}건 | {{ c.curr_conversions }}건 | {{ c.conv_chg }}% |
+| 총 전환매출 | {{ "{:,.0f}".format(c.prev_revenue) }}원 | {{ "{:,.0f}".format(c.curr_revenue) }}원 | {{ c.revenue_chg }}% |
+
+## 매체별 상세
+{% for m in c.by_media %}
+### {{ m.campaign_type }}
+- 광고비: {{ "{:,.0f}".format(m.prev.cost) }}원 → {{ "{:,.0f}".format(m.curr.cost) }}원 ({{ m.cost_chg }}%)
+- 클릭수: {{ m.prev.clicks }}회 → {{ m.curr.clicks }}회
+- 전환수: {{ m.prev.conversions }}건 → {{ m.curr.conversions }}건 ({{ m.conv_chg }}%)
+- 전환매출: {{ "{:,.0f}".format(m.prev.revenue) }}원 → {{ "{:,.0f}".format(m.curr.revenue) }}원 ({{ m.revenue_chg }}%)
+- CPC: {{ "{:,.0f}".format(m.prev.cpc) }}원 → {{ "{:,.0f}".format(m.curr.cpc) }}원
+- ROAS: {{ "{:.2f}".format(m.prev.roas) }} → {{ "{:.2f}".format(m.curr.roas) }}
+{% endfor %}
+
+## 작성 지침
+1. **핵심 성과 요약** (3문장 이내): 이번 달 전반적인 성과 평가
+2. **주목할 매체**: 전월 대비 유의미하게 개선/악화된 매체와 원인 가설
+3. **다음 달 제언**: 예산 조정 또는 운영 방향 2~3가지
+4. 수치는 원문 그대로 활용하고 한국어로 작성하세요.
+5. 마크다운 헤딩(##)을 사용해 구조화하고, 총 400자 내외로 작성하세요.

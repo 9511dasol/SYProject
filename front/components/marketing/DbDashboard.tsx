@@ -45,11 +45,11 @@ function NewPeriodPopover({
   const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
 
   const selectClass =
-    'flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500';
+    'flex-1 rounded-lg border border-slate-200 dark:border-border px-2 py-1.5 text-xs text-slate-700 dark:text-fg bg-white dark:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-blue-500';
 
   return (
-    <div className="absolute top-full mt-2 right-0 z-20 w-56 rounded-xl border border-slate-200 bg-white shadow-xl p-4 space-y-3">
-      <p className="text-xs font-semibold text-slate-600">새 기간 추가</p>
+    <div className="absolute top-full mt-2 right-0 z-20 w-56 rounded-xl border border-slate-200 dark:border-border bg-white dark:bg-surface shadow-xl p-4 space-y-3">
+      <p className="text-xs font-semibold text-slate-600 dark:text-fg-muted">새 기간 추가</p>
       <div className="flex gap-2">
         <select value={year} onChange={(e) => setYear(Number(e.target.value))} className={selectClass}>
           {years.map((y) => <option key={y} value={y}>{y}년</option>)}
@@ -63,7 +63,7 @@ function NewPeriodPopover({
       <div className="flex gap-2">
         <button
           onClick={onClose}
-          className="flex-1 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:bg-slate-100 transition-colors"
+          className="flex-1 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-fg-muted hover:bg-slate-100 dark:hover:bg-surface-2 transition-colors"
         >
           취소
         </button>
@@ -222,8 +222,8 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   // ── 로딩 ─────────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-10 flex items-center justify-center gap-3 text-slate-400">
-        <span className="w-4 h-4 rounded-full border-2 border-slate-200 border-t-blue-500 animate-spin" />
+      <div className="rounded-xl border border-dashed border-slate-200 dark:border-border bg-slate-50/50 dark:bg-surface-2/30 p-10 flex items-center justify-center gap-3 text-slate-400 dark:text-fg-subtle">
+        <span className="w-4 h-4 rounded-full border-2 border-slate-200 dark:border-border border-t-blue-500 animate-spin" />
         <span className="text-sm">저장된 기간 목록을 불러오는 중…</span>
       </div>
     );
@@ -231,14 +231,14 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
 
   if (!periods.length && !selected) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-10 flex flex-col items-center gap-3 text-center">
-        <span className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
-          <i className="bx bx-data text-2xl text-slate-300" />
+      <div className="rounded-xl border border-dashed border-slate-200 dark:border-border bg-slate-50/50 dark:bg-surface-2/30 p-10 flex flex-col items-center gap-3 text-center">
+        <span className="w-12 h-12 rounded-full bg-slate-100 dark:bg-surface-2 flex items-center justify-center">
+          <i className="bx bx-data text-2xl text-slate-300 dark:text-fg-subtle" />
         </span>
         <div>
-          <p className="text-sm font-medium text-slate-600">아직 저장된 데이터가 없습니다</p>
-          <p className="text-xs text-slate-400 mt-1">
-            아래 <strong className="font-medium text-slate-500">데이터 업로드</strong>에서 CSV 또는 Excel을
+          <p className="text-sm font-medium text-slate-600 dark:text-fg-muted">아직 저장된 데이터가 없습니다</p>
+          <p className="text-xs text-slate-400 dark:text-fg-subtle mt-1">
+            아래 <strong className="font-medium text-slate-500 dark:text-fg-muted">데이터 업로드</strong>에서 CSV 또는 Excel을
             저장한 뒤 다시 확인하세요.
           </p>
         </div>
@@ -258,9 +258,9 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
 
       <div className="space-y-4">
         {/* 기간 선택 바 */}
-        <div className="rounded-xl bg-slate-50/80 border border-slate-200/60 px-4 py-3 sm:px-5 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="rounded-xl bg-slate-50/80 dark:bg-surface-2 border border-slate-200/60 dark:border-border px-4 py-3 sm:px-5 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-xs font-medium text-slate-500">조회 기간</span>
+            <span className="text-xs font-medium text-slate-500 dark:text-fg-muted">조회 기간</span>
             {isFetching && (
               <span className="w-3.5 h-3.5 rounded-full border-2 border-slate-200 border-t-blue-500 animate-spin" aria-label="불러오는 중" />
             )}
@@ -276,7 +276,7 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
                     key={label}
                     onClick={() => setSelected(p)}
                     className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors
-                      ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                      ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-surface-3 text-slate-500 dark:text-fg-muted hover:bg-slate-200 dark:hover:bg-surface-3/70'}`}
                   >
                     {label}
                   </button>
@@ -295,7 +295,7 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
                 onClick={() => setNewPeriodOpen((v) => !v)}
                 title="새 기간 추가"
                 className={`w-7 h-7 flex items-center justify-center rounded-lg text-sm transition-colors border
-                  ${newPeriodOpen ? 'bg-blue-50 border-blue-300 text-blue-600' : 'border-slate-200 text-slate-500 hover:bg-slate-100'}`}
+                  ${newPeriodOpen ? 'bg-blue-50 dark:bg-blue-950 border-blue-300 dark:border-blue-700 text-blue-600' : 'border-slate-200 dark:border-border text-slate-500 dark:text-fg-muted hover:bg-slate-100 dark:hover:bg-surface-2'}`}
               >
                 <i className="bx bx-plus" />
               </button>
@@ -309,7 +309,7 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
 
             <Button
               variant="ghost"
-              className="border border-slate-200 shrink-0"
+              className="border border-slate-200 dark:border-border shrink-0"
               onClick={handleDownload}
               disabled={!canDownload || isFetching}
               title={isNewPeriod ? 'DB에 저장 후 다운로드 가능합니다' : dlTask ? 'Excel 생성 중…' : 'Excel 다운로드'}
@@ -322,9 +322,9 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
         </div>
 
         {errorMsg && (
-          <div className="flex items-center gap-2 rounded-xl bg-red-50 border border-red-100 px-4 py-3">
-            <i className="bx bx-error-circle text-red-500 shrink-0" />
-            <p className="text-sm text-red-600">{errorMsg}</p>
+          <div className="flex items-center gap-2 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/50 px-4 py-3">
+            <i className="bx bx-error-circle text-red-500 dark:text-red-400 shrink-0" />
+            <p className="text-sm text-red-600 dark:text-red-400">{errorMsg}</p>
           </div>
         )}
 
@@ -339,7 +339,7 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
         )}
 
         {!report && !isFetching && selected && (
-          <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50/50 p-6 text-center text-sm text-amber-800/80">
+          <div className="rounded-xl border border-dashed border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-950/20 p-6 text-center text-sm text-amber-800/80 dark:text-amber-400/80">
             선택한 연·월에 표시할 데이터가 없습니다
           </div>
         )}

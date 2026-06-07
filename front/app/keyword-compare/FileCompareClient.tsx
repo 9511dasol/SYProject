@@ -87,10 +87,10 @@ function UploadZone({
           <p className="text-xs font-semibold uppercase tracking-wider text-blue-600 mb-2">
             Keyword Performance
           </p>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight mb-2">
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-fg tracking-tight mb-2">
             키워드 성과 비교
           </h1>
-          <p className="text-sm text-slate-500 leading-relaxed">
+          <p className="text-sm text-slate-500 dark:text-fg-muted leading-relaxed">
             이번/이전 기간 전환 성과가 담긴 Excel 파일을 업로드하면
             <br className="hidden sm:block" />
             키워드별 증감을 자동으로 분석해 드립니다.
@@ -109,23 +109,23 @@ function UploadZone({
             transition-all duration-200 cursor-pointer text-center focus-visible:outline-none
             focus-visible:ring-2 focus-visible:ring-blue-500
             ${isDragging
-              ? 'border-blue-400 bg-blue-50 scale-[1.01]'
-              : 'border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/40'}
+              ? 'border-blue-400 bg-blue-50 dark:bg-blue-950/40 scale-[1.01]'
+              : 'border-slate-200 dark:border-border bg-white dark:bg-surface hover:border-blue-300 hover:bg-blue-50/40 dark:hover:border-blue-700 dark:hover:bg-blue-950/20'}
           `}
         >
           <span
             className={`
               flex items-center justify-center w-16 h-16 rounded-2xl shadow-sm transition-colors
-              ${isDragging ? 'bg-blue-600' : 'bg-blue-50 group-hover:bg-blue-100'}
+              ${isDragging ? 'bg-blue-600' : 'bg-blue-50 dark:bg-blue-950 group-hover:bg-blue-100 dark:group-hover:bg-blue-900/40'}
             `}
           >
             <i className={`bx bx-cloud-upload text-4xl ${isDragging ? 'text-white' : 'text-blue-500'}`} />
           </span>
           <div>
-            <p className="text-sm font-semibold text-slate-700">
+            <p className="text-sm font-semibold text-slate-700 dark:text-fg">
               {isDragging ? '여기에 놓아주세요' : '파일을 드래그하거나 클릭하여 선택'}
             </p>
-            <p className="text-xs text-slate-400 mt-1">.xlsx 형식 지원</p>
+            <p className="text-xs text-slate-400 dark:text-fg-subtle mt-1">.xlsx 형식 지원</p>
           </div>
         </button>
 
@@ -141,10 +141,10 @@ function UploadZone({
         />
 
         {/* 사용 안내 */}
-        <ol className="mt-6 flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs text-slate-400">
+        <ol className="mt-6 flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs text-slate-400 dark:text-fg-subtle">
           {['Excel 파일 업로드', '시트별 자동 파싱', '증감 필터·정렬'].map((t, i) => (
             <li key={i} className="flex items-center gap-1.5">
-              <span className="w-4 h-4 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center font-bold text-[10px]">
+              <span className="w-4 h-4 rounded-full bg-slate-100 dark:bg-surface-2 text-slate-500 dark:text-fg-muted flex items-center justify-center font-bold text-[10px]">
                 {i + 1}
               </span>
               {t}
@@ -162,8 +162,8 @@ function LoadingState() {
   return (
     <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-center">
       <div className="w-12 h-12 rounded-full border-4 border-blue-100 border-t-blue-600 animate-spin" />
-      <p className="text-sm font-medium text-slate-600">파일 분석 중…</p>
-      <p className="text-xs text-slate-400">시트별 데이터를 파싱하고 있습니다.</p>
+      <p className="text-sm font-medium text-slate-600 dark:text-fg-muted">파일 분석 중…</p>
+      <p className="text-xs text-slate-400 dark:text-fg-subtle">시트별 데이터를 파싱하고 있습니다.</p>
     </div>
   );
 }
@@ -173,12 +173,12 @@ function LoadingState() {
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[50vh] gap-5 text-center px-4">
-      <span className="flex items-center justify-center w-14 h-14 rounded-2xl bg-rose-50 border border-rose-100">
-        <i className="bx bx-error-circle text-3xl text-rose-500" />
+      <span className="flex items-center justify-center w-14 h-14 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/50">
+        <i className="bx bx-error-circle text-3xl text-rose-500 dark:text-rose-400" />
       </span>
       <div>
-        <p className="text-base font-semibold text-slate-800 mb-1">파일 분석 실패</p>
-        <p className="text-sm text-slate-500 max-w-sm leading-relaxed">{message}</p>
+        <p className="text-base font-semibold text-slate-800 dark:text-fg mb-1">파일 분석 실패</p>
+        <p className="text-sm text-slate-500 dark:text-fg-muted max-w-sm leading-relaxed">{message}</p>
       </div>
       <button
         onClick={onRetry}
@@ -205,19 +205,19 @@ function SummaryCards({ sheet }: { sheet: CompareSheet }) {
   return (
     <div className="grid sm:grid-cols-3 gap-3">
       {/* 전환수 */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">전환수</p>
+      <div className="rounded-2xl border border-slate-200/80 dark:border-border bg-white dark:bg-surface-2 p-4 shadow-sm">
+        <p className="text-xs font-semibold text-slate-500 dark:text-fg-muted uppercase tracking-wider mb-3">전환수</p>
         <div className="space-y-1.5">
           <div className="flex justify-between text-sm">
-            <span className="text-slate-400">이번</span>
-            <span className="font-semibold text-slate-800">{fmt(summary.total_curr_conv)}</span>
+            <span className="text-slate-400 dark:text-fg-subtle">이번</span>
+            <span className="font-semibold text-slate-800 dark:text-fg">{fmt(summary.total_curr_conv)}</span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-slate-400">이전</span>
-            <span className="text-slate-600">{fmt(summary.total_prev_conv)}</span>
+            <span className="text-slate-400 dark:text-fg-subtle">이전</span>
+            <span className="text-slate-600 dark:text-fg-muted">{fmt(summary.total_prev_conv)}</span>
           </div>
-          <div className="pt-1.5 mt-1.5 border-t border-slate-100 flex justify-between items-center">
-            <span className="text-xs text-slate-400">증감</span>
+          <div className="pt-1.5 mt-1.5 border-t border-slate-100 dark:border-border flex justify-between items-center">
+            <span className="text-xs text-slate-400 dark:text-fg-subtle">증감</span>
             <span className={`text-sm font-bold ${convUp ? 'text-emerald-600' : summary.diff_conv < 0 ? 'text-rose-600' : 'text-slate-400'}`}>
               {fmtDiff(summary.diff_conv)}
               {convPct && <span className="ml-1 text-xs font-medium opacity-70">({convPct})</span>}
@@ -227,19 +227,19 @@ function SummaryCards({ sheet }: { sheet: CompareSheet }) {
       </div>
 
       {/* 전환금액 */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">전환금액</p>
+      <div className="rounded-2xl border border-slate-200/80 dark:border-border bg-white dark:bg-surface-2 p-4 shadow-sm">
+        <p className="text-xs font-semibold text-slate-500 dark:text-fg-muted uppercase tracking-wider mb-3">전환금액</p>
         <div className="space-y-1.5">
           <div className="flex justify-between text-sm">
-            <span className="text-slate-400">이번</span>
-            <span className="font-semibold text-slate-800">{fmtCompact(summary.total_curr_amount)}</span>
+            <span className="text-slate-400 dark:text-fg-subtle">이번</span>
+            <span className="font-semibold text-slate-800 dark:text-fg">{fmtCompact(summary.total_curr_amount)}</span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-slate-400">이전</span>
-            <span className="text-slate-600">{fmtCompact(summary.total_prev_amount)}</span>
+            <span className="text-slate-400 dark:text-fg-subtle">이전</span>
+            <span className="text-slate-600 dark:text-fg-muted">{fmtCompact(summary.total_prev_amount)}</span>
           </div>
-          <div className="pt-1.5 mt-1.5 border-t border-slate-100 flex justify-between items-center">
-            <span className="text-xs text-slate-400">증감</span>
+          <div className="pt-1.5 mt-1.5 border-t border-slate-100 dark:border-border flex justify-between items-center">
+            <span className="text-xs text-slate-400 dark:text-fg-subtle">증감</span>
             <span className={`text-sm font-bold ${amtUp ? 'text-emerald-600' : summary.diff_amount < 0 ? 'text-rose-600' : 'text-slate-400'}`}>
               {fmtDiff(summary.diff_amount)}
               {amtPct && <span className="ml-1 text-xs font-medium opacity-70">({amtPct})</span>}
@@ -249,8 +249,8 @@ function SummaryCards({ sheet }: { sheet: CompareSheet }) {
       </div>
 
       {/* 상태 분포 */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">상태 분포</p>
+      <div className="rounded-2xl border border-slate-200/80 dark:border-border bg-white dark:bg-surface-2 p-4 shadow-sm">
+        <p className="text-xs font-semibold text-slate-500 dark:text-fg-muted uppercase tracking-wider mb-3">상태 분포</p>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
           {(
             [
@@ -265,8 +265,8 @@ function SummaryCards({ sheet }: { sheet: CompareSheet }) {
             return (
               <div key={s} className="flex items-center gap-1.5">
                 <i className={`bx ${m.icon} text-sm ${m.textCls}`} />
-                <span className="text-xs text-slate-500">{m.label}</span>
-                <span className="ml-auto text-xs font-semibold text-slate-700">{cnt}</span>
+                <span className="text-xs text-slate-500 dark:text-fg-muted">{m.label}</span>
+                <span className="ml-auto text-xs font-semibold text-slate-700 dark:text-fg">{cnt}</span>
               </div>
             );
           })}
@@ -297,7 +297,7 @@ function FilterBar({
   onChange: (f: Partial<Filters>) => void;
 }) {
   const selectCls =
-    'rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500';
+    'rounded-lg border border-slate-200 dark:border-border px-2.5 py-1.5 text-xs text-slate-600 dark:text-fg-muted bg-white dark:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-blue-500';
 
   return (
     <div className="flex flex-wrap gap-2 items-center">
@@ -309,21 +309,21 @@ function FilterBar({
           placeholder="키워드 검색…"
           value={filters.search}
           onChange={(e) => onChange({ search: e.target.value })}
-          className="w-full pl-7 pr-3 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-700
-            placeholder:text-slate-400 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full pl-7 pr-3 py-1.5 rounded-lg border border-slate-200 dark:border-border text-xs text-slate-700 dark:text-fg
+            placeholder:text-slate-400 dark:placeholder:text-fg-subtle bg-white dark:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
 
       {/* 상태 필터 */}
-      <div className="flex gap-1 p-1 bg-slate-100 rounded-lg">
+      <div className="flex gap-1 p-1 bg-slate-100 dark:bg-surface-2 rounded-lg">
         {STATUS_FILTERS.map(({ value, label }) => (
           <button
             key={value}
             onClick={() => onChange({ status: value })}
             className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors
               ${filters.status === value
-                ? 'bg-white text-slate-800 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700'}`}
+                ? 'bg-white dark:bg-surface-3 text-slate-800 dark:text-fg shadow-sm'
+                : 'text-slate-500 dark:text-fg-muted hover:text-slate-700 dark:hover:text-fg'}`}
           >
             {value !== 'all' && (
               <i className={`bx ${STATUS_META[value as RowStatus].icon} mr-1`} />
@@ -394,9 +394,9 @@ function ThCell({
   align?: 'left' | 'right';
 }) {
   const active = currentSort?.key === sortKey;
-  const cls = `px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap
+  const cls = `px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-fg-muted uppercase tracking-wide whitespace-nowrap
     ${align === 'right' ? 'text-right' : 'text-left'}
-    ${sortKey ? 'cursor-pointer select-none hover:text-slate-700' : ''}`;
+    ${sortKey ? 'cursor-pointer select-none hover:text-slate-700 dark:hover:text-fg' : ''}`;
 
   return (
     <th className={cls} onClick={() => sortKey && onSort?.(sortKey)}>
@@ -418,7 +418,7 @@ function ThCell({
 // ── 증감 셀 ───────────────────────────────────────────────────────────────────
 
 function DiffCell({ value, bold = false }: { value: number; bold?: boolean }) {
-  const cls = value > 0 ? 'text-emerald-600' : value < 0 ? 'text-rose-600' : 'text-slate-300';
+  const cls = value > 0 ? 'text-emerald-600' : value < 0 ? 'text-rose-600' : 'text-slate-300 dark:text-fg-subtle';
   return (
     <td className={`px-3 py-2.5 text-right text-xs tabular-nums ${cls} ${bold ? 'font-semibold' : ''}`}>
       {fmtDiff(value)}
@@ -449,9 +449,9 @@ function CompareTable({
   const thProps = { currentSort: sort, onSort };
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200/80">
+    <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-border">
       {/* 모바일 카드 뷰 */}
-      <ul className="sm:hidden divide-y divide-slate-100">
+      <ul className="sm:hidden divide-y divide-slate-100 dark:divide-border">
         {rows.map((row, i) => {
           const m = STATUS_META[row.status];
           return (
@@ -461,26 +461,26 @@ function CompareTable({
                   <i className={`bx ${m.icon} text-xs`} />
                   {m.label}
                 </span>
-                <span className="text-sm font-semibold text-slate-800 leading-snug">{row.keyword}</span>
+                <span className="text-sm font-semibold text-slate-800 dark:text-fg leading-snug">{row.keyword}</span>
               </div>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-400 dark:text-fg-subtle">
                 {row.campaign_type} · {row.device} · {row.conv_type}
               </p>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                <span className="text-slate-400">전환수</span>
+                <span className="text-slate-400 dark:text-fg-subtle">전환수</span>
                 <span className="text-right">
-                  <span className="text-slate-700 font-medium">{fmt(row.curr_conv)}</span>
-                  <span className="text-slate-400 mx-1">→</span>
-                  <span className="text-slate-500">{fmt(row.prev_conv)}</span>
+                  <span className="text-slate-700 dark:text-fg font-medium">{fmt(row.curr_conv)}</span>
+                  <span className="text-slate-400 dark:text-fg-subtle mx-1">→</span>
+                  <span className="text-slate-500 dark:text-fg-muted">{fmt(row.prev_conv)}</span>
                   <span className={`ml-1.5 font-semibold ${STATUS_META[row.status].textCls}`}>
                     {fmtDiff(row.diff_conv)}
                   </span>
                 </span>
-                <span className="text-slate-400">금액</span>
+                <span className="text-slate-400 dark:text-fg-subtle">금액</span>
                 <span className="text-right">
-                  <span className="text-slate-700 font-medium">{fmtCompact(row.curr_amount)}</span>
-                  <span className="text-slate-400 mx-1">→</span>
-                  <span className="text-slate-500">{fmtCompact(row.prev_amount)}</span>
+                  <span className="text-slate-700 dark:text-fg font-medium">{fmtCompact(row.curr_amount)}</span>
+                  <span className="text-slate-400 dark:text-fg-subtle mx-1">→</span>
+                  <span className="text-slate-500 dark:text-fg-muted">{fmtCompact(row.prev_amount)}</span>
                   <span className={`ml-1.5 font-semibold ${STATUS_META[row.status].textCls}`}>
                     {fmtDiff(row.diff_amount)}
                   </span>
@@ -493,9 +493,9 @@ function CompareTable({
 
       {/* 데스크톱 테이블 뷰 */}
       <table className="hidden sm:table w-full min-w-215 border-collapse text-xs">
-        <thead className="bg-slate-50 border-b border-slate-200">
+        <thead className="bg-slate-50 dark:bg-surface-2 border-b border-slate-200 dark:border-border">
           <tr>
-            <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-16">구분</th>
+            <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-fg-muted uppercase tracking-wide w-16">구분</th>
             <ThCell label="캠페인유형" />
             <ThCell label="키워드" sortKey="keyword" {...thProps} />
             <ThCell label="기기" />
@@ -508,26 +508,26 @@ function CompareTable({
             <ThCell label="금액 증감" sortKey="diff_amount" align="right" {...thProps} />
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100 bg-white">
+        <tbody className="divide-y divide-slate-100 dark:divide-border bg-white dark:bg-surface">
           {rows.map((row, i) => {
             const m = STATUS_META[row.status];
             return (
-              <tr key={i} className="hover:bg-slate-50/60 transition-colors">
+              <tr key={i} className="hover:bg-slate-50/60 dark:hover:bg-surface-2/60 transition-colors">
                 <td className="px-3 py-2.5">
                   <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-semibold ${m.badgeCls}`}>
                     <i className={`bx ${m.icon} text-xs`} />
                     {m.label}
                   </span>
                 </td>
-                <td className="px-3 py-2.5 text-slate-600 max-w-35 truncate">{row.campaign_type}</td>
-                <td className="px-3 py-2.5 font-medium text-slate-800">{row.keyword}</td>
-                <td className="px-3 py-2.5 text-slate-500">{row.device}</td>
-                <td className="px-3 py-2.5 text-slate-500">{row.conv_type}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 font-medium">{fmt(row.curr_conv)}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-slate-400">{fmt(row.prev_conv)}</td>
+                <td className="px-3 py-2.5 text-slate-600 dark:text-fg-muted max-w-35 truncate">{row.campaign_type}</td>
+                <td className="px-3 py-2.5 font-medium text-slate-800 dark:text-fg">{row.keyword}</td>
+                <td className="px-3 py-2.5 text-slate-500 dark:text-fg-muted">{row.device}</td>
+                <td className="px-3 py-2.5 text-slate-500 dark:text-fg-muted">{row.conv_type}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 dark:text-fg font-medium">{fmt(row.curr_conv)}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-slate-400 dark:text-fg-subtle">{fmt(row.prev_conv)}</td>
                 <DiffCell value={row.diff_conv} bold />
-                <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 font-medium">{fmt(row.curr_amount)}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-slate-400">{fmt(row.prev_amount)}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 dark:text-fg font-medium">{fmt(row.curr_amount)}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-slate-400 dark:text-fg-subtle">{fmt(row.prev_amount)}</td>
                 <DiffCell value={row.diff_amount} bold />
               </tr>
             );
@@ -614,17 +614,18 @@ function ResultView({
           <p className="text-xs font-semibold uppercase tracking-wider text-blue-600 mb-1">
             Keyword Performance
           </p>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-fg tracking-tight">
             키워드 성과 비교
           </h1>
           {sheet.period && (
-            <p className="text-sm text-slate-500 mt-0.5">{sheet.period}</p>
+            <p className="text-sm text-slate-500 dark:text-fg-muted mt-0.5">{sheet.period}</p>
           )}
         </div>
         <button
           onClick={onReset}
           className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium
-            border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300
+            border border-slate-200 dark:border-border bg-white dark:bg-surface-2 text-slate-600 dark:text-fg-muted
+            hover:bg-slate-50 dark:hover:bg-surface-3 hover:border-slate-300 dark:hover:border-border
             transition-colors shadow-sm"
         >
           <i className="bx bx-upload" />
@@ -634,15 +635,15 @@ function ResultView({
 
       {/* 시트 탭 */}
       {result.sheets.length > 1 && (
-        <div className="flex gap-1 p-1 bg-slate-100 rounded-xl w-fit">
+        <div className="flex gap-1 p-1 bg-slate-100 dark:bg-surface-2 rounded-xl w-fit">
           {result.sheets.map((s, i) => (
             <button
               key={s.name}
               onClick={() => { setActiveIdx(i); setFilters({ search: '', status: 'all', device: '', campaignType: '', convType: '' }); }}
               className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all
                 ${activeIdx === i
-                  ? 'bg-white text-slate-800 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'}`}
+                  ? 'bg-white dark:bg-surface-3 text-slate-800 dark:text-fg shadow-sm'
+                  : 'text-slate-500 dark:text-fg-muted hover:text-slate-700 dark:hover:text-fg'}`}
             >
               {s.name}
             </button>
@@ -654,16 +655,16 @@ function ResultView({
       <SummaryCards sheet={sheet} />
 
       {/* 필터 바 */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm p-4">
+      <div className="rounded-2xl border border-slate-200/80 dark:border-border bg-white/90 dark:bg-surface shadow-sm p-4">
         <FilterBar sheet={sheet} filters={filters} onChange={handleFilterChange} />
       </div>
 
       {/* 결과 카운트 */}
       <div className="flex items-center gap-2">
-        <span className="text-xs text-slate-500">
-          총 <span className="font-semibold text-slate-700">{filteredRows.length.toLocaleString()}</span>건
+        <span className="text-xs text-slate-500 dark:text-fg-muted">
+          총 <span className="font-semibold text-slate-700 dark:text-fg">{filteredRows.length.toLocaleString()}</span>건
           {filteredRows.length !== sheet.rows.length && (
-            <span className="ml-1 text-slate-400">(전체 {sheet.rows.length}건 중)</span>
+            <span className="ml-1 text-slate-400 dark:text-fg-subtle">(전체 {sheet.rows.length}건 중)</span>
           )}
         </span>
         {(filters.search || filters.status !== 'all' || filters.device || filters.campaignType || filters.convType) && (

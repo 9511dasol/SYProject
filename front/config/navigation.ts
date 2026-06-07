@@ -17,8 +17,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         label: '코멘트 & 리포트 메일',
         icon: 'bx-mail-send',
         href: '/report-email',
-        badge: 'SOON',
-        disabled: true,
         description: '분석 기반 코멘트 작성 및 메일 발송',
       },
       {

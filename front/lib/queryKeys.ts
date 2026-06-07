@@ -4,4 +4,5 @@ export const queryKeys = {
   taskStatus: (taskId: string) => ['taskStatus', taskId] as const,
   saveTask: (taskId: string) => ['saveTask', taskId] as const,
   exportTask: (taskId: string) => ['exportTask', taskId] as const,
+  reportLogs: () => ['reportLogs'] as const,
 } as const;

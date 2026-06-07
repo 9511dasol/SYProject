@@ -71,10 +71,10 @@ function getMergedRows(
 // ── KPI 카드 ─────────────────────────────────────────────────────────────────
 function KpiCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded-xl bg-white border border-slate-100 shadow-sm px-4 py-3 flex flex-col gap-0.5">
-      <span className="text-xs text-slate-400">{label}</span>
-      <span className="text-lg font-semibold text-slate-800 tabular-nums">{value}</span>
-      {sub && <span className="text-xs text-slate-400 tabular-nums">{sub}</span>}
+    <div className="rounded-xl bg-white dark:bg-surface-2 border border-slate-100 dark:border-border shadow-sm px-4 py-3 flex flex-col gap-0.5">
+      <span className="text-xs text-slate-400 dark:text-fg-subtle">{label}</span>
+      <span className="text-lg font-semibold text-slate-800 dark:text-fg tabular-nums">{value}</span>
+      {sub && <span className="text-xs text-slate-400 dark:text-fg-subtle tabular-nums">{sub}</span>}
     </div>
   );
 }
@@ -83,12 +83,12 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub?: st
 function SummaryTable({ rows }: { rows: MediaSummary[] }) {
   const headers = ['매체', '노출', '클릭', 'CTR', 'CPC', '광고비', '전환수', '전환율', '회원가입', '구매완료', 'ROAS'];
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-100">
+    <div className="overflow-x-auto data-table">
       <table className="min-w-full text-sm">
         <thead>
-          <tr className="bg-slate-50 border-b border-slate-100">
+          <tr>
             {headers.map((h, i) => (
-              <th key={h} className={`px-3 py-2 text-xs font-medium text-slate-500 whitespace-nowrap ${i === 0 ? 'text-left' : 'text-right'}`}>
+              <th key={h} className={`px-3 py-2 text-xs font-medium whitespace-nowrap ${i === 0 ? 'text-left' : 'text-right'}`}>
                 {h}
               </th>
             ))}
@@ -96,18 +96,18 @@ function SummaryTable({ rows }: { rows: MediaSummary[] }) {
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={r.label} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
-              <td className="px-3 py-2 font-medium text-slate-700 whitespace-nowrap">{r.label}</td>
-              <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmt.num(r.impressions)}</td>
-              <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmt.num(r.clicks)}</td>
-              <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmt.pct(r.ctr)}</td>
-              <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmt.num(r.cpc)}</td>
-              <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmt.won(r.cost)}</td>
-              <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmt.dec(r.total_conv)}</td>
-              <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmt.pct(r.ctr > 0 ? r.total_conv / r.clicks : 0)}</td>
-              <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmt.dec(r.signup)}</td>
-              <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmt.dec(r.purchase)}</td>
-              <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmt.pct(r.roas)}</td>
+            <tr key={r.label} className={i % 2 === 0 ? 'tr-even' : 'tr-odd'}>
+              <td className="px-3 py-2 font-medium whitespace-nowrap">{r.label}</td>
+              <td className="px-3 py-2 tabular-nums text-right">{fmt.num(r.impressions)}</td>
+              <td className="px-3 py-2 tabular-nums text-right">{fmt.num(r.clicks)}</td>
+              <td className="px-3 py-2 tabular-nums text-right">{fmt.pct(r.ctr)}</td>
+              <td className="px-3 py-2 tabular-nums text-right">{fmt.num(r.cpc)}</td>
+              <td className="px-3 py-2 tabular-nums text-right">{fmt.won(r.cost)}</td>
+              <td className="px-3 py-2 tabular-nums text-right">{fmt.dec(r.total_conv)}</td>
+              <td className="px-3 py-2 tabular-nums text-right">{fmt.pct(r.ctr > 0 ? r.total_conv / r.clicks : 0)}</td>
+              <td className="px-3 py-2 tabular-nums text-right">{fmt.dec(r.signup)}</td>
+              <td className="px-3 py-2 tabular-nums text-right">{fmt.dec(r.purchase)}</td>
+              <td className="px-3 py-2 tabular-nums text-right">{fmt.pct(r.roas)}</td>
             </tr>
           ))}
         </tbody>
@@ -158,11 +158,11 @@ function PendingBadge({ type }: { type: RowPendingStatus }) {
 // ── 행 상세 패널 지표 아이템 ──────────────────────────────────────────────────
 function MetricItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-col gap-1 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5">
-      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider leading-none">
+    <div className="flex flex-col gap-1 rounded-xl bg-slate-50 dark:bg-surface-2 border border-slate-100 dark:border-border px-3 py-2.5">
+      <span className="text-[10px] font-semibold text-slate-400 dark:text-fg-subtle uppercase tracking-wider leading-none">
         {label}
       </span>
-      <span className="text-sm font-bold text-slate-800 tabular-nums mt-0.5">{value}</span>
+      <span className="text-sm font-bold text-slate-800 dark:text-fg tabular-nums mt-0.5">{value}</span>
     </div>
   );
 }
@@ -213,20 +213,20 @@ function RowDetailModal({ row, mediaLabel, editable, onEdit, onDelete, onRestore
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
       {/* 모달 카드 */}
-      <div className={`relative w-full max-w-lg rounded-2xl border ${borderColor} bg-white shadow-2xl flex flex-col max-h-[90vh]`}>
+      <div className={`relative w-full max-w-lg rounded-2xl border ${borderColor} bg-white dark:bg-surface shadow-2xl flex flex-col max-h-[90vh]`}>
 
         {/* 헤더 */}
-        <div className={`flex items-center justify-between px-5 py-3.5 border-b border-slate-100 ${headerBg} shrink-0`}>
+        <div className={`flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-border ${headerBg} shrink-0`}>
           <div className="flex items-center gap-3">
             <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${iconBg}`}>
               <i className="bx bx-calendar text-sm" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-slate-800">{row.date}</span>
+                <span className="text-sm font-bold text-slate-800 dark:text-fg">{row.date}</span>
                 {ps && <PendingBadge type={ps} />}
               </div>
-              <span className="text-[11px] text-slate-400">{mediaLabel}</span>
+              <span className="text-[11px] text-slate-400 dark:text-fg-subtle">{mediaLabel}</span>
             </div>
           </div>
           <button
@@ -273,15 +273,15 @@ function RowDetailModal({ row, mediaLabel, editable, onEdit, onDelete, onRestore
 
         {/* 액션 푸터 */}
         {editable && (
-          <div className="flex items-center justify-between px-5 py-3.5 border-t border-slate-100 bg-slate-50/60 shrink-0">
-            <span className="text-[11px] text-slate-400">
+          <div className="flex items-center justify-between px-5 py-3.5 border-t border-slate-100 dark:border-border bg-slate-50/60 dark:bg-surface-2/40 shrink-0">
+            <span className="text-[11px] text-slate-400 dark:text-fg-subtle">
               {isDeleted ? '삭제 예정 — DB 저장 전까지 되돌릴 수 있습니다' : '행 데이터를 수정하거나 삭제할 수 있습니다'}
             </span>
             <div className="flex items-center gap-2">
               {isDeleted ? (
                 <button
                   onClick={onRestore}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-fg-muted hover:bg-slate-100 dark:hover:bg-surface-2 border border-slate-200 dark:border-border transition-colors"
                 >
                   <i className="bx bx-undo text-sm" />
                   삭제 취소
@@ -349,14 +349,14 @@ function DailyTable({ rows, diff, mediaLabel, editable, onEdit, onDelete, onRest
   return (
     <div className="space-y-3">
       {/* 테이블 */}
-      <div className="overflow-x-auto rounded-xl border border-slate-100">
+      <div className="overflow-x-auto data-table">
         <table className="min-w-full text-xs">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-100 sticky top-0">
+            <tr className="sticky top-0">
               {headers.map((h, i) => (
                 <th
                   key={i}
-                  className={`px-3 py-2 font-medium text-slate-500 whitespace-nowrap ${i === 0 ? 'text-left' : 'text-right'}`}
+                  className={`px-3 py-2 font-medium whitespace-nowrap ${i === 0 ? 'text-left' : 'text-right'}`}
                 >
                   {h}
                 </th>
@@ -371,18 +371,18 @@ function DailyTable({ rows, diff, mediaLabel, editable, onEdit, onDelete, onRest
               const isUpdated = updatedSet.has(r.date);
 
               const rowBg = isSelected
-                ? 'bg-blue-100 border-l-4 border-l-blue-500'
+                ? 'bg-blue-100 dark:bg-blue-950/60 border-l-4 border-l-blue-500'
                 : ps === 'deleted'
-                  ? 'bg-red-50 border-l-2 border-l-red-400'
+                  ? 'bg-red-50 dark:bg-red-950/30 border-l-2 border-l-red-400'
                   : ps === 'edited'
-                    ? 'bg-orange-50 border-l-2 border-l-orange-400'
+                    ? 'bg-orange-50 dark:bg-orange-950/30 border-l-2 border-l-orange-400'
                     : ps === 'added'
-                      ? 'bg-blue-50 border-l-2 border-l-blue-400'
+                      ? 'bg-blue-50 dark:bg-blue-950/40 border-l-2 border-l-blue-400'
                       : isAdded
-                        ? 'bg-emerald-50 border-l-2 border-l-emerald-400'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/30 border-l-2 border-l-emerald-400'
                         : isUpdated
-                          ? 'bg-amber-50 border-l-2 border-l-amber-400'
-                          : i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50';
+                          ? 'bg-amber-50 dark:bg-amber-950/30 border-l-2 border-l-amber-400'
+                          : i % 2 === 0 ? 'tr-even' : 'tr-odd';
 
               const cellMuted = ps === 'deleted' && !isSelected;
 
@@ -392,7 +392,7 @@ function DailyTable({ rows, diff, mediaLabel, editable, onEdit, onDelete, onRest
                   onClick={() => handleRowClick(r.date)}
                   className={`${rowBg} ${editable ? 'cursor-pointer hover:brightness-95 transition-all duration-100' : ''}`}
                 >
-                  <td className={`px-3 py-2 font-medium whitespace-nowrap ${cellMuted ? 'text-slate-400 line-through' : 'text-slate-600'}`}>
+                  <td className={`px-3 py-2 font-medium whitespace-nowrap ${cellMuted ? 'text-slate-400 dark:text-fg-subtle line-through' : ''}`}>
                     <span className="flex items-center gap-1.5">
                       {r.date.slice(5)}
                       {ps && <PendingBadge type={ps} />}
@@ -434,7 +434,7 @@ function DailyTable({ rows, diff, mediaLabel, editable, onEdit, onDelete, onRest
 
             {displayRows.length === 0 && (
               <tr>
-                <td colSpan={headers.length} className="px-3 py-8 text-center text-slate-400">
+                <td colSpan={headers.length} className="px-3 py-8 text-center text-slate-400 dark:text-fg-subtle">
                   {editable
                     ? <span>데이터 없음 — <span className="text-blue-500">행 추가</span> 버튼으로 첫 데이터를 입력하세요</span>
                     : '데이터 없음'}
@@ -598,12 +598,12 @@ export default function ReportView({ data, onClose, editable = false, year, mont
         />
       )}
 
-      <div className="mt-6 rounded-2xl bg-white shadow-sm border border-slate-100 overflow-hidden">
+      <div className="mt-6 rounded-2xl bg-white dark:bg-surface shadow-sm border border-slate-100 dark:border-border overflow-hidden">
         {/* 리포트 헤더 */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/60 gap-3">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-border bg-slate-50/60 dark:bg-surface-2/40 gap-3">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <i className="bx bx-bar-chart-alt-2 text-xl text-blue-500 shrink-0" />
-            <span className="font-semibold text-slate-800">{data.period} 분석 리포트</span>
+            <i className="bx bx-bar-chart-alt-2 text-xl text-blue-500 dark:text-blue-400 shrink-0" />
+            <span className="font-semibold text-slate-800 dark:text-fg">{data.period} 분석 리포트</span>
             {hasDiff && (
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200 shrink-0">
                 DB 반영됨
@@ -628,7 +628,7 @@ export default function ReportView({ data, onClose, editable = false, year, mont
               </button>
             )}
             {onClose && (
-              <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors" aria-label="닫기">
+              <button onClick={onClose} className="text-slate-400 dark:text-fg-subtle hover:text-slate-600 dark:hover:text-fg transition-colors" aria-label="닫기">
                 <i className="bx bx-x text-xl" />
               </button>
             )}
@@ -636,7 +636,7 @@ export default function ReportView({ data, onClose, editable = false, year, mont
         </div>
 
         {/* 탭 바 */}
-        <div className="flex gap-1 px-4 pt-3 border-b border-slate-100 overflow-x-auto scrollbar-hide">
+        <div className="flex gap-1 px-4 pt-3 border-b border-slate-100 dark:border-border overflow-x-auto scrollbar-hide">
           {(['summary', ...mediaLabels] as string[]).map((tab) => {
             const tabDiff = tab !== 'summary' ? data.diff?.[tab] : undefined;
             const tabAdded = tabDiff?.added.length ?? 0;
@@ -648,8 +648,8 @@ export default function ReportView({ data, onClose, editable = false, year, mont
                 onClick={() => { setActiveTab(tab); setActionError(null); }}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-t-lg whitespace-nowrap transition-colors
                   ${activeTab === tab
-                    ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-500'
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 dark:border-blue-400'
+                    : 'text-slate-500 dark:text-fg-muted hover:text-slate-700 dark:hover:text-fg'
                   }`}
               >
                 {tab === 'summary' ? '요약' : tab}
@@ -692,7 +692,7 @@ export default function ReportView({ data, onClose, editable = false, year, mont
                 <KpiCard label="ROAS" value={fmt.pct(total.roas)} />
               </div>
               <div>
-                <h3 className="text-sm font-medium text-slate-600 mb-2">매체별 현황</h3>
+                <h3 className="text-sm font-medium text-slate-600 dark:text-fg-muted mb-2">매체별 현황</h3>
                 <SummaryTable rows={data.by_media} />
               </div>
               <CommentSection text={data.comment ?? ''} />
@@ -714,7 +714,7 @@ export default function ReportView({ data, onClose, editable = false, year, mont
                 {/* 섹션 헤더 */}
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-sm font-medium text-slate-600">{activeTab} 일별 데이터</h3>
+                    <h3 className="text-sm font-medium text-slate-600 dark:text-fg-muted">{activeTab} 일별 데이터</h3>
                     {addedCount > 0 && (
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium">
                         <i className="bx bx-plus text-[10px]" />신규 {addedCount}일
@@ -726,17 +726,17 @@ export default function ReportView({ data, onClose, editable = false, year, mont
                       </span>
                     )}
                     {visibleCount > 0 && (
-                      <span className="text-xs text-slate-400">{visibleCount}일 데이터</span>
+                      <span className="text-xs text-slate-400 dark:text-fg-subtle">{visibleCount}일 데이터</span>
                     )}
                     {editable && visibleCount > 0 && (
-                      <span className="text-xs text-slate-400">· 행 클릭 시 상세 보기</span>
+                      <span className="text-xs text-slate-400 dark:text-fg-subtle">· 행 클릭 시 상세 보기</span>
                     )}
                   </div>
 
                   {editable && (
                     <button
                       onClick={() => openAdd(activeTab)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-blue-600 hover:bg-blue-50 border border-blue-200 hover:border-blue-300 transition-colors"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-blue-200 dark:border-blue-800 hover:border-blue-300 transition-colors"
                     >
                       <i className="bx bx-plus text-sm" />
                       행 추가
