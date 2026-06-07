@@ -302,7 +302,7 @@ function FilterBar({
   return (
     <div className="flex flex-wrap gap-2 items-center">
       {/* 키워드 검색 */}
-      <div className="relative flex-1 min-w-[160px]">
+      <div className="relative flex-1 min-w-40">
         <i className="bx bx-search absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm" />
         <input
           type="text"
@@ -492,7 +492,7 @@ function CompareTable({
       </ul>
 
       {/* 데스크톱 테이블 뷰 */}
-      <table className="hidden sm:table w-full min-w-[860px] border-collapse text-xs">
+      <table className="hidden sm:table w-full min-w-215 border-collapse text-xs">
         <thead className="bg-slate-50 border-b border-slate-200">
           <tr>
             <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-16">구분</th>
@@ -519,7 +519,7 @@ function CompareTable({
                     {m.label}
                   </span>
                 </td>
-                <td className="px-3 py-2.5 text-slate-600 max-w-[140px] truncate">{row.campaign_type}</td>
+                <td className="px-3 py-2.5 text-slate-600 max-w-35 truncate">{row.campaign_type}</td>
                 <td className="px-3 py-2.5 font-medium text-slate-800">{row.keyword}</td>
                 <td className="px-3 py-2.5 text-slate-500">{row.device}</td>
                 <td className="px-3 py-2.5 text-slate-500">{row.conv_type}</td>

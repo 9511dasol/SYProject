@@ -83,7 +83,7 @@ export default function ReportDashboard({
                 className="flex items-center gap-1.5 pl-3 pr-1.5 py-2"
               >
                 <i className="bx bx-file text-sm" />
-                <span className="max-w-[110px] truncate">가져온 리포트 {idx + 1}</span>
+                <span className="max-w-27.5 truncate">가져온 리포트 {idx + 1}</span>
               </button>
               <button
                 onClick={(e) => {
