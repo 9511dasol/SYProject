@@ -155,6 +155,15 @@ export async function getDbExportStatus(
   }
 }
 
+/** 진행 중인 export 태스크 취소 */
+export async function cancelDbExportTask(taskId: string): Promise<void> {
+  try {
+    await api.delete(`/api/marketing/export-db-task/${taskId}`);
+  } catch {
+    // 이미 완료됐거나 없는 태스크면 무시
+  }
+}
+
 /** 완료된 export 파일 받기 */
 export async function getDbExportResult(taskId: string): Promise<Blob> {
   try {

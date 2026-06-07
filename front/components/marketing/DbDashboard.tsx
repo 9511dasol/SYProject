@@ -1,8 +1,9 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  cancelDbExportTask,
   getDbExportResult,
   getDbExportStatus,
   getPeriods,
@@ -16,7 +17,7 @@ import ReportView from '@/components/marketing/ReportView';
 import Button from '@/components/ui/Button';
 
 type Period = { year: number; month: number };
-type DlPhase = 'idle' | 'pending' | 'processing' | 'done' | 'error';
+type DlPhase = 'idle' | 'pending' | 'processing' | 'paused' | 'done' | 'error';
 
 interface DownloadTask {
   taskId: string;
@@ -80,43 +81,103 @@ function NewPeriodPopover({
 
 // ── 다운로드 진행률 토스트 ────────────────────────────────────────────────────
 
-function DownloadProgressToast({ task, onDismiss }: { task: DownloadTask; onDismiss: () => void }) {
+function DownloadProgressToast({
+  task,
+  onDismiss,
+  onPause,
+  onResume,
+  onCancel,
+}: {
+  task: DownloadTask;
+  onDismiss: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onCancel: () => void;
+}) {
   const isDone = task.phase === 'done';
   const isError = task.phase === 'error';
-  const isActive = !isDone && !isError;
+  const isPaused = task.phase === 'paused';
+  const isActive = !isDone && !isError && !isPaused;
 
   return (
     <div
       role="status"
       aria-live="polite"
-      className={`fixed bottom-5 right-5 z-200 w-72 rounded-2xl shadow-xl shadow-black/10 border overflow-hidden transition-all
+      className={`fixed bottom-5 right-5 z-200 w-76 rounded-2xl shadow-xl shadow-black/10 border overflow-hidden transition-all
         ${isError ? 'bg-red-600 border-red-500 text-white'
           : isDone ? 'bg-emerald-600 border-emerald-500 text-white'
+          : isPaused ? 'bg-slate-700 border-slate-600 text-white'
           : 'bg-slate-900 border-slate-700 text-white'}`}
     >
       <div className="flex items-center justify-between px-4 pt-3 pb-2">
         <div className="flex items-center gap-2 min-w-0">
           {isActive && <span className="w-4 h-4 rounded-full border-2 border-slate-500 border-t-blue-400 animate-spin shrink-0" />}
+          {isPaused && <i className="bx bx-pause-circle text-xl shrink-0 text-slate-300" />}
           {isDone && <i className="bx bx-check-circle text-xl shrink-0" />}
           {isError && <i className="bx bx-error-circle text-xl shrink-0" />}
           <span className="text-sm font-semibold truncate">
-            {isError ? 'Excel 생성 실패' : isDone ? 'Excel 준비 완료' : 'Excel 생성 중…'}
+            {isError ? 'Excel 생성 실패'
+              : isDone ? 'Excel 준비 완료'
+              : isPaused ? '일시정지됨'
+              : 'Excel 생성 중…'}
           </span>
         </div>
-        {(isDone || isError) && (
-          <button onClick={onDismiss} aria-label="닫기" className="opacity-70 hover:opacity-100 transition-opacity shrink-0 ml-2">
-            <i className="bx bx-x text-lg" />
-          </button>
-        )}
+
+        {/* 컨트롤 버튼 */}
+        <div className="flex items-center gap-1 shrink-0 ml-2">
+          {(isActive || isPaused) && (
+            <>
+              {/* 일시정지 / 재개 */}
+              {isActive ? (
+                <button
+                  onClick={onPause}
+                  aria-label="일시정지"
+                  title="일시정지"
+                  className="w-6 h-6 flex items-center justify-center rounded opacity-70 hover:opacity-100 hover:bg-white/10 transition-all"
+                >
+                  <i className="bx bx-pause text-base" />
+                </button>
+              ) : (
+                <button
+                  onClick={onResume}
+                  aria-label="재개"
+                  title="재개"
+                  className="w-6 h-6 flex items-center justify-center rounded opacity-70 hover:opacity-100 hover:bg-white/10 transition-all"
+                >
+                  <i className="bx bx-play text-base" />
+                </button>
+              )}
+              {/* 취소 */}
+              <button
+                onClick={onCancel}
+                aria-label="취소"
+                title="다운로드 취소"
+                className="w-6 h-6 flex items-center justify-center rounded opacity-70 hover:opacity-100 hover:bg-red-500/40 transition-all"
+              >
+                <i className="bx bx-x text-lg" />
+              </button>
+            </>
+          )}
+          {(isDone || isError) && (
+            <button onClick={onDismiss} aria-label="닫기" className="opacity-70 hover:opacity-100 transition-opacity">
+              <i className="bx bx-x text-lg" />
+            </button>
+          )}
+        </div>
       </div>
-      {isActive && (
+
+      {(isActive || isPaused) && (
         <div className="px-4 pb-1">
           <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-            <div className="h-full bg-blue-400 rounded-full transition-all duration-500" style={{ width: `${task.progress}%` }} />
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${isPaused ? 'bg-slate-400' : 'bg-blue-400'}`}
+              style={{ width: `${task.progress}%` }}
+            />
           </div>
           <p className="text-xs text-slate-400 mt-1 text-right tabular-nums">{task.progress}%</p>
         </div>
       )}
+
       <div className="px-4 pb-3 text-xs opacity-75 truncate">
         {isError ? task.error : task.filename}
       </div>
@@ -141,14 +202,14 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   } = useQuery({
     queryKey: queryKeys.periods(),
     queryFn: getPeriods,
-    select: (data) => {
-      // 선택 기간 초기화: 아직 선택 안 됐으면 첫 번째 항목으로
-      if (!selected && data.length > 0) {
-        setSelected(data[0]);
-      }
-      return data;
-    },
   });
+
+  // 기간 목록이 로드되면 첫 번째 항목을 초기 선택
+  useEffect(() => {
+    if (!selected && periods.length > 0) {
+      setSelected(periods[0]);
+    }
+  }, [periods, selected]);
 
   // 현재 선택이 DB 목록에 없는 새 기간인지
   const isNewPeriod =
@@ -167,10 +228,10 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   });
 
   // ── 다운로드 폴링 (useQuery + refetchInterval) ─────────────────────────────
-  useQuery({
+  const { data: exportStatus } = useQuery({
     queryKey: queryKeys.exportTask(dlTask?.taskId ?? ''),
     queryFn: () => getDbExportStatus(dlTask!.taskId),
-    enabled: !!dlTask?.taskId && dlTask.phase !== 'done' && dlTask.phase !== 'error',
+    enabled: !!dlTask?.taskId && dlTask.phase !== 'done' && dlTask.phase !== 'error' && dlTask.phase !== 'paused',
     refetchInterval: (query) => {
       const s = query.state.data?.status;
       return s === 'done' || s === 'error' ? false : 600;
@@ -178,20 +239,24 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
     retry: 4,
     retryDelay: 1200,
     staleTime: 0,
-    select: (res) => {
-      if (res.status === 'done') {
-        setDlTask((t) => t ? { ...t, progress: 100, phase: 'done' } : null);
-        getDbExportResult(dlTask!.taskId).then((blob) =>
-          saveFileWithPicker(blob, dlTask!.filename),
-        );
-      } else if (res.status === 'error') {
-        setDlTask((t) => t ? { ...t, phase: 'error', error: res.error ?? 'Excel 생성 실패' } : null);
-      } else {
-        setDlTask((t) => t ? { ...t, progress: res.progress ?? t.progress, phase: 'processing' } : null);
-      }
-      return res;
-    },
   });
+
+  // exportStatus 변경 시 dlTask 상태 갱신 (select 안에서 setState 하면 렌더 중 setState → 무한루프)
+  useEffect(() => {
+    if (!exportStatus || !dlTask) return;
+    if (exportStatus.status === 'done') {
+      setDlTask((t) => t ? { ...t, progress: 100, phase: 'done' } : null);
+      getDbExportResult(dlTask.taskId).then((blob) =>
+        saveFileWithPicker(blob, dlTask.filename),
+      );
+    } else if (exportStatus.status === 'error') {
+      setDlTask((t) => t ? { ...t, phase: 'error', error: exportStatus.error ?? 'Excel 생성 실패' } : null);
+    } else {
+      setDlTask((t) => t ? { ...t, progress: exportStatus.progress ?? t.progress, phase: 'processing' } : null);
+    }
+  // dlTask.taskId/filename은 변경되지 않으므로 exportStatus만 의존
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exportStatus]);
 
   // ── 다운로드 시작 ─────────────────────────────────────────────────────────
   async function handleDownload() {
@@ -203,6 +268,20 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
       // 에러는 summaryError 처리 흐름과 일관성 있게 콘솔에만
       console.error(err);
     }
+  }
+
+  function handlePauseDownload() {
+    setDlTask((t) => t ? { ...t, phase: 'paused' } : null);
+  }
+
+  function handleResumeDownload() {
+    setDlTask((t) => t ? { ...t, phase: 'processing' } : null);
+  }
+
+  async function handleCancelDownload() {
+    if (!dlTask) return;
+    await cancelDbExportTask(dlTask.taskId);
+    setDlTask(null);
   }
 
   // ── 갱신 ─────────────────────────────────────────────────────────────────
@@ -254,7 +333,15 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
 
   return (
     <>
-      {dlTask && <DownloadProgressToast task={dlTask} onDismiss={() => setDlTask(null)} />}
+      {dlTask && (
+        <DownloadProgressToast
+          task={dlTask}
+          onDismiss={() => setDlTask(null)}
+          onPause={handlePauseDownload}
+          onResume={handleResumeDownload}
+          onCancel={handleCancelDownload}
+        />
+      )}
 
       <div className="space-y-4">
         {/* 기간 선택 바 */}

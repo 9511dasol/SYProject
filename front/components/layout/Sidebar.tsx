@@ -115,7 +115,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         <div className="h-14 px-5 flex items-center gap-3 border-b border-border-soft shrink-0">
           <span
             className="flex items-center justify-center w-8 h-8 rounded-xl
-              bg-gradient-to-br from-blue-600 to-indigo-600 shadow-sm shadow-blue-600/30 shrink-0"
+              bg-linear-to-br from-blue-600 to-indigo-600 shadow-sm shadow-blue-600/30 shrink-0"
           >
             <i className="bx bx-line-chart text-white text-base" />
           </span>
