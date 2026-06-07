@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 from app.core.database import engine, Base
 from app.models.marketing_model import MarketingData as _MD, MarketingPeriodMeta as _MPM  # noqa: F401
-from app.routers import marketing_router
+from app.routers import marketing_router, keyword_compare_router
 from app.services.excel_service import _template_bytes
 
 
@@ -37,8 +37,12 @@ app.add_middleware(
 )
 
 app.include_router(marketing_router.router)
+app.include_router(keyword_compare_router.router)
 
 
 @app.get("/")
 def read_root():
     return {"message": "FastAPI 서버가 정상적으로 실행 중입니다."}
+
+    
+    

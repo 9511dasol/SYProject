@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { pollTaskStatus } from '@/lib/marketingClient';
+import { queryKeys } from '@/lib/queryKeys';
 import type { TaskStatusResponse } from '@/types/marketing';
 import Spinner from '@/components/ui/Spinner';
 import ResultCard from '@/components/marketing/ResultCard';
@@ -11,34 +12,39 @@ interface StatusPollerProps {
   onReset: () => void;
 }
 
-const POLL_INTERVAL_MS = 2000;
+const TERMINAL = new Set<TaskStatusResponse['status']>(['completed', 'failed']);
 
 export default function StatusPoller({ taskId, onReset }: StatusPollerProps) {
-  const [taskStatus, setTaskStatus] = useState<TaskStatusResponse | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function poll() {
-      try {
-        const data = await pollTaskStatus(taskId);
-        if (cancelled) return;
-        setTaskStatus(data);
-        if (data.status === 'completed' || data.status === 'failed') return;
-        setTimeout(poll, POLL_INTERVAL_MS);
-      } catch {
-        if (!cancelled) {
-          setTaskStatus({ task_id: taskId, status: 'failed', error: '상태 조회 중 오류가 발생했습니다.' });
-        }
-      }
-    }
-
-    poll();
-    return () => { cancelled = true; };
-  }, [taskId]);
+  const { data: taskStatus, isError } = useQuery({
+    queryKey: queryKeys.taskStatus(taskId),
+    queryFn: () => pollTaskStatus(taskId),
+    refetchInterval: (query) =>
+      TERMINAL.has(query.state.data?.status as TaskStatusResponse['status']) ? false : 2000,
+    retry: 3,
+    retryDelay: 1500,
+    staleTime: 0,
+  });
 
   const isPending = !taskStatus || taskStatus.status === 'pending';
   const isProcessing = taskStatus?.status === 'processing';
+
+  if (isError) {
+    return (
+      <div className="mt-6 rounded-2xl border border-red-100 bg-red-50 p-6">
+        <div className="flex items-center gap-2 mb-2">
+          <i className="bx bx-error-circle text-red-500 text-xl" />
+          <p className="text-sm font-semibold text-red-700">분석 실패</p>
+        </div>
+        <p className="text-sm text-red-600">상태 조회 중 오류가 발생했습니다.</p>
+        <button
+          onClick={onReset}
+          className="mt-4 text-sm text-blue-600 hover:underline flex items-center gap-1"
+        >
+          <i className="bx bx-refresh" /> 다시 시도
+        </button>
+      </div>
+    );
+  }
 
   if (isPending || isProcessing) {
     return (
@@ -54,22 +60,19 @@ export default function StatusPoller({ taskId, onReset }: StatusPollerProps) {
     );
   }
 
-  if (taskStatus.status === 'failed') {
+  if (taskStatus?.status === 'failed') {
     return (
       <div className="mt-6 rounded-2xl border border-red-100 bg-red-50 p-6">
         <div className="flex items-center gap-2 mb-2">
           <i className="bx bx-error-circle text-red-500 text-xl" />
           <p className="text-sm font-semibold text-red-700">분석 실패</p>
         </div>
-        <p className="text-sm text-red-600">
-          {taskStatus.error ?? '알 수 없는 오류가 발생했습니다.'}
-        </p>
+        <p className="text-sm text-red-600">{taskStatus.error ?? '알 수 없는 오류가 발생했습니다.'}</p>
         <button
           onClick={onReset}
           className="mt-4 text-sm text-blue-600 hover:underline flex items-center gap-1"
         >
-          <i className="bx bx-refresh" />
-          다시 시도
+          <i className="bx bx-refresh" /> 다시 시도
         </button>
       </div>
     );
@@ -78,8 +81,8 @@ export default function StatusPoller({ taskId, onReset }: StatusPollerProps) {
   return (
     <div className="mt-6">
       <ResultCard
-        processedRows={taskStatus.processed_rows ?? 0}
-        aiComment={taskStatus.ai_comment ?? ''}
+        processedRows={taskStatus?.processed_rows ?? 0}
+        aiComment={taskStatus?.ai_comment ?? ''}
         onReset={onReset}
       />
     </div>

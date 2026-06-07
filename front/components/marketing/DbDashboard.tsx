@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getDbExportResult,
   getDbExportStatus,
@@ -9,12 +10,12 @@ import {
   saveFileWithPicker,
   startDbExportTask,
 } from '@/lib/marketingClient';
+import { queryKeys } from '@/lib/queryKeys';
 import type { ReportData } from '@/types/marketing';
 import ReportView from '@/components/marketing/ReportView';
 import Button from '@/components/ui/Button';
 
 type Period = { year: number; month: number };
-
 type DlPhase = 'idle' | 'pending' | 'processing' | 'done' | 'error';
 
 interface DownloadTask {
@@ -26,21 +27,21 @@ interface DownloadTask {
 }
 
 interface DbDashboardProps {
-  refreshTrigger?: number;
   onOpenUpload?: () => void;
 }
 
 // ── 새 기간 선택 팝오버 ────────────────────────────────────────────────────────
-interface NewPeriodPopoverProps {
+
+function NewPeriodPopover({
+  onSelect,
+  onClose,
+}: {
   onSelect: (year: number, month: number) => void;
   onClose: () => void;
-}
-
-function NewPeriodPopover({ onSelect, onClose }: NewPeriodPopoverProps) {
+}) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-
   const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
 
   const selectClass =
@@ -49,12 +50,9 @@ function NewPeriodPopover({ onSelect, onClose }: NewPeriodPopoverProps) {
   return (
     <div className="absolute top-full mt-2 right-0 z-20 w-56 rounded-xl border border-slate-200 bg-white shadow-xl p-4 space-y-3">
       <p className="text-xs font-semibold text-slate-600">새 기간 추가</p>
-
       <div className="flex gap-2">
         <select value={year} onChange={(e) => setYear(Number(e.target.value))} className={selectClass}>
-          {years.map((y) => (
-            <option key={y} value={y}>{y}년</option>
-          ))}
+          {years.map((y) => <option key={y} value={y}>{y}년</option>)}
         </select>
         <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className={selectClass}>
           {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
@@ -62,7 +60,6 @@ function NewPeriodPopover({ onSelect, onClose }: NewPeriodPopoverProps) {
           ))}
         </select>
       </div>
-
       <div className="flex gap-2">
         <button
           onClick={onClose}
@@ -82,13 +79,8 @@ function NewPeriodPopover({ onSelect, onClose }: NewPeriodPopoverProps) {
 }
 
 // ── 다운로드 진행률 토스트 ────────────────────────────────────────────────────
-function DownloadProgressToast({
-  task,
-  onDismiss,
-}: {
-  task: DownloadTask;
-  onDismiss: () => void;
-}) {
+
+function DownloadProgressToast({ task, onDismiss }: { task: DownloadTask; onDismiss: () => void }) {
   const isDone = task.phase === 'done';
   const isError = task.phase === 'error';
   const isActive = !isDone && !isError;
@@ -98,18 +90,13 @@ function DownloadProgressToast({
       role="status"
       aria-live="polite"
       className={`fixed bottom-5 right-5 z-200 w-72 rounded-2xl shadow-xl shadow-black/10 border overflow-hidden transition-all
-        ${isError
-          ? 'bg-red-600 border-red-500 text-white'
-          : isDone
-            ? 'bg-emerald-600 border-emerald-500 text-white'
-            : 'bg-slate-900 border-slate-700 text-white'
-        }`}
+        ${isError ? 'bg-red-600 border-red-500 text-white'
+          : isDone ? 'bg-emerald-600 border-emerald-500 text-white'
+          : 'bg-slate-900 border-slate-700 text-white'}`}
     >
       <div className="flex items-center justify-between px-4 pt-3 pb-2">
         <div className="flex items-center gap-2 min-w-0">
-          {isActive && (
-            <span className="w-4 h-4 rounded-full border-2 border-slate-500 border-t-blue-400 animate-spin shrink-0" />
-          )}
+          {isActive && <span className="w-4 h-4 rounded-full border-2 border-slate-500 border-t-blue-400 animate-spin shrink-0" />}
           {isDone && <i className="bx bx-check-circle text-xl shrink-0" />}
           {isError && <i className="bx bx-error-circle text-xl shrink-0" />}
           <span className="text-sm font-semibold truncate">
@@ -117,28 +104,19 @@ function DownloadProgressToast({
           </span>
         </div>
         {(isDone || isError) && (
-          <button
-            onClick={onDismiss}
-            aria-label="닫기"
-            className="opacity-70 hover:opacity-100 transition-opacity shrink-0 ml-2"
-          >
+          <button onClick={onDismiss} aria-label="닫기" className="opacity-70 hover:opacity-100 transition-opacity shrink-0 ml-2">
             <i className="bx bx-x text-lg" />
           </button>
         )}
       </div>
-
       {isActive && (
         <div className="px-4 pb-1">
           <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-blue-400 rounded-full transition-all duration-500"
-              style={{ width: `${task.progress}%` }}
-            />
+            <div className="h-full bg-blue-400 rounded-full transition-all duration-500" style={{ width: `${task.progress}%` }} />
           </div>
           <p className="text-xs text-slate-400 mt-1 text-right tabular-nums">{task.progress}%</p>
         </div>
       )}
-
       <div className="px-4 pb-3 text-xs opacity-75 truncate">
         {isError ? task.error : task.filename}
       </div>
@@ -147,155 +125,101 @@ function DownloadProgressToast({
 }
 
 // ── 메인 ─────────────────────────────────────────────────────────────────────
-export default function DbDashboard({ refreshTrigger = 0, onOpenUpload }: DbDashboardProps = {}) {
-  const [periods, setPeriods] = useState<Period[]>([]);
+
+export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
+  const queryClient = useQueryClient();
   const [selected, setSelected] = useState<Period | null>(null);
-  const [report, setReport] = useState<ReportData | null>(null);
-  const [syncedPeriod, setSyncedPeriod] = useState<Period | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [dlTask, setDlTask] = useState<DownloadTask | null>(null);
-  const [localRefresh, setLocalRefresh] = useState(0);
   const [newPeriodOpen, setNewPeriodOpen] = useState(false);
   const newPeriodRef = useRef<HTMLDivElement>(null);
 
-  const isFetching = Boolean(
-    selected &&
-      (syncedPeriod?.year !== selected.year || syncedPeriod?.month !== selected.month),
-  );
+  // ── 기간 목록 ─────────────────────────────────────────────────────────────
+  const {
+    data: periods = [],
+    isLoading: periodsLoading,
+    error: periodsError,
+  } = useQuery({
+    queryKey: queryKeys.periods(),
+    queryFn: getPeriods,
+    select: (data) => {
+      // 선택 기간 초기화: 아직 선택 안 됐으면 첫 번째 항목으로
+      if (!selected && data.length > 0) {
+        setSelected(data[0]);
+      }
+      return data;
+    },
+  });
 
-  // 선택된 기간이 DB 기간 목록에 없는 새 기간인지 여부
+  // 현재 선택이 DB 목록에 없는 새 기간인지
   const isNewPeriod =
-    selected !== null &&
-    !periods.find((p) => p.year === selected.year && p.month === selected.month);
+    selected !== null && !periods.find((p) => p.year === selected.year && p.month === selected.month);
 
-  // ── 팝오버 외부 클릭 닫기 ───────────────────────────────────────────────────
-  useEffect(() => {
-    if (!newPeriodOpen) return;
-    function handleClick(e: MouseEvent) {
-      if (newPeriodRef.current && !newPeriodRef.current.contains(e.target as Node)) {
-        setNewPeriodOpen(false);
+  // ── 요약 조회 ─────────────────────────────────────────────────────────────
+  const {
+    data: report,
+    isFetching: summaryFetching,
+    error: summaryError,
+  } = useQuery({
+    queryKey: queryKeys.summary(selected?.year ?? 0, selected?.month ?? 0),
+    queryFn: () => getSummary(selected!.year, selected!.month),
+    enabled: !!selected,
+    staleTime: 60_000,
+  });
+
+  // ── 다운로드 폴링 (useQuery + refetchInterval) ─────────────────────────────
+  useQuery({
+    queryKey: queryKeys.exportTask(dlTask?.taskId ?? ''),
+    queryFn: () => getDbExportStatus(dlTask!.taskId),
+    enabled: !!dlTask?.taskId && dlTask.phase !== 'done' && dlTask.phase !== 'error',
+    refetchInterval: (query) => {
+      const s = query.state.data?.status;
+      return s === 'done' || s === 'error' ? false : 600;
+    },
+    retry: 4,
+    retryDelay: 1200,
+    staleTime: 0,
+    select: (res) => {
+      if (res.status === 'done') {
+        setDlTask((t) => t ? { ...t, progress: 100, phase: 'done' } : null);
+        getDbExportResult(dlTask!.taskId).then((blob) =>
+          saveFileWithPicker(blob, dlTask!.filename),
+        );
+      } else if (res.status === 'error') {
+        setDlTask((t) => t ? { ...t, phase: 'error', error: res.error ?? 'Excel 생성 실패' } : null);
+      } else {
+        setDlTask((t) => t ? { ...t, progress: res.progress ?? t.progress, phase: 'processing' } : null);
       }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [newPeriodOpen]);
+      return res;
+    },
+  });
 
-  // ── 기간 목록 조회 ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    let active = true;
-    getPeriods()
-      .then((list) => {
-        if (!active) return;
-        setPeriods(list);
-        if (list.length > 0) {
-          setSelected((prev) => {
-            const keep = list.find(
-              (p) => p.year === prev?.year && p.month === prev?.month,
-            );
-            // 현재 선택이 새 기간이면 유지, 없으면 목록 첫 번째로
-            return keep ? { ...keep } : prev ?? { ...list[0] };
-          });
-        } else {
-          setIsLoading(false);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!active) return;
-        setError(err instanceof Error ? err.message : '기간 조회 실패');
-        setIsLoading(false);
-      });
-    return () => { active = false; };
-  }, [refreshTrigger, localRefresh]);
-
-  // ── 요약 조회 ───────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!selected) return;
-    let active = true;
-    getSummary(selected.year, selected.month)
-      .then((data) => {
-        if (active) {
-          setError(null);
-          setReport(data);
-          setSyncedPeriod(selected);
-          setIsLoading(false);
-        }
-      })
-      .catch((err: unknown) => {
-        if (active) {
-          setError(err instanceof Error ? err.message : '조회 실패');
-          setReport(null);
-          setSyncedPeriod(selected);
-          setIsLoading(false);
-        }
-      });
-    return () => { active = false; };
-  }, [selected]);
-
-  // ── 다운로드 폴링 ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!dlTask?.taskId || dlTask.phase === 'done' || dlTask.phase === 'error') return;
-
-    let active = true;
-    let timer: ReturnType<typeof setTimeout>;
-
-    async function poll() {
-      try {
-        const res = await getDbExportStatus(dlTask!.taskId);
-        if (!active) return;
-
-        if (res.status === 'done') {
-          setDlTask((t) => t ? { ...t, progress: 100, phase: 'done' } : null);
-          const blob = await getDbExportResult(dlTask!.taskId);
-          if (active) {
-            await saveFileWithPicker(blob, dlTask!.filename);
-            timer = setTimeout(() => {
-              if (active) setDlTask(null);
-            }, 3000);
-          }
-        } else if (res.status === 'error') {
-          setDlTask((t) => t ? { ...t, phase: 'error', error: res.error ?? 'Excel 생성 실패' } : null);
-        } else {
-          setDlTask((t) => t ? { ...t, progress: res.progress, phase: 'processing' } : null);
-          timer = setTimeout(poll, 600);
-        }
-      } catch {
-        if (active) timer = setTimeout(poll, 1200);
-      }
-    }
-
-    timer = setTimeout(poll, 600);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [dlTask?.taskId]);
-
-  // ── 다운로드 시작 ────────────────────────────────────────────────────────────
+  // ── 다운로드 시작 ─────────────────────────────────────────────────────────
   async function handleDownload() {
     if (!selected || !report?.by_media.length || dlTask) return;
-    setError(null);
     try {
       const { task_id, filename } = await startDbExportTask(selected.year, selected.month);
       setDlTask({ taskId: task_id, filename, progress: 5, phase: 'pending' });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Excel 변환 시작 실패');
+      // 에러는 summaryError 처리 흐름과 일관성 있게 콘솔에만
+      console.error(err);
     }
   }
 
-  // ── 새 기간 선택 ─────────────────────────────────────────────────────────────
-  function handleSelectNewPeriod(year: number, month: number) {
-    setError(null);
-    setSelected({ year, month });
-  }
-
-  // ── onRefresh: 요약 + 기간 목록 동시 갱신 ───────────────────────────────────
+  // ── 갱신 ─────────────────────────────────────────────────────────────────
   function handleRefresh() {
-    setLocalRefresh((n) => n + 1);           // 기간 목록 재조회
-    setSelected((prev) => (prev ? { ...prev } : null)); // 요약 재조회
+    queryClient.invalidateQueries({ queryKey: queryKeys.periods() });
+    if (selected) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.summary(selected.year, selected.month) });
+    }
   }
 
-  // ── 로딩 ────────────────────────────────────────────────────────────────────
+  const error = periodsError || summaryError;
+  const errorMsg = error instanceof Error ? error.message : null;
+  const isLoading = periodsLoading;
+  const isFetching = summaryFetching;
+  const canDownload = Boolean(selected && report?.by_media.length && !dlTask && !isNewPeriod);
+
+  // ── 로딩 ─────────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-10 flex items-center justify-center gap-3 text-slate-400">
@@ -322,20 +246,15 @@ export default function DbDashboard({ refreshTrigger = 0, onOpenUpload }: DbDash
           onClick={onOpenUpload}
           className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
         >
-          업로드로 이동
-          <i className="bx bx-right-arrow-alt" />
+          업로드로 이동 <i className="bx bx-right-arrow-alt" />
         </button>
       </div>
     );
   }
 
-  const canDownload = Boolean(selected && report?.by_media.length && !dlTask && !isNewPeriod);
-
   return (
     <>
-      {dlTask && (
-        <DownloadProgressToast task={dlTask} onDismiss={() => setDlTask(null)} />
-      )}
+      {dlTask && <DownloadProgressToast task={dlTask} onDismiss={() => setDlTask(null)} />}
 
       <div className="space-y-4">
         {/* 기간 선택 바 */}
@@ -343,35 +262,26 @@ export default function DbDashboard({ refreshTrigger = 0, onOpenUpload }: DbDash
           <div className="flex items-center gap-2 shrink-0">
             <span className="text-xs font-medium text-slate-500">조회 기간</span>
             {isFetching && (
-              <span
-                className="w-3.5 h-3.5 rounded-full border-2 border-slate-200 border-t-blue-500 animate-spin"
-                aria-label="불러오는 중"
-              />
+              <span className="w-3.5 h-3.5 rounded-full border-2 border-slate-200 border-t-blue-500 animate-spin" aria-label="불러오는 중" />
             )}
           </div>
 
           <div className="flex items-center gap-2 min-w-0">
             <div className="flex gap-1.5 overflow-x-auto scrollbar-hide">
-              {/* 기존 DB 기간 */}
               {periods.map((p) => {
                 const label = `${p.year}년 ${p.month}월`;
                 const active = selected?.year === p.year && selected?.month === p.month;
                 return (
                   <button
                     key={label}
-                    onClick={() => { setError(null); setSelected(p); }}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                      active
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                    }`}
+                    onClick={() => setSelected(p)}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors
+                      ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
                   >
                     {label}
                   </button>
                 );
               })}
-
-              {/* 새 기간 (DB에 없는 선택 기간) */}
               {isNewPeriod && selected && (
                 <span className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-medium bg-blue-600 text-white whitespace-nowrap">
                   {selected.year}년 {selected.month}월
@@ -380,61 +290,48 @@ export default function DbDashboard({ refreshTrigger = 0, onOpenUpload }: DbDash
               )}
             </div>
 
-            {/* 새 기간 추가 버튼 */}
             <div ref={newPeriodRef} className="relative shrink-0">
               <button
                 onClick={() => setNewPeriodOpen((v) => !v)}
                 title="새 기간 추가"
-                className={`w-7 h-7 flex items-center justify-center rounded-lg text-sm transition-colors border ${
-                  newPeriodOpen
-                    ? 'bg-blue-50 border-blue-300 text-blue-600'
-                    : 'border-slate-200 text-slate-500 hover:bg-slate-100'
-                }`}
+                className={`w-7 h-7 flex items-center justify-center rounded-lg text-sm transition-colors border
+                  ${newPeriodOpen ? 'bg-blue-50 border-blue-300 text-blue-600' : 'border-slate-200 text-slate-500 hover:bg-slate-100'}`}
               >
                 <i className="bx bx-plus" />
               </button>
               {newPeriodOpen && (
                 <NewPeriodPopover
-                  onSelect={handleSelectNewPeriod}
+                  onSelect={(y, m) => setSelected({ year: y, month: m })}
                   onClose={() => setNewPeriodOpen(false)}
                 />
               )}
             </div>
 
-            {/* Excel 다운로드 */}
             <Button
               variant="ghost"
               className="border border-slate-200 shrink-0"
               onClick={handleDownload}
               disabled={!canDownload || isFetching}
-              title={
-                isNewPeriod
-                  ? 'DB에 저장 후 다운로드 가능합니다'
-                  : dlTask
-                    ? 'Excel 생성 중…'
-                    : 'Excel 다운로드'
-              }
+              title={isNewPeriod ? 'DB에 저장 후 다운로드 가능합니다' : dlTask ? 'Excel 생성 중…' : 'Excel 다운로드'}
             >
-              {dlTask ? (
-                <span className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-slate-500 animate-spin" />
-              ) : (
-                <i className="bx bx-download text-lg" />
-              )}
+              {dlTask
+                ? <span className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-slate-500 animate-spin" />
+                : <i className="bx bx-download text-lg" />}
             </Button>
           </div>
         </div>
 
-        {error && (
+        {errorMsg && (
           <div className="flex items-center gap-2 rounded-xl bg-red-50 border border-red-100 px-4 py-3">
             <i className="bx bx-error-circle text-red-500 shrink-0" />
-            <p className="text-sm text-red-600">{error}</p>
+            <p className="text-sm text-red-600">{errorMsg}</p>
           </div>
         )}
 
         {report && (
           <ReportView
             data={report}
-            editable={true}
+            editable
             year={selected?.year}
             month={selected?.month}
             onRefresh={handleRefresh}

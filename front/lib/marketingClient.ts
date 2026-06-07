@@ -183,6 +183,7 @@ export async function startSaveExcelTask(
 
 export async function getSaveExcelTaskStatus(taskId: string): Promise<{
   status: string;
+  progress?: number;
   saved_rows?: number;
   deleted_rows?: number;
   undo_id?: string;

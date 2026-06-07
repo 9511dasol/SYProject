@@ -22,7 +22,6 @@ interface Props {
   pendingLoads: PendingLoad[];
   onRemoveReport: (id: string) => void;
   onSaveReport: (id: string, replace: boolean) => void;
-  refreshTrigger?: number;
   onOpenUpload?: () => void;
   activeTab: string;
   onTabChange: (id: string) => void;
@@ -35,7 +34,6 @@ export default function ReportDashboard({
   pendingLoads,
   onRemoveReport,
   onSaveReport,
-  refreshTrigger,
   onOpenUpload,
   activeTab,
   onTabChange,
@@ -121,7 +119,7 @@ export default function ReportDashboard({
 
       {/* 탭 콘텐츠 */}
       {activeTab === DB_TAB || !showTabs ? (
-        <DbDashboard refreshTrigger={refreshTrigger} onOpenUpload={onOpenUpload} />
+        <DbDashboard onOpenUpload={onOpenUpload} />
       ) : activeReport ? (
         <div className="space-y-3">
           {/* 액션 바 */}
