@@ -1,14 +1,17 @@
 'use client';
 
 import { useTheme } from 'next-themes';
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
+
+function subscribe() { return () => {}; }
+function useIsMounted() {
+  return useSyncExternalStore(subscribe, () => true, () => false);
+}
 
 export default function ThemeToggle() {
-  const { theme, setTheme, resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
+  const { resolvedTheme, setTheme } = useTheme();
+  const mounted = useIsMounted();
 
-  // 하이드레이션 불일치 방지
-  useEffect(() => setMounted(true), []);
   if (!mounted) {
     return <div className="w-8 h-8 rounded-lg bg-surface-2 animate-pulse" />;
   }
@@ -42,8 +45,8 @@ export default function ThemeToggle() {
 /* 시스템 연동 3-way 토글 (선택사항) */
 export function ThemeToggleCycle() {
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useIsMounted();
+
   if (!mounted) return <div className="w-8 h-8 rounded-lg bg-surface-2 animate-pulse" />;
 
   const options: { value: string; icon: string; label: string }[] = [
