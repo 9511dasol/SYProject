@@ -9,17 +9,17 @@ interface HeadingCardProps {
 
 const PLATFORM_STYLES = {
   Instagram: {
-    badge:  'bg-gradient-to-r from-pink-500 to-purple-500 text-white',
+    badge:  'bg-linear-to-r from-pink-500 to-purple-500 text-white',
     border: 'border-l-pink-400',
     icon:   'bx-camera',
   },
   Blog: {
-    badge:  'bg-emerald-100 text-emerald-700',
+    badge:  'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400',
     border: 'border-l-emerald-400',
     icon:   'bx-edit-alt',
   },
   YouTube: {
-    badge:  'bg-red-100 text-red-600',
+    badge:  'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400',
     border: 'border-l-red-400',
     icon:   'bx-play-circle',
   },
@@ -42,9 +42,9 @@ export default function HeadingCard({ item }: HeadingCardProps) {
   return (
     <div
       className={[
-        'group relative bg-white rounded-2xl border border-slate-200/70 border-l-4',
+        'group relative bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/70 dark:border-slate-700/70 border-l-4',
         style.border,
-        'p-5 shadow-sm shadow-slate-100 hover:shadow-md hover:shadow-slate-200',
+        'p-5 shadow-sm shadow-slate-100 dark:shadow-slate-900 hover:shadow-md hover:shadow-slate-200 dark:hover:shadow-slate-800',
         'transition-all duration-200 hover:-translate-y-0.5',
       ].join(' ')}
     >
@@ -57,12 +57,12 @@ export default function HeadingCard({ item }: HeadingCardProps) {
       </span>
 
       {/* 헤딩 텍스트 */}
-      <p className="text-base font-bold text-slate-800 leading-snug break-words pr-8">
+      <p className="text-base font-bold text-slate-800 dark:text-slate-100 leading-snug wrap-break-word pr-8">
         {item.text}
       </p>
 
       {/* 추천 이유 */}
-      <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+      <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
         {item.desc}
       </p>
 
@@ -74,8 +74,8 @@ export default function HeadingCard({ item }: HeadingCardProps) {
           'absolute top-4 right-4 w-8 h-8 rounded-lg flex items-center justify-center',
           'opacity-0 group-hover:opacity-100 transition-all duration-150',
           copied
-            ? 'bg-emerald-100 text-emerald-600'
-            : 'bg-slate-100 text-slate-400 hover:bg-amber-100 hover:text-amber-600',
+            ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400'
+            : 'bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-500 hover:bg-amber-100 dark:hover:bg-amber-900/50 hover:text-amber-600 dark:hover:text-amber-400',
         ].join(' ')}
       >
         <i className={`bx ${copied ? 'bx-check' : 'bx-copy'} text-sm`} />
@@ -83,7 +83,7 @@ export default function HeadingCard({ item }: HeadingCardProps) {
 
       {/* 복사 완료 토스트 */}
       {copied && (
-        <span className="absolute top-4 right-14 text-[10px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1 whitespace-nowrap">
+        <span className="absolute top-4 right-14 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 rounded-lg px-2 py-1 whitespace-nowrap">
           복사됨!
         </span>
       )}

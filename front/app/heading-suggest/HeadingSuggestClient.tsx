@@ -90,28 +90,28 @@ export default function HeadingSuggestClient() {
 
   /* ── 렌더 ───────────────────────────────────────────────────── */
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-amber-50/30 py-10 px-4">
+    <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-amber-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-amber-950/20 py-10 px-4">
       <div className="max-w-3xl mx-auto space-y-6">
 
         {/* 헤더 */}
         <header className="text-center space-y-3">
-          <div className="inline-flex items-center gap-2 text-xs font-semibold tracking-widest text-amber-500 uppercase bg-amber-50 rounded-full px-4 py-1.5 ring-1 ring-amber-100">
+          <div className="inline-flex items-center gap-2 text-xs font-semibold tracking-widest text-amber-500 dark:text-amber-400 uppercase bg-amber-50 dark:bg-amber-950/50 rounded-full px-4 py-1.5 ring-1 ring-amber-100 dark:ring-amber-900">
             <i className="bx bx-bulb text-sm" />
             AI Copywriter
           </div>
-          <h1 className="text-3xl font-bold text-slate-800 tracking-tight">헤딩 문구 추천</h1>
-          <p className="text-sm text-slate-500">
+          <h1 className="text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">헤딩 문구 추천</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             이미지를 업로드하면 Claude가 매체별 마케팅 헤딩 문구 10개를 제안합니다
           </p>
         </header>
 
         {/* 업로드 카드 */}
-        <div className="rounded-2xl border border-slate-200/70 bg-white shadow-sm shadow-slate-200/50 p-6 space-y-5">
+        <div className="rounded-2xl border border-slate-200/70 dark:border-slate-700/70 bg-white dark:bg-slate-900 shadow-sm shadow-slate-200/50 dark:shadow-slate-950/50 p-6 space-y-5">
           <div className="flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-xs font-bold shrink-0">
+            <span className="w-5 h-5 rounded-full bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-400 flex items-center justify-center text-xs font-bold shrink-0">
               1
             </span>
-            <span className="text-sm font-semibold text-slate-700">마케팅 이미지 업로드</span>
+            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">마케팅 이미지 업로드</span>
           </div>
 
           <DropZone
@@ -124,15 +124,15 @@ export default function HeadingSuggestClient() {
           />
 
           {error && (
-            <div className="flex items-start gap-3 rounded-xl bg-red-50 border border-red-100 px-4 py-3">
+            <div className="flex items-start gap-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900/60 px-4 py-3">
               <i className="bx bx-error-circle text-red-400 shrink-0 mt-0.5" />
-              <p className="text-sm text-red-600">{error}</p>
+              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
             </div>
           )}
 
           {file && (
             <Button
-              className="w-full !bg-amber-500 hover:!bg-amber-600 !rounded-xl"
+              className="w-full bg-amber-500! hover:bg-amber-600! rounded-xl!"
               onClick={handleAnalyze}
               isLoading={isLoading}
               disabled={!file || isLoading}
@@ -144,16 +144,16 @@ export default function HeadingSuggestClient() {
 
           {/* AI 분석 중 인디케이터 */}
           {loading === 'analyzing' && (
-            <div className="flex items-center gap-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
+            <div className="flex items-center gap-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-3">
               <div className="relative shrink-0">
                 <span className="absolute inset-0 rounded-full animate-ping opacity-60 bg-amber-400" />
                 <span className="relative w-3 h-3 rounded-full block bg-amber-500" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-amber-700">
+                <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
                   Claude가 이미지를 분석하는 중...
                 </p>
-                <p className="text-xs text-amber-500 mt-0.5">
+                <p className="text-xs text-amber-500 dark:text-amber-400 mt-0.5">
                   512×512 썸네일로 Vision API 호출 중 · 보통 5~15초 소요
                 </p>
               </div>
@@ -172,7 +172,7 @@ export default function HeadingSuggestClient() {
                 onChange={setActiveTab}
               />
               {headings.length > 0 && (
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-400 dark:text-slate-500">
                   총 {headings.length}개 문구 생성됨
                 </p>
               )}
@@ -186,7 +186,7 @@ export default function HeadingSuggestClient() {
           </div>
         )}
 
-        <p className="text-center text-xs text-slate-400">
+        <p className="text-center text-xs text-slate-400 dark:text-slate-500">
           이미지는 서버에 저장되지 않으며, AI 분석용 512×512 썸네일만 임시 생성됩니다.
         </p>
       </div>

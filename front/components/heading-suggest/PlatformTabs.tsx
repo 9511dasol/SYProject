@@ -16,10 +16,10 @@ const TABS: { key: PlatformFilter; icon: string }[] = [
 ];
 
 const ACTIVE_STYLES: Record<PlatformFilter, string> = {
-  '전체':      'bg-amber-500 text-white shadow-sm shadow-amber-300',
-  Instagram:  'bg-gradient-to-r from-pink-500 to-purple-500 text-white shadow-sm shadow-pink-200',
-  Blog:       'bg-emerald-500 text-white shadow-sm shadow-emerald-200',
-  YouTube:    'bg-red-500 text-white shadow-sm shadow-red-200',
+  '전체':      'bg-amber-500 text-white shadow-sm shadow-amber-300 dark:shadow-amber-900',
+  Instagram:  'bg-linear-to-r from-pink-500 to-purple-500 text-white shadow-sm shadow-pink-200 dark:shadow-pink-900',
+  Blog:       'bg-emerald-500 text-white shadow-sm shadow-emerald-200 dark:shadow-emerald-900',
+  YouTube:    'bg-red-500 text-white shadow-sm shadow-red-200 dark:shadow-red-900',
 };
 
 export default function PlatformTabs({ active, counts, onChange }: PlatformTabsProps) {
@@ -35,7 +35,7 @@ export default function PlatformTabs({ active, counts, onChange }: PlatformTabsP
               'inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-150',
               isActive
                 ? ACTIVE_STYLES[key]
-                : 'bg-white border border-slate-200 text-slate-500 hover:border-amber-300 hover:text-amber-600',
+                : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-amber-300 dark:hover:border-amber-700 hover:text-amber-600 dark:hover:text-amber-400',
             ].join(' ')}
           >
             <i className={`bx ${icon} text-base`} />
@@ -43,7 +43,7 @@ export default function PlatformTabs({ active, counts, onChange }: PlatformTabsP
             <span
               className={[
                 'text-xs font-bold px-1.5 py-0.5 rounded-md',
-                isActive ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-500',
+                isActive ? 'bg-white/25 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400',
               ].join(' ')}
             >
               {counts[key]}

@@ -144,22 +144,22 @@ export default function ImageResizeClient() {
 
   /* ── 렌더 ───────────────────────────────────────────────────── */
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-violet-50/30 py-10 px-4">
+    <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-violet-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-violet-950/20 py-10 px-4">
       <div className="max-w-xl mx-auto space-y-6">
         {/* 헤더 */}
         <header className="text-center space-y-3">
-          <div className="inline-flex items-center gap-2 text-xs font-semibold tracking-widest text-violet-500 uppercase bg-violet-50 rounded-full px-4 py-1.5 ring-1 ring-violet-100">
+          <div className="inline-flex items-center gap-2 text-xs font-semibold tracking-widest text-violet-500 dark:text-violet-400 uppercase bg-violet-50 dark:bg-violet-950/50 rounded-full px-4 py-1.5 ring-1 ring-violet-100 dark:ring-violet-900">
             <i className="bx bx-crop text-sm" />
             Image Resizer
           </div>
-          <h1 className="text-3xl font-bold text-slate-800 tracking-tight">이미지 리사이즈</h1>
-          <p className="text-sm text-slate-500">
+          <h1 className="text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">이미지 리사이즈</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             JPEG · PNG · WebP 이미지를 원하는 크기로 무료 변환 · 서버에 저장되지 않습니다
           </p>
         </header>
 
         {/* 메인 카드 */}
-        <div className="rounded-2xl border border-slate-200/70 bg-white shadow-sm shadow-slate-200/50 overflow-hidden">
+        <div className="rounded-2xl border border-slate-200/70 dark:border-slate-700/70 bg-white dark:bg-slate-900 shadow-sm shadow-slate-200/50 dark:shadow-slate-950/50 overflow-hidden">
           {/* 섹션 1: 업로드 */}
           <section className="p-6">
             <SectionLabel number={1} label="이미지 업로드" />
@@ -221,15 +221,15 @@ export default function ImageResizeClient() {
               <Divider />
               <div className="p-6 space-y-4">
                 {error && (
-                  <div className="flex items-start gap-3 rounded-xl bg-red-50 border border-red-100 px-4 py-3">
+                  <div className="flex items-start gap-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900/60 px-4 py-3">
                     <i className="bx bx-error-circle text-red-400 shrink-0 mt-0.5" />
-                    <p className="text-sm text-red-600">{error}</p>
+                    <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
                   </div>
                 )}
                 {successMsg && (
-                  <div className="flex items-start gap-3 rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3">
+                  <div className="flex items-start gap-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900/60 px-4 py-3">
                     <i className="bx bx-check-circle text-emerald-500 shrink-0 mt-0.5" />
-                    <p className="text-sm text-emerald-700">{successMsg}</p>
+                    <p className="text-sm text-emerald-700 dark:text-emerald-300">{successMsg}</p>
                   </div>
                 )}
 
@@ -250,7 +250,7 @@ export default function ImageResizeClient() {
         </div>
 
         {/* 안내 문구 */}
-        <p className="text-center text-xs text-slate-400">
+        <p className="text-center text-xs text-slate-400 dark:text-slate-500">
           업로드된 이미지는 서버에 저장되지 않으며, 메모리에서 즉시 처리 후 반환됩니다.
         </p>
       </div>
@@ -263,14 +263,14 @@ export default function ImageResizeClient() {
 function SectionLabel({ number, label }: { number: number; label: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="w-5 h-5 rounded-full bg-violet-100 text-violet-600 flex items-center justify-center text-xs font-bold shrink-0">
+      <span className="w-5 h-5 rounded-full bg-violet-100 dark:bg-violet-900/50 text-violet-600 dark:text-violet-400 flex items-center justify-center text-xs font-bold shrink-0">
         {number}
       </span>
-      <span className="text-sm font-semibold text-slate-700">{label}</span>
+      <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{label}</span>
     </div>
   );
 }
 
 function Divider() {
-  return <div className="border-t border-slate-100" />;
+  return <div className="border-t border-slate-100 dark:border-slate-800" />;
 }

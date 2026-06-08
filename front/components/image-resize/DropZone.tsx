@@ -79,10 +79,10 @@ export default function DropZone({
         className={[
           'relative rounded-2xl border-2 border-dashed transition-all duration-200 cursor-pointer overflow-hidden select-none',
           isDragging && !disabled
-            ? 'border-violet-400 bg-violet-50/60 scale-[1.005]'
+            ? 'border-violet-400 bg-violet-50/60 dark:bg-violet-950/60 dark:border-violet-500 scale-[1.005]'
             : file
-            ? 'border-violet-300 bg-violet-50/20 hover:border-violet-400'
-            : 'border-slate-200 hover:border-violet-300 hover:bg-violet-50/20',
+            ? 'border-violet-300 dark:border-violet-700 bg-violet-50/20 dark:bg-violet-950/20 hover:border-violet-400 dark:hover:border-violet-600'
+            : 'border-slate-200 dark:border-slate-700 hover:border-violet-300 dark:hover:border-violet-700 hover:bg-violet-50/20 dark:hover:bg-violet-950/20',
           disabled && 'opacity-60 cursor-not-allowed',
         ]
           .filter(Boolean)
@@ -91,7 +91,7 @@ export default function DropZone({
         {file && previewUrl ? (
           /* ── 파일 선택 후 미리보기 ── */
           <div className="flex items-center gap-4 p-5">
-            <div className="w-20 h-20 rounded-xl overflow-hidden bg-slate-100 shrink-0 border border-slate-200">
+            <div className="w-20 h-20 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-700 shrink-0 border border-slate-200 dark:border-slate-600">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={previewUrl}
@@ -100,11 +100,11 @@ export default function DropZone({
               />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-slate-800 truncate text-sm">{file.name}</p>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="font-semibold text-slate-800 dark:text-slate-100 truncate text-sm">{file.name}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 {fileSizeMB} MB
                 {originalDimensions && (
-                  <span className="ml-2 text-violet-500 font-medium">
+                  <span className="ml-2 text-violet-500 dark:text-violet-400 font-medium">
                     {originalDimensions.width} × {originalDimensions.height} px
                   </span>
                 )}
@@ -114,7 +114,7 @@ export default function DropZone({
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onClear(); }}
-              className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-400 transition-colors shrink-0"
+              className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/50 text-slate-400 dark:text-slate-500 hover:text-red-400 transition-colors shrink-0"
               title="삭제"
             >
               <i className="bx bx-x text-xl" />
@@ -123,7 +123,7 @@ export default function DropZone({
         ) : (
           /* ── 파일 선택 전 안내 ── */
           <div className="flex flex-col items-center justify-center gap-4 py-14 px-4 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-violet-50 flex items-center justify-center ring-1 ring-violet-100">
+            <div className="w-16 h-16 rounded-2xl bg-violet-50 dark:bg-violet-950/50 flex items-center justify-center ring-1 ring-violet-100 dark:ring-violet-900">
               <i
                 className={`bx text-4xl text-violet-400 ${
                   isDragging ? 'bx-download animate-bounce' : 'bx-cloud-upload'
@@ -131,19 +131,19 @@ export default function DropZone({
               />
             </div>
             <div className="space-y-1">
-              <p className="font-semibold text-slate-700">
+              <p className="font-semibold text-slate-700 dark:text-slate-300">
                 {isDragging ? '여기에 놓으세요!' : '이미지를 드래그하거나 클릭하여 업로드'}
               </p>
-              <p className="text-xs text-slate-400">JPEG · PNG · WebP · GIF · BMP · 최대 50 MB</p>
+              <p className="text-xs text-slate-400 dark:text-slate-500">JPEG · PNG · WebP · GIF · BMP · 최대 50 MB</p>
             </div>
           </div>
         )}
       </div>
 
       {validationError && (
-        <div className="flex items-center gap-2 rounded-xl bg-red-50 border border-red-100 px-4 py-2.5">
+        <div className="flex items-center gap-2 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900/60 px-4 py-2.5">
           <i className="bx bx-error-circle text-red-400 shrink-0" />
-          <p className="text-sm text-red-600">{validationError}</p>
+          <p className="text-sm text-red-600 dark:text-red-400">{validationError}</p>
         </div>
       )}
 

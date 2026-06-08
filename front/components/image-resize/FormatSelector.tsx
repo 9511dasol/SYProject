@@ -41,24 +41,24 @@ export default function FormatSelector({
             className={[
               'rounded-xl border-2 px-3 py-3 text-left transition-all duration-150',
               isSelected
-                ? 'border-violet-400 bg-violet-50 shadow-sm shadow-violet-100'
-                : 'border-slate-200 bg-white hover:border-violet-200 hover:bg-violet-50/30',
+                ? 'border-violet-400 dark:border-violet-600 bg-violet-50 dark:bg-violet-950/50 shadow-sm shadow-violet-100 dark:shadow-violet-900/30'
+                : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-violet-200 dark:hover:border-violet-700 hover:bg-violet-50/30 dark:hover:bg-violet-950/20',
               'disabled:cursor-not-allowed disabled:opacity-50',
             ].join(' ')}
           >
             <i
               className={`bx ${fmt.icon} text-2xl block mb-1.5 ${
-                isSelected ? 'text-violet-500' : 'text-slate-400'
+                isSelected ? 'text-violet-500 dark:text-violet-400' : 'text-slate-400 dark:text-slate-500'
               }`}
             />
             <p
               className={`text-sm font-semibold ${
-                isSelected ? 'text-violet-700' : 'text-slate-700'
+                isSelected ? 'text-violet-700 dark:text-violet-300' : 'text-slate-700 dark:text-slate-300'
               }`}
             >
               {fmt.label}
             </p>
-            <p className="text-xs text-slate-400 mt-0.5 leading-snug">{fmt.description}</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 leading-snug">{fmt.description}</p>
           </button>
         );
       })}

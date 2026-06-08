@@ -40,6 +40,7 @@ export default async function RootLayout({
     <html
       lang="ko"
       suppressHydrationWarning
+      data-scroll-behavior="smooth"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full">
