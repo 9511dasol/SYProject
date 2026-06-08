@@ -11,7 +11,7 @@ from app.core.database import SessionLocal, engine, Base
 from app.core.settings import settings
 from app.models.marketing_model import MarketingData as _MD, MarketingPeriodMeta as _MPM  # noqa: F401
 from app.models.report_log_model import ReportLog as _RL  # noqa: F401,W0611
-from app.routers import marketing_router, keyword_compare_router, report_mail_router
+from app.routers import marketing_router, keyword_compare_router, report_mail_router, image_resize_router, image_filter_router, heading_router
 from app.services.excel_service import _template_bytes
 
 logger = logging.getLogger(__name__)
@@ -90,11 +90,15 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition", "X-AI-Reason", "X-AI-Provider"],
 )
 
 app.include_router(marketing_router.router)
 app.include_router(keyword_compare_router.router)
 app.include_router(report_mail_router.router)
+app.include_router(image_resize_router.router)
+app.include_router(image_filter_router.router)
+app.include_router(heading_router.router)
 
 
 @app.get("/")

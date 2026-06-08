@@ -14,8 +14,6 @@ from app.services.image_filter_service import FilterRejectError, analyze_and_res
 
 router = APIRouter(prefix="/api/image-filter", tags=["image-filter"])
 
-_EXPOSE_HEADERS = "X-AI-Reason, X-AI-Provider, Content-Disposition"
-
 
 @router.post("/analyze-and-resize")
 async def analyze_and_resize_endpoint(
@@ -52,9 +50,8 @@ async def analyze_and_resize_endpoint(
         buf,
         media_type=content_type,
         headers={
-            "Content-Disposition":           f"attachment; filename*=UTF-8''{encoded_name}",
-            "Access-Control-Expose-Headers": _EXPOSE_HEADERS,
-            "X-AI-Reason":                   ai_reason,
-            "X-AI-Provider":                 ai_provider,
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}",
+            "X-AI-Reason":         ai_reason,
+            "X-AI-Provider":       ai_provider,
         },
     )
