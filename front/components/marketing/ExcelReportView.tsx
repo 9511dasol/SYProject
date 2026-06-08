@@ -24,7 +24,13 @@ const f = {
   },
 };
 
-const MEDIA_ORDER = ['네이버SA', '네이버BS', '카카오SA', '구글SA', '파워컨텐츠'];
+// 백엔드 media dict 키 순서 (파워컨텐츠 시트는 '네이버PSA'로 저장됨)
+const MEDIA_ORDER = ['네이버SA', '네이버BS', '카카오SA', '구글SA', '네이버PSA'];
+
+// 탭·헤더에 표시할 사람이 읽기 좋은 이름
+const MEDIA_DISPLAY: Record<string, string> = {
+  '네이버PSA': '파워컨텐츠',
+};
 
 const CATEGORY_LABEL: Record<string, string> = {
   naver_SA: '네이버SA',
@@ -283,7 +289,10 @@ export default function ExcelReportView({
   const mediaLabels = MEDIA_ORDER.filter((l) => l in data.media);
   const [activeTab, setActiveTab] = useState<string>('summary');
 
-  const TABS = [{ id: 'summary', label: '📊 요약' }, ...mediaLabels.map((l) => ({ id: l, label: l }))];
+  const TABS = [
+    { id: 'summary', label: '📊 요약' },
+    ...mediaLabels.map((l) => ({ id: l, label: MEDIA_DISPLAY[l] ?? l })),
+  ];
 
   return (
     <div className="rounded-2xl bg-white shadow-sm border border-slate-100 overflow-hidden">
@@ -348,7 +357,9 @@ export default function ExcelReportView({
         {mediaLabels.includes(activeTab) && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold text-slate-600">■ {activeTab} 일별 데이터</h3>
+              <h3 className="text-sm font-semibold text-slate-600">
+                ■ {MEDIA_DISPLAY[activeTab] ?? activeTab} 일별 데이터
+              </h3>
               <span className="text-xs text-slate-400">{data.media[activeTab].daily.length}일</span>
             </div>
             <MediaTable data={data.media[activeTab]} />

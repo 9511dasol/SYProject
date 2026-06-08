@@ -56,28 +56,36 @@ class ExcelReaderService:
     }
 
     def read_report(self, excel_bytes: bytes) -> dict:
-        wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=True)
-        period = self._detect_period(wb)
-        sname = f"summary_{period}"
-        ws = wb[sname] if sname in wb.sheetnames else None
-        if ws is None:
-            raise ValueError(f"'{sname}' 시트를 찾을 수 없습니다.")
+        # read_only=True: 스트리밍 파싱으로 메모리 절약 (시트 100개 이상 대용량 파일 대응)
+        # data_only=True: 수식 셀을 마지막 계산된 캐시 값으로 읽음
+        #   → 날짜 수식(='summary_...'!B70)도 datetime으로 정상 반환되어 row[0] 필터를 통과함
+        wb = openpyxl.load_workbook(
+            io.BytesIO(excel_bytes), read_only=True, data_only=True
+        )
+        try:
+            period = self._detect_period(wb)
+            sname = f"summary_{period}"
+            ws = wb[sname] if sname in wb.sheetnames else None
+            if ws is None:
+                raise ValueError(f"'{sname}' 시트를 찾을 수 없습니다.")
 
-        media = {}
-        for sheet_prefix, db_label in self.SHEET_TO_LABEL.items():
-            ms = f"{sheet_prefix}_{period}"
-            if ms in wb.sheetnames and db_label not in media:
-                media[db_label] = self._parse_media_sheet(wb[ms])
+            media = {}
+            for sheet_prefix, db_label in self.SHEET_TO_LABEL.items():
+                ms = f"{sheet_prefix}_{period}"
+                if ms in wb.sheetnames and db_label not in media:
+                    media[db_label] = self._parse_media_sheet(wb[ms])
 
-        return {
-            "period": period,
-            "period_info": self._parse_period_info(ws),
-            "sa_total": self._parse_sa_total(ws),
-            "budget_table": self._parse_budget_table(ws),
-            "comment": self._parse_comment(ws),
-            "daily_total": self._parse_daily_total(ws),
-            "media": media,
-        }
+            return {
+                "period": period,
+                "period_info": self._parse_period_info(ws),
+                "sa_total": self._parse_sa_total(ws),
+                "budget_table": self._parse_budget_table(ws),
+                "comment": self._parse_comment(ws),
+                "daily_total": self._parse_daily_total(ws),
+                "media": media,
+            }
+        finally:
+            wb.close()
 
     # ── 내부 헬퍼 ─────────────────────────────────────────────────────────────
 
@@ -175,12 +183,16 @@ class ExcelReaderService:
         return rows
 
     def _parse_media_sheet(self, ws) -> dict:
-        headers = []
-        for c in range(2, 30):
+        # Read all candidate headers (cols 2–34), replacing None with "".
+        # Do NOT stop at the first None — some templates have sparse headers.
+        raw: list[str] = []
+        for c in range(2, 35):
             v = ws.cell(21, c).value
-            if v is None:
-                break
-            headers.append(str(v).replace("\n", " "))
+            raw.append("" if v is None else str(v).replace("\n", " "))
+        # Drop trailing empty entries so len(headers) == useful column count.
+        while raw and raw[-1] == "":
+            raw.pop()
+        headers = raw
 
         n = len(headers)
         total = self._parse_row(ws, 22, n)
@@ -201,22 +213,23 @@ class ExcelReaderService:
         import pandas as pd
         records = []
         for media_label, sheet in report["media"].items():
-            # headers[0]=날짜, [1]=노출, [2]=클릭, [5]=광고비(vat+), [6]=총전환수, [16]=구매매출
-            # 컬럼 인덱스: 날짜=0, 노출=1, 클릭=2, 광고비=5, 총전환수=6, 구매매출=16
+            headers = sheet["headers"]
+
+            def _find(predicate, default):
+                return next((i for i, h in enumerate(headers) if predicate(h)), default)
+
             col_imp = 1
             col_clk = 2
-            col_cost = next(
-                (i for i, h in enumerate(sheet["headers"]) if "광고비" in h and "vat" in h.lower()),
-                5,
-            )
-            col_conv = next(
-                (i for i, h in enumerate(sheet["headers"]) if h.startswith("총전환수") and "제외" not in h),
-                6,
-            )
-            col_rev = next(
-                (i for i, h in enumerate(sheet["headers"]) if "구매매출" in h),
-                16,
-            )
+            col_cost = _find(lambda h: "광고비" in h and "vat" in h.lower(), 5)
+            col_conv = _find(lambda h: h.startswith("총전환수") and "제외" not in h, 6)
+            col_rev = _find(lambda h: "구매매출" in h, 16)
+            col_signup = _find(lambda h: "회원가입" in h, None)
+            col_purchase = _find(lambda h: "구매완료" in h and "매출" not in h, None)
+            col_apply = _find(lambda h: "신청" in h and "회원" not in h, None)
+
+            def _get(row, col):
+                return _safe(row[col] if col is not None and col < len(row) else None)
+
             for row in sheet["daily"]:
                 date_val = row[0]
                 if not date_val:
@@ -224,10 +237,13 @@ class ExcelReaderService:
                 records.append({
                     "report_date": date_val,
                     "campaign_type": media_label,
-                    "impressions": int(_safe(row[col_imp] if col_imp < len(row) else None)),
-                    "clicks": int(_safe(row[col_clk] if col_clk < len(row) else None)),
-                    "cost": _safe(row[col_cost] if col_cost < len(row) else None),
-                    "conversions": int(_safe(row[col_conv] if col_conv < len(row) else None)),
-                    "conversion_revenue": _safe(row[col_rev] if col_rev < len(row) else None),
+                    "impressions": int(_get(row, col_imp)),
+                    "clicks": int(_get(row, col_clk)),
+                    "cost": _get(row, col_cost),
+                    "conversions": int(_get(row, col_conv)),
+                    "conversion_revenue": _get(row, col_rev),
+                    "signup": _get(row, col_signup),
+                    "purchase": _get(row, col_purchase),
+                    "apply": _get(row, col_apply),
                 })
         return pd.DataFrame(records)

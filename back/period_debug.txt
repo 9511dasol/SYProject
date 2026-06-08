@@ -1,0 +1,39 @@
+=== 파워컨텐츠 관련 시트명 hex ===
+  '파워컨텐츠_26년 5월'
+  hex: ed8c8cec9b8cecbba8ed8590ecb8a05f3236eb85842035ec9b94
+  '파워컨텐츠_26년 4월'
+  hex: ed8c8cec9b8cecbba8ed8590ecb8a05f3236eb85842034ec9b94
+  '파워컨텐츠_26년 3월'
+  hex: ed8c8cec9b8cecbba8ed8590ecb8a05f3236eb85842033ec9b94
+  '파워컨텐츠_26년 1월'
+  hex: ed8c8cec9b8cecbba8ed8590ecb8a05f3236eb85842031ec9b94
+  '파워컨텐츠_26년 2월'
+  hex: ed8c8cec9b8cecbba8ed8590ecb8a05f3236eb85842032ec9b94
+  '파워컨텐츠_12월'
+  hex: ed8c8cec9b8cecbba8ed8590ecb8a05f3132ec9b94
+  '파워컨텐츠_11월'
+  hex: ed8c8cec9b8cecbba8ed8590ecb8a05f3131ec9b94
+  '파워컨텐츠_9월'
+  hex: ed8c8cec9b8cecbba8ed8590ecb8a05f39ec9b94
+  '파워컨텐츠_10월'
+  hex: ed8c8cec9b8cecbba8ed8590ecb8a05f3130ec9b94
+  '파워컨텐츠_8월'
+  hex: ed8c8cec9b8cecbba8ed8590ecb8a05f38ec9b94
+  '파워컨텐츠_6월'
+  hex: ed8c8cec9b8cecbba8ed8590ecb8a05f36ec9b94
+  '파워컨텐츠_7월'
+  hex: ed8c8cec9b8cecbba8ed8590ecb8a05f37ec9b94
+  '파워컨텐츠_5월'
+  hex: ed8c8cec9b8cecbba8ed8590ecb8a05f35ec9b94
+  '파워컨텐츠_4월'
+  hex: ed8c8cec9b8cecbba8ed8590ecb8a05f34ec9b94
+
+=== _detect_period 시뮬레이션 ===
+prefix='summary_26년'
+candidates count=5
+candidates[-1]='summary_26년 5월'
+period='26년 5월'
+period hex=3236eb85842035ec9b94
+ms_psa='파워컨텐츠_26년 5월'
+ms_psa hex=ed8c8cec9b8cecbba8ed8590ecb8a05f3236eb85842035ec9b94
+ms_psa in sheetnames: True

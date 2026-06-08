@@ -1,0 +1,84 @@
+
+=== 네이버SA_26년 5월 ===
+  [헤더 row21 full]:
+    col2(idx0): '날짜'
+    col3(idx1): '노출'
+    col4(idx2): '클릭'
+    col5(idx3): 'CTR'
+    col6(idx4): 'CPC'
+    col7(idx5): '광고비(vat+)'
+    col8(idx6): '총전환수'
+    col9(idx7): '전환율'
+    col10(idx8): '전환단가'
+    col11(idx9): '총전환수\n(신청제외)'
+    col12(idx10): '전환율\n(신청제외)'
+    col13(idx11): '전환단가\n(신청제외)'
+    col14(idx12): '회원가입'
+    col15(idx13): '회원가입률'
+    col16(idx14): '구매완료'
+    col17(idx15): '결제완료율'
+    col18(idx16): '구매매출'
+    col19(idx17): '구매수익률'
+    col20(idx18): '구매단가'
+    col21(idx19): '설명회신청'
+    col22(idx20): '설명회신청률'
+  [daily row23 full]:
+    col2(idx0): datetime.datetime(2026, 5, 1, 0, 0)
+    col3(idx1): 141677
+    col4(idx2): 404
+    col5(idx3): 0.0028515567099811545
+    col6(idx4): 1102.3341584158416
+    col7(idx5): 445343
+    col8(idx6): 23
+    col9(idx7): 0.05693069306930693
+    col10(idx8): 19362.739130434784
+    col11(idx9): 21
+    col12(idx10): 0.05198019801980198
+    col13(idx11): 21206.809523809523
+    col14(idx12): 6
+    col15(idx13): 0.01485148514851485
+    col16(idx14): 15
+    col17(idx15): 0.03712871287128713
+    col18(idx16): 8216600
+    col19(idx17): 18.45004861421421
+    col20(idx18): 547773.3333333334
+    col21(idx19): 2
+    col22(idx20): 0.0049504950495049506
+
+=== 파워컨텐츠_26년 5월 ===
+  [헤더 row21 full]:
+    col2(idx0): '날짜'
+    col3(idx1): '노출'
+    col4(idx2): '클릭'
+    col5(idx3): 'CTR'
+    col6(idx4): 'CPC'
+    col7(idx5): '광고비(vat+)'
+    col8(idx6): '광고비\n(markup)'
+    col9(idx7): '총전환수'
+    col10(idx8): '전환율'
+    col11(idx9): '전환단가'
+    col12(idx10): '회원가입'
+    col13(idx11): '회원가입률'
+    col14(idx12): '구매완료'
+    col15(idx13): '결제완료율'
+    col16(idx14): '구매매출'
+    col17(idx15): '구매수익률'
+    col18(idx16): '구매단가'
+  [daily row23 full]:
+    col2(idx0): datetime.datetime(2026, 5, 1, 0, 0)
+    col3(idx1): 1769
+    col4(idx2): 180
+    col5(idx3): 0.10175240248728094
+    col6(idx4): 842.7611111111111
+    col7(idx5): 151697
+    col8(idx6): 15169.7
+    col9(idx7): 0
+    col10(idx8): 0
+    col11(idx9): 0
+    col12(idx10): 0
+    col13(idx11): 0
+    col14(idx12): 0
+    col15(idx13): 0
+    col16(idx14): 0
+    col17(idx15): 0
+    col18(idx16): 0

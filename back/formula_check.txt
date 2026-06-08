@@ -1,0 +1,75 @@
+=== 파워컨텐츠_26년 5월: row 23 전환 관련 컬럼 raw 값 ===
+(data_only=False: 수식이면 =SUMIFS... 형태로 나옴)
+
+row 21:
+  col2(idx0): '날짜'
+  col3(idx1): '노출'
+  col4(idx2): '클릭'
+  col5(idx3): 'CTR'
+  col6(idx4): 'CPC'
+  col7(idx5): '광고비(vat+)'
+  col8(idx6): '광고비\n(markup)'
+  col9(idx7): '총전환수'
+  col10(idx8): '전환율'
+  col11(idx9): '전환단가'
+  col12(idx10): '회원가입'
+  col13(idx11): '회원가입률'
+  col14(idx12): '구매완료'
+  col15(idx13): '결제완료율'
+  col16(idx14): '구매매출'
+  col17(idx15): '구매수익률'
+  col18(idx16): '구매단가'
+row 22:
+  col2(idx0): 'TOTAL'
+  col3(idx1): '=SUM(C23:C53)'
+  col4(idx2): '=SUM(D23:D53)'
+  col5(idx3): '=IFERROR(D22/C22,)'
+  col6(idx4): '=IFERROR(G22/D22,)'
+  col7(idx5): '=SUM(G23:G53)'
+  col8(idx6): '=SUM(H23:H50)'
+  col9(idx7): '=SUM(I23:I53)'
+  col10(idx8): '=IFERROR(I22/D22,)'
+  col11(idx9): '=IFERROR(G22/I22,)'
+  col12(idx10): '=SUM(L23:L50)'
+  col13(idx11): '=IFERROR(L22/D22,)'
+  col14(idx12): '=SUM(N23:N50)'
+  col15(idx13): '=IFERROR(N22/D22,)'
+  col16(idx14): '=SUM(P23:P50)'
+  col17(idx15): '=IFERROR(P22/F22,)'
+  col18(idx16): '=SUM(R23:R50)'
+row 23:
+  col2(idx0): "='summary_26년 5월'!B70"
+  col3(idx1): 1769
+  col4(idx2): 180
+  col5(idx3): '=IFERROR(D23/C23,)'
+  col6(idx4): '=IFERROR(G23/D23,)'
+  col7(idx5): 151697
+  col8(idx6): '=G23*10%'
+  col9(idx7): 0
+  col10(idx8): '=IFERROR(I23/D23,)'
+  col11(idx9): '=IFERROR(G23/I23,)'
+  col12(idx10): 0
+  col13(idx11): '=IFERROR(L23/D23,)'
+  col14(idx12): 0
+  col15(idx13): '=IFERROR(N23/D23,)'
+  col16(idx14): 0
+  col17(idx15): '=IFERROR(P23/F23,)'
+  col18(idx16): '=IFERROR(P23/N23,)'
+row 24:
+  col2(idx0): "='summary_26년 5월'!B71"
+  col3(idx1): 1798
+  col4(idx2): 176
+  col5(idx3): '=IFERROR(D24/C24,)'
+  col6(idx4): '=IFERROR(G24/D24,)'
+  col7(idx5): 145081
+  col8(idx6): '=G24*10%'
+  col9(idx7): 0
+  col10(idx8): '=IFERROR(I24/D24,)'
+  col11(idx9): '=IFERROR(G24/I24,)'
+  col12(idx10): 0
+  col13(idx11): '=IFERROR(L24/D24,)'
+  col14(idx12): 0
+  col15(idx13): '=IFERROR(N24/D24,)'
+  col16(idx14): 0
+  col17(idx15): '=IFERROR(P24/F24,)'
+  col18(idx16): '=IFERROR(P24/N24,)'

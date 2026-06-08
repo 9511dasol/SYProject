@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 from app.core.database import engine, Base
 from app.models.marketing_model import MarketingData as _MD, MarketingPeriodMeta as _MPM  # noqa: F401
-from app.routers import marketing_router
+from app.routers import marketing_router, image_resize_router, image_filter_router, heading_router, task_router
 from app.services.excel_service import _template_bytes
 
 
@@ -37,6 +37,10 @@ app.add_middleware(
 )
 
 app.include_router(marketing_router.router)
+app.include_router(image_resize_router.router)
+app.include_router(image_filter_router.router)
+app.include_router(heading_router.router)
+app.include_router(task_router.router)
 
 
 @app.get("/")

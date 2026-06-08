@@ -13,7 +13,12 @@ const fmt = {
   dec: (v: number) => v.toFixed(1),
 };
 
-const MEDIA_ORDER = ['네이버SA', '네이버BS', '카카오SA', '구글SA', '파워컨텐츠'];
+// DB campaign_type 키 기준 (파워컨텐츠 시트는 '네이버PSA'로 저장됨)
+const MEDIA_ORDER = ['네이버SA', '네이버BS', '카카오SA', '구글SA', '네이버PSA'];
+
+const MEDIA_DISPLAY: Record<string, string> = {
+  '네이버PSA': '파워컨텐츠',
+};
 
 // ── pending 타입 ──────────────────────────────────────────────────────────────
 type PendingEntry = RowFormData | 'deleted';
@@ -97,7 +102,7 @@ function SummaryTable({ rows }: { rows: MediaSummary[] }) {
         <tbody>
           {rows.map((r, i) => (
             <tr key={r.label} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
-              <td className="px-3 py-2 font-medium text-slate-700 whitespace-nowrap">{r.label}</td>
+              <td className="px-3 py-2 font-medium text-slate-700 whitespace-nowrap">{MEDIA_DISPLAY[r.label] ?? r.label}</td>
               <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmt.num(r.impressions)}</td>
               <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmt.num(r.clicks)}</td>
               <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmt.pct(r.ctr)}</td>
@@ -652,7 +657,7 @@ export default function ReportView({ data, onClose, editable = false, year, mont
                     : 'text-slate-500 hover:text-slate-700'
                   }`}
               >
-                {tab === 'summary' ? '요약' : tab}
+                {tab === 'summary' ? '요약' : (MEDIA_DISPLAY[tab] ?? tab)}
                 {tabAdded > 0 && (
                   <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200 leading-none">
                     +{tabAdded}
@@ -714,7 +719,7 @@ export default function ReportView({ data, onClose, editable = false, year, mont
                 {/* 섹션 헤더 */}
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-sm font-medium text-slate-600">{activeTab} 일별 데이터</h3>
+                    <h3 className="text-sm font-medium text-slate-600">{MEDIA_DISPLAY[activeTab] ?? activeTab} 일별 데이터</h3>
                     {addedCount > 0 && (
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium">
                         <i className="bx bx-plus text-[10px]" />신규 {addedCount}일
