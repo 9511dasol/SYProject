@@ -144,7 +144,7 @@ export default function ImageResizeClient() {
 
   /* ── 렌더 ───────────────────────────────────────────────────── */
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-violet-50/30 py-10 px-4">
+    <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-violet-50/30 py-10 px-4">
       <div className="max-w-xl mx-auto space-y-6">
         {/* 헤더 */}
         <header className="text-center space-y-3">
@@ -235,7 +235,7 @@ export default function ImageResizeClient() {
 
                 {file && (
                   <Button
-                    className="w-full !bg-violet-600 hover:!bg-violet-700 !rounded-xl"
+                    className="w-full bg-violet-600! hover:bg-violet-700! rounded-xl!"
                     onClick={handleResize}
                     isLoading={isProcessing}
                     disabled={!canResize}
