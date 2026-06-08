@@ -22,7 +22,6 @@ interface Props {
   pendingLoads: PendingLoad[];
   onRemoveReport: (id: string) => void;
   onSaveReport: (id: string, replace: boolean) => void;
-  refreshTrigger?: number;
   onOpenUpload?: () => void;
   activeTab: string;
   onTabChange: (id: string) => void;
@@ -35,7 +34,6 @@ export default function ReportDashboard({
   pendingLoads,
   onRemoveReport,
   onSaveReport,
-  refreshTrigger,
   onOpenUpload,
   activeTab,
   onTabChange,
@@ -85,7 +83,7 @@ export default function ReportDashboard({
                 className="flex items-center gap-1.5 pl-3 pr-1.5 py-2"
               >
                 <i className="bx bx-file text-sm" />
-                <span className="max-w-[110px] truncate">가져온 리포트 {idx + 1}</span>
+                <span className="max-w-27.5 truncate">가져온 리포트 {idx + 1}</span>
               </button>
               <button
                 onClick={(e) => {
@@ -121,7 +119,7 @@ export default function ReportDashboard({
 
       {/* 탭 콘텐츠 */}
       {activeTab === DB_TAB || !showTabs ? (
-        <DbDashboard refreshTrigger={refreshTrigger} onOpenUpload={onOpenUpload} />
+        <DbDashboard onOpenUpload={onOpenUpload} />
       ) : activeReport ? (
         <div className="space-y-3">
           {/* 액션 바 */}

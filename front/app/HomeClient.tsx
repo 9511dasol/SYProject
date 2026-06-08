@@ -1,12 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
 import MainTabs from '@/components/marketing/MainTabs';
 import ReportDashboard, { type ImportedReport, type PendingLoad } from '@/components/marketing/ReportDashboard';
 import Modal from '@/components/ui/Modal';
 import ToastContainer, { type ToastItem } from '@/components/ui/Toast';
 import BottomTaskBar, { type TaskProgress } from '@/components/ui/BottomTaskBar';
 import { loadExcelReport, startSaveExcelTask, getSaveExcelTaskStatus, undoUpload } from '@/lib/marketingClient';
+import { queryKeys } from '@/lib/queryKeys';
 import {
   deletePersistedReport,
   loadActiveTab,
@@ -14,6 +16,15 @@ import {
   persistReport,
   saveActiveTab,
 } from '@/lib/reportStorage';
+
+// ── 저장 태스크 내부 상태 ──────────────────────────────────────────────────────
+
+interface SaveTaskEntry {
+  id: string;          // 로컬 UI ID
+  label: string;
+  remoteId: string | null;   // startSaveExcelTask 완료 후 채워짐
+  startError?: string;       // startSaveExcelTask 실패 시
+}
 
 // ── 퀵 액션 카드 데이터 ────────────────────────────────────────────────────────
 
@@ -55,8 +66,8 @@ function SectionHeader({
         {step}
       </span>
       <div>
-        <h2 className="text-lg font-semibold text-slate-900 tracking-tight">{title}</h2>
-        <p className="text-sm text-slate-500 mt-1 leading-relaxed">{description}</p>
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-fg tracking-tight">{title}</h2>
+        <p className="text-sm text-slate-500 dark:text-fg-muted mt-1 leading-relaxed">{description}</p>
       </div>
     </div>
   );
@@ -65,13 +76,17 @@ function SectionHeader({
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
 
 export default function HomeClient() {
+  const queryClient = useQueryClient();
+
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const [saveTasks, setSaveTasks] = useState<TaskProgress[]>([]);
+  const [saveTaskEntries, setSaveTaskEntries] = useState<SaveTaskEntry[]>([]);
   const [importedReports, setImportedReports] = useState<ImportedReport[]>([]);
   const [pendingLoads, setPendingLoads] = useState<PendingLoad[]>([]);
   const [activeDashTab, setActiveDashTab] = useState<string>('db');
+
+  // 완료된 remoteId는 한 번만 invalidate
+  const invalidatedRef = useRef(new Set<string>());
 
   // IndexedDB에서 저장된 리포트 복원
   useEffect(() => {
@@ -87,6 +102,60 @@ export default function HomeClient() {
       .catch(() => {});
   }, []);
 
+  // ── 저장 태스크 폴링 (useQueries) ────────────────────────────────────────────
+  // remoteId가 있는 항목만 폴링
+  const pollEntries = saveTaskEntries.filter((t) => t.remoteId);
+
+  const saveTaskQueries = useQueries({
+    queries: pollEntries.map((entry) => ({
+      queryKey: queryKeys.saveTask(entry.remoteId!),
+      queryFn: () => getSaveExcelTaskStatus(entry.remoteId!),
+      refetchInterval: (query: { state: { data?: { status?: string } } }) => {
+        const s = query.state.data?.status;
+        return s === 'done' || s === 'error' ? false : 600;
+      },
+      retry: 5,
+      retryDelay: 1200,
+      staleTime: 0,
+    })),
+  });
+
+  // 완료 태스크 → periods 캐시 무효화 (한 번만)
+  useEffect(() => {
+    pollEntries.forEach((entry, idx) => {
+      const data = saveTaskQueries[idx]?.data;
+      if (data?.status === 'done' && entry.remoteId && !invalidatedRef.current.has(entry.remoteId)) {
+        invalidatedRef.current.add(entry.remoteId);
+        queryClient.invalidateQueries({ queryKey: queryKeys.periods() });
+      }
+    });
+  });
+
+  // BottomTaskBar용 TaskProgress 파생
+  const saveTasks: TaskProgress[] = saveTaskEntries.map((entry) => {
+    if (entry.startError) {
+      return { id: entry.id, label: entry.label, status: 'error', message: entry.startError };
+    }
+    if (!entry.remoteId) {
+      return { id: entry.id, label: entry.label, status: 'pending', progress: 0 };
+    }
+    const idx = pollEntries.findIndex((t) => t.id === entry.id);
+    const q = saveTaskQueries[idx];
+    const data = q?.data;
+    if (!data) {
+      return { id: entry.id, label: entry.label, status: 'processing', progress: 5 };
+    }
+    return {
+      id: entry.id,
+      label: entry.label,
+      status: (data.status === 'done' || data.status === 'error') ? data.status : 'processing',
+      progress: data.status === 'done' ? 100 : (data.progress ?? 0),
+      message: data.message ?? data.error,
+    };
+  });
+
+  // ── 토스트 ────────────────────────────────────────────────────────────────────
+
   const addToast = useCallback(
     (type: ToastItem['type'], message: string, action?: ToastItem['action']) => {
       const id = `${Date.now()}-${Math.random()}`;
@@ -99,18 +168,21 @@ export default function HomeClient() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  // ── 업로드 핸들러 ─────────────────────────────────────────────────────────────
+
   const handleUploadSuccess = useCallback(
     (message: string, undoId?: string) => {
       setUploadOpen(false);
-      setRefreshTrigger((n) => n + 1);
+      // refreshTrigger 대신 직접 캐시 무효화
+      queryClient.invalidateQueries({ queryKey: queryKeys.periods() });
       if (undoId) {
         addToast('success', message, {
           label: '되돌리기',
           onClick: () => {
             undoUpload(undoId)
-              .then((res) => {
-                setRefreshTrigger((n) => n + 1);
-                addToast('success', res.message);
+              .then(() => {
+                queryClient.invalidateQueries({ queryKey: queryKeys.periods() });
+                addToast('success', '되돌리기 완료');
               })
               .catch((err) =>
                 addToast('error', err instanceof Error ? err.message : '되돌리기 실패'),
@@ -121,13 +193,15 @@ export default function HomeClient() {
         addToast('success', message);
       }
     },
-    [addToast],
+    [addToast, queryClient],
   );
 
   const handleUploadError = useCallback(
     (message: string) => addToast('error', message),
     [addToast],
   );
+
+  // ── Excel 리포트 불러오기 ─────────────────────────────────────────────────────
 
   const handleRequestLoad = useCallback(
     (file: File, fileName: string) => {
@@ -147,8 +221,7 @@ export default function HomeClient() {
           addToast('success', `"${label}" 리포트를 불러왔습니다.`);
         })
         .catch((err) => {
-          const msg = err instanceof Error ? err.message : '불러오기 실패';
-          addToast('error', `"${label}" 불러오기 실패: ${msg}`);
+          addToast('error', `"${label}" 불러오기 실패: ${err instanceof Error ? err.message : '오류'}`);
         })
         .finally(() => {
           setPendingLoads((prev) => prev.filter((p) => p.id !== id));
@@ -167,88 +240,32 @@ export default function HomeClient() {
     deletePersistedReport(id).catch(() => {});
   }, []);
 
+  // ── DB 저장 (setInterval → useQueries 기반) ───────────────────────────────────
+
   const handleSaveImported = useCallback(
-    (id: string, replace: boolean) => {
+    async (id: string, replace: boolean) => {
       const report = importedReports.find((r) => r.id === id);
       if (!report) return;
 
-      const taskId = `save-${Date.now()}`;
+      const localId = `save-${Date.now()}`;
       const label = `${report.data.period} DB 저장 중…`;
-      setSaveTasks((prev) => [...prev, { id: taskId, label, status: 'pending', progress: 0 }]);
 
-      startSaveExcelTask(report.file, replace)
-        .then(({ task_id }) => {
-          setSaveTasks((prev) =>
-            prev.map((t) => (t.id === taskId ? { ...t, status: 'processing', progress: 5 } : t)),
-          );
+      setSaveTaskEntries((prev) => [...prev, { id: localId, label, remoteId: null }]);
 
-          let errorCount = 0;
-          const poll = setInterval(() => {
-            getSaveExcelTaskStatus(task_id)
-              .then((res) => {
-                errorCount = 0;
-                if (res.status === 'done') {
-                  clearInterval(poll);
-                  setRefreshTrigger((n) => n + 1);
-                  setSaveTasks((prev) =>
-                    prev.map((t) =>
-                      t.id === taskId
-                        ? { ...t, status: 'done', progress: 100, message: res.message }
-                        : t,
-                    ),
-                  );
-                } else if (res.status === 'error') {
-                  clearInterval(poll);
-                  setSaveTasks((prev) =>
-                    prev.map((t) =>
-                      t.id === taskId
-                        ? { ...t, status: 'error', progress: 0, message: res.error ?? '저장 실패' }
-                        : t,
-                    ),
-                  );
-                } else {
-                  const progress = typeof res.progress === 'number' ? res.progress : undefined;
-                  setSaveTasks((prev) =>
-                    prev.map((t) =>
-                      t.id === taskId ? { ...t, ...(progress != null ? { progress } : {}) } : t,
-                    ),
-                  );
-                }
-              })
-              .catch(() => {
-                errorCount++;
-                if (errorCount >= 5) {
-                  clearInterval(poll);
-                  setSaveTasks((prev) =>
-                    prev.map((t) =>
-                      t.id === taskId
-                        ? {
-                            ...t,
-                            status: 'error',
-                            progress: 0,
-                            message: '네트워크 오류로 저장 상태를 확인할 수 없습니다.',
-                          }
-                        : t,
-                    ),
-                  );
-                }
-              });
-          }, 600);
-        })
-        .catch((err) => {
-          setSaveTasks((prev) =>
-            prev.map((t) =>
-              t.id === taskId
-                ? {
-                    ...t,
-                    status: 'error',
-                    progress: 0,
-                    message: err instanceof Error ? err.message : '저장 실패',
-                  }
-                : t,
-            ),
-          );
-        });
+      try {
+        const { task_id } = await startSaveExcelTask(report.file, replace);
+        setSaveTaskEntries((prev) =>
+          prev.map((t) => (t.id === localId ? { ...t, remoteId: task_id } : t)),
+        );
+      } catch (err) {
+        setSaveTaskEntries((prev) =>
+          prev.map((t) =>
+            t.id === localId
+              ? { ...t, startError: err instanceof Error ? err.message : '저장 시작 실패' }
+              : t,
+          ),
+        );
+      }
     },
     [importedReports],
   );
@@ -265,7 +282,9 @@ export default function HomeClient() {
       <ToastContainer toasts={toasts} onRemove={removeToast} />
       <BottomTaskBar
         tasks={saveTasks}
-        onRemove={(id) => setSaveTasks((prev) => prev.filter((t) => t.id !== id))}
+        onRemove={(id) =>
+          setSaveTaskEntries((prev) => prev.filter((t) => t.id !== id))
+        }
       />
 
       {/* 업로드 모달 */}
@@ -296,10 +315,10 @@ export default function HomeClient() {
           <p className="text-xs font-semibold uppercase tracking-wider text-blue-600 mb-2">
             Marketing Data Pipeline
           </p>
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight mb-2">
+          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-fg tracking-tight mb-2">
             무엇을 하시겠어요?
           </h2>
-          <p className="text-sm text-slate-500 mb-6 max-w-xl leading-relaxed">
+          <p className="text-sm text-slate-500 dark:text-fg-muted mb-6 max-w-xl leading-relaxed">
             이미 저장된 데이터가 있으면 리포트부터 확인하고, 새 파일이 있다면 업로드를 시작하세요.
           </p>
 
@@ -310,23 +329,18 @@ export default function HomeClient() {
                   key={action.id}
                   onClick={openUpload}
                   className={`group relative flex gap-4 p-5 rounded-2xl border bg-linear-to-br
-                    ${action.accent} bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5
+                    ${action.accent} bg-white dark:bg-surface dark:border-border shadow-sm hover:shadow-md hover:-translate-y-0.5
                     transition-all duration-200 text-left`}
                 >
-                  <span
-                    className={`flex items-center justify-center w-11 h-11 rounded-xl
-                      ${action.iconBg} text-white shadow-sm shrink-0`}
-                  >
+                  <span className={`flex items-center justify-center w-11 h-11 rounded-xl ${action.iconBg} text-white shadow-sm shrink-0`}>
                     <i className={`bx ${action.icon} text-xl`} />
                   </span>
                   <div className="min-w-0 pt-0.5">
-                    <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 group-hover:text-slate-900">
+                    <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-fg group-hover:text-slate-900 dark:group-hover:text-fg">
                       {action.title}
-                      <i className="bx bx-right-arrow-alt text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                      <i className="bx bx-right-arrow-alt text-slate-400 dark:text-fg-subtle group-hover:translate-x-0.5 transition-transform" />
                     </span>
-                    <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-                      {action.description}
-                    </p>
+                    <p className="text-xs text-slate-500 dark:text-fg-muted mt-1.5 leading-relaxed">{action.description}</p>
                   </div>
                 </button>
               ) : (
@@ -334,34 +348,29 @@ export default function HomeClient() {
                   key={action.id}
                   href={action.href}
                   className={`group relative flex gap-4 p-5 rounded-2xl border bg-linear-to-br
-                    ${action.accent} bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5
+                    ${action.accent} bg-white dark:bg-surface dark:border-border shadow-sm hover:shadow-md hover:-translate-y-0.5
                     transition-all duration-200`}
                 >
-                  <span
-                    className={`flex items-center justify-center w-11 h-11 rounded-xl
-                      ${action.iconBg} text-white shadow-sm shrink-0`}
-                  >
+                  <span className={`flex items-center justify-center w-11 h-11 rounded-xl ${action.iconBg} text-white shadow-sm shrink-0`}>
                     <i className={`bx ${action.icon} text-xl`} />
                   </span>
                   <div className="min-w-0 pt-0.5">
-                    <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 group-hover:text-slate-900">
+                    <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-fg group-hover:text-slate-900 dark:group-hover:text-fg">
                       {action.title}
-                      <i className="bx bx-right-arrow-alt text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                      <i className="bx bx-right-arrow-alt text-slate-400 dark:text-fg-subtle group-hover:translate-x-0.5 transition-transform" />
                     </span>
-                    <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-                      {action.description}
-                    </p>
+                    <p className="text-xs text-slate-500 dark:text-fg-muted mt-1.5 leading-relaxed">{action.description}</p>
                   </div>
                 </a>
               ),
             )}
           </div>
 
-          <ol className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-500">
+          <ol className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-500 dark:text-fg-muted">
             {(['연·월 선택 후 리포트 확인', 'CSV / Excel 업로드', 'DB 저장 후 대시보드 재조회'] as const).map(
               (step, i) => (
                 <li key={i} className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-semibold text-[10px]">
+                  <span className="w-5 h-5 rounded-full bg-slate-100 dark:bg-surface-2 text-slate-600 dark:text-fg-muted flex items-center justify-center font-semibold text-[10px]">
                     {i + 1}
                   </span>
                   {step}
@@ -373,7 +382,7 @@ export default function HomeClient() {
 
         {/* 리포트 대시보드 */}
         <section id="saved-report" className="scroll-mt-20">
-          <div className="rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm shadow-slate-200/50 p-5 sm:p-7">
+          <div className="rounded-2xl border border-slate-200/80 dark:border-border bg-white/90 dark:bg-surface shadow-sm shadow-slate-200/50 dark:shadow-black/20 p-5 sm:p-7">
             <SectionHeader
               step="01"
               title="리포트"
@@ -384,7 +393,6 @@ export default function HomeClient() {
               pendingLoads={pendingLoads}
               onRemoveReport={handleRemoveReport}
               onSaveReport={handleSaveImported}
-              refreshTrigger={refreshTrigger}
               onOpenUpload={openUpload}
               activeTab={activeDashTab}
               onTabChange={handleTabChange}

@@ -1,5 +1,5 @@
 import type { ExcelReport } from '@/types/marketing';
-import type { ImportedReport } from '@/app/HomeClient';
+import type { ImportedReport } from '@/components/marketing/ReportDashboard';
 
 const DB_NAME = 'marketing_reports';
 const DB_VERSION = 1;

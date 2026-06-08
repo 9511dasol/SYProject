@@ -12,7 +12,7 @@ export default function AppShell({ children }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen flex bg-background">
+    <div className="min-h-screen flex bg-bg transition-colors duration-200">
       {/* 사이드바 */}
       <Sidebar
         open={sidebarOpen}

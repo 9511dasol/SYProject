@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 
-export type ToastType = 'success' | 'error';
+export type ToastType = 'success' | 'error' | 'info';
 
 export interface ToastItem {
   id: string;
@@ -10,6 +10,18 @@ export interface ToastItem {
   message: string;
   action?: { label: string; onClick: () => void };
 }
+
+const TOAST_STYLES: Record<ToastType, string> = {
+  success: 'bg-emerald-600 text-white',
+  error:   'bg-red-600 text-white',
+  info:    'bg-slate-800 text-white dark:bg-slate-700',
+};
+
+const TOAST_ICONS: Record<ToastType, string> = {
+  success: 'bx-check-circle',
+  error:   'bx-error-circle',
+  info:    'bx-info-circle',
+};
 
 function SingleToast({ toast, onRemove }: { toast: ToastItem; onRemove: () => void }) {
   const timeout = toast.action ? 10000 : 4500;
@@ -19,21 +31,16 @@ function SingleToast({ toast, onRemove }: { toast: ToastItem; onRemove: () => vo
     return () => clearTimeout(t);
   }, [onRemove, timeout]);
 
-  const isSuccess = toast.type === 'success';
-
   return (
     <div
       role="alert"
-      className={`flex items-start gap-3 px-4 py-3.5 rounded-xl shadow-lg shadow-black/10 text-sm font-medium
+      className={`flex items-start gap-3 px-4 py-3.5 rounded-xl
+        shadow-lg shadow-black/15 dark:shadow-black/50
+        text-sm font-medium
         animate-in slide-in-from-right-4 fade-in duration-200
-        ${isSuccess
-          ? 'bg-emerald-600 text-white'
-          : 'bg-red-600 text-white'
-        }`}
+        ${TOAST_STYLES[toast.type]}`}
     >
-      <i
-        className={`bx ${isSuccess ? 'bx-check-circle' : 'bx-error-circle'} text-xl shrink-0 mt-px`}
-      />
+      <i className={`bx ${TOAST_ICONS[toast.type]} text-xl shrink-0 mt-px`} />
       <span className="flex-1 leading-snug">{toast.message}</span>
       {toast.action && (
         <button
@@ -66,7 +73,7 @@ export default function ToastContainer({ toasts, onRemove }: ToastContainerProps
     <div
       aria-live="polite"
       aria-label="알림"
-      className="fixed top-4 right-4 z-[200] flex flex-col gap-2 w-full max-w-sm pointer-events-none"
+      className="fixed top-4 right-4 z-200 flex flex-col gap-2 w-full max-w-sm pointer-events-none"
     >
       {toasts.map((t) => (
         <div key={t.id} className="pointer-events-auto">

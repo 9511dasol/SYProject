@@ -1,42 +1,351 @@
 @import "tailwindcss";
 
+/* ── 다크모드 variant (class 전략 - next-themes와 연동) ───────────────────── */
+/* @custom-variant는 새 variant 생성, @variant는 내장 dark variant를 class 전략으로 교체 */
+@variant dark (&:where(.dark, .dark *));
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   디자인 토큰 — 가독성 기준 WCAG AA (4.5:1) 이상 보장
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 라이트 모드 ─────────────────────────────────────────────────────────── */
 :root {
-  --background: #f4f6fb;
-  --foreground: #0f172a;
-  --surface: #ffffff;
-  --accent: #2563eb;
-  --accent-soft: #eff6ff;
-  --border: #e2e8f0;
+  /* 레이아웃 배경 */
+  --bg:           #f8fafc;   /* slate-50  */
+  --surface:      #ffffff;   /* white     */
+  --surface-2:    #f1f5f9;   /* slate-100 */
+  --surface-3:    #e2e8f0;   /* slate-200 */
+
+  /* ──────────────────────────────────────────────────────────
+     텍스트 대비 (on white/surface)
+     primary  #0f172a  → 19.3:1  ✓ AAA
+     body     #1e293b  → 14.7:1  ✓ AAA
+     muted    #475569  →  7.5:1  ✓ AA
+     subtle   #64748b  →  4.6:1  ✓ AA (최솟값 기준)
+     ────────────────────────────────────────────────────────── */
+  --fg:           #0f172a;   /* slate-900 — Primary Text  */
+  --fg-body:      #1e293b;   /* slate-800 — Body Text     */
+  --fg-muted:     #475569;   /* slate-600 — Muted Text    */
+  --fg-subtle:    #64748b;   /* slate-500 — Subtle Text   */
+  --fg-disabled:  #94a3b8;   /* slate-400 — Disabled      */
+
+  /* 테두리 */
+  --border:       #e2e8f0;   /* slate-200 */
+  --border-soft:  #f1f5f9;   /* slate-100 */
+
+  /* Primary – blue 계열 */
+  --primary:      #2563eb;   /* blue-600  */
+  --primary-fg:   #ffffff;
+  --primary-soft: #eff6ff;   /* blue-50   */
+  --primary-ring: rgba(37,99,235,.35);
+
+  /* 그림자 */
+  --shadow-sm:    0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --shadow-md:    0 4px 16px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.05);
+  --shadow-lg:    0 10px 40px rgba(0,0,0,.10), 0 4px 12px rgba(0,0,0,.06);
+
+  /* ──────────────────────────────────────────────────────────
+     테이블 전용 토큰
+     ────────────────────────────────────────────────────────── */
+  --tbl-head:        #f8fafc;   /* slate-50  */
+  --tbl-head-fg:     #64748b;   /* slate-500 — 4.6:1 on slate-50 ✓ */
+  --tbl-even:        #ffffff;
+  --tbl-odd:         #f8fafc;   /* slate-50  */
+  --tbl-hover:       #f1f5f9;   /* slate-100 */
+  --tbl-total-bg:    #eff6ff;   /* blue-50   */
+  --tbl-total-fg:    #1d4ed8;   /* blue-700  — 7.2:1 on blue-50 ✓ */
+  --tbl-total-bdr:   #bfdbfe;   /* blue-200  */
+  --tbl-current-bg:  #eff6ff;   /* blue-50   */
+  --tbl-current-fg:  #1d4ed8;   /* blue-700  */
+  --tbl-border:      #e2e8f0;   /* slate-200 */
+  --tbl-border-soft: #f1f5f9;   /* slate-100 */
+  --tbl-sticky-bg:   #f8fafc;   /* thead sticky 배경 */
+
+  /* ──────────────────────────────────────────────────────────
+     상태 배지 토큰
+     ────────────────────────────────────────────────────────── */
+  --badge-success-bg:  #dcfce7; --badge-success-fg:  #15803d; --badge-success-bdr: #bbf7d0;
+  --badge-warn-bg:     #fef9c3; --badge-warn-fg:     #a16207; --badge-warn-bdr:    #fde68a;
+  --badge-danger-bg:   #fee2e2; --badge-danger-fg:   #b91c1c; --badge-danger-bdr:  #fecaca;
+  --badge-info-bg:     #dbeafe; --badge-info-fg:     #1d4ed8; --badge-info-bdr:    #bfdbfe;
+  --badge-neutral-bg:  #f1f5f9; --badge-neutral-fg:  #475569; --badge-neutral-bdr: #e2e8f0;
+  --badge-amber-bg:    #fef3c7; --badge-amber-fg:    #92400e; --badge-amber-bdr:   #fde68a;
+
+  /* 레거시 호환 */
+  --background:   var(--bg);
+  --foreground:   var(--fg);
 }
 
+/* ── 다크 모드 ───────────────────────────────────────────────────────────── */
+.dark {
+  /* 레이아웃 배경 */
+  --bg:           #020617;   /* slate-950 */
+  --surface:      #0f172a;   /* slate-900 */
+  --surface-2:    #1e293b;   /* slate-800 */
+  --surface-3:    #334155;   /* slate-700 */
+
+  /* ──────────────────────────────────────────────────────────
+     텍스트 대비 (on slate-900 #0f172a)
+     primary  #f1f5f9  → 16.0:1  ✓ AAA
+     body     #e2e8f0  → 12.5:1  ✓ AAA
+     muted    #94a3b8  →  8.0:1  ✓ AAA
+     subtle   #64748b  →  3.4:1  △ AA Large만 (헤더·배지 등에만 사용)
+     disabled #475569  →  2.1:1  × 비활성 전용
+     ────────────────────────────────────────────────────────── */
+  --fg:           #f1f5f9;   /* slate-100 — Primary Text  */
+  --fg-body:      #e2e8f0;   /* slate-200 — Body Text     */
+  --fg-muted:     #94a3b8;   /* slate-400 — Muted Text    */
+  --fg-subtle:    #64748b;   /* slate-500 — Subtle (large only) */
+  --fg-disabled:  #475569;   /* slate-600 — Disabled      */
+
+  /* 테두리 */
+  --border:       #1e293b;   /* slate-800 */
+  --border-soft:  #0f172a;   /* slate-900 */
+
+  /* Primary */
+  --primary:      #3b82f6;   /* blue-500 */
+  --primary-fg:   #ffffff;
+  --primary-soft: #172554;   /* blue-950 */
+  --primary-ring: rgba(59,130,246,.40);
+
+  /* 그림자 */
+  --shadow-sm:    0 1px 3px rgba(0,0,0,.35), 0 1px 2px rgba(0,0,0,.25);
+  --shadow-md:    0 4px 16px rgba(0,0,0,.50), 0 2px 6px rgba(0,0,0,.35);
+  --shadow-lg:    0 10px 40px rgba(0,0,0,.65), 0 4px 12px rgba(0,0,0,.45);
+
+  /* ──────────────────────────────────────────────────────────
+     테이블 — 다크 모드
+     ────────────────────────────────────────────────────────── */
+  --tbl-head:        #1e293b;   /* slate-800 */
+  --tbl-head-fg:     #94a3b8;   /* slate-400 — 8.0:1 on slate-800 ✓ */
+  --tbl-even:        #0f172a;   /* slate-900 */
+  --tbl-odd:         #0d1526;   /* slate-900과 slate-950 사이 */
+  --tbl-hover:       #1e293b;   /* slate-800 */
+  --tbl-total-bg:    #172554;   /* blue-950  */
+  --tbl-total-fg:    #93c5fd;   /* blue-300  — 7.6:1 on blue-950 ✓ */
+  --tbl-total-bdr:   #1e3a8a;   /* blue-900  */
+  --tbl-current-bg:  #172554;   /* blue-950  */
+  --tbl-current-fg:  #93c5fd;   /* blue-300  */
+  --tbl-border:      #1e293b;   /* slate-800 */
+  --tbl-border-soft: #0f172a;   /* slate-900 */
+  --tbl-sticky-bg:   #1e293b;   /* thead sticky 배경 */
+
+  /* ──────────────────────────────────────────────────────────
+     상태 배지 — 다크 모드
+     ────────────────────────────────────────────────────────── */
+  --badge-success-bg:  #052e16; --badge-success-fg:  #4ade80; --badge-success-bdr: #14532d;
+  --badge-warn-bg:     #422006; --badge-warn-fg:     #fbbf24; --badge-warn-bdr:    #78350f;
+  --badge-danger-bg:   #450a0a; --badge-danger-fg:   #f87171; --badge-danger-bdr:  #7f1d1d;
+  --badge-info-bg:     #172554; --badge-info-fg:     #93c5fd; --badge-info-bdr:    #1e3a8a;
+  --badge-neutral-bg:  #1e293b; --badge-neutral-fg:  #94a3b8; --badge-neutral-bdr: #334155;
+  --badge-amber-bg:    #451a03; --badge-amber-fg:    #fcd34d; --badge-amber-bdr:   #78350f;
+
+  --background:   var(--bg);
+  --foreground:   var(--fg);
+}
+
+/* ── Tailwind v4 – 커스텀 토큰 → 유틸리티 클래스 등록 ──────────────────── */
 @theme inline {
+  /* 레이아웃 */
+  --color-bg:           var(--bg);
+  --color-surface:      var(--surface);
+  --color-surface-2:    var(--surface-2);
+  --color-surface-3:    var(--surface-3);
+
+  /* 텍스트 */
+  --color-fg:           var(--fg);
+  --color-fg-body:      var(--fg-body);
+  --color-fg-muted:     var(--fg-muted);
+  --color-fg-subtle:    var(--fg-subtle);
+  --color-fg-disabled:  var(--fg-disabled);
+
+  /* 테두리 */
+  --color-border:       var(--border);
+  --color-border-soft:  var(--border-soft);
+
+  /* Primary */
+  --color-primary:      var(--primary);
+  --color-primary-fg:   var(--primary-fg);
+  --color-primary-soft: var(--primary-soft);
+
+  /* 테이블 */
+  --color-tbl-head:     var(--tbl-head);
+  --color-tbl-head-fg:  var(--tbl-head-fg);
+  --color-tbl-total-bg: var(--tbl-total-bg);
+  --color-tbl-total-fg: var(--tbl-total-fg);
+  --color-tbl-border:   var(--tbl-border);
+
+  /* 배지 */
+  --color-badge-success-bg: var(--badge-success-bg);
+  --color-badge-success-fg: var(--badge-success-fg);
+  --color-badge-warn-bg:    var(--badge-warn-bg);
+  --color-badge-warn-fg:    var(--badge-warn-fg);
+  --color-badge-danger-bg:  var(--badge-danger-bg);
+  --color-badge-danger-fg:  var(--badge-danger-fg);
+  --color-badge-info-bg:    var(--badge-info-bg);
+  --color-badge-info-fg:    var(--badge-info-fg);
+  --color-badge-amber-bg:   var(--badge-amber-bg);
+  --color-badge-amber-fg:   var(--badge-amber-fg);
+
+  /* 레거시 호환 */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
+/* ── 기본 스타일 ──────────────────────────────────────────────────────────── */
 html {
   scroll-behavior: smooth;
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg);
+  color: var(--fg);
   font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* 페이지 앵커 이동 시 헤더 높이 보정 (h-14 = 3.5rem) */
-[id="saved-report"],
-[id="upload-data"] {
-  scroll-margin-top: 4rem;
+/* ══════════════════════════════════════════════════════════════════════════
+   테이블 유틸리티 — .data-table
+   CSS 변수 기반으로 다크/라이트 모드에 자동 반응
+   사용법: <div className="overflow-x-auto data-table"> 또는
+           <div className="data-table"> (스크롤 별도 처리 시)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.data-table {
+  border-radius: 0.75rem;
+  border: 1px solid var(--tbl-border);
+  overflow: hidden;
 }
 
-/* 스크롤바 숨김 유틸리티 */
+/* 헤더 행 */
+.data-table thead tr {
+  background-color: var(--tbl-head);
+  border-bottom: 1px solid var(--tbl-border);
+}
+.data-table thead th {
+  color: var(--tbl-head-fg);
+}
+
+/* sticky thead (max-h 컨테이너 내부용) */
+.data-table thead.sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: var(--tbl-sticky-bg);
+}
+
+/* 바디 행 */
+.data-table tbody tr {
+  border-bottom: 1px solid var(--tbl-border-soft);
+}
+.data-table tbody td {
+  color: var(--fg-muted);
+}
+
+/* 짝수/홀수 줄무늬 */
+.data-table .tr-even { background-color: var(--tbl-even); }
+.data-table .tr-odd  { background-color: var(--tbl-odd); }
+
+/* 합계·소계 행 */
+.data-table .tr-total {
+  background-color: var(--tbl-total-bg) !important;
+  border-top: 1px solid var(--tbl-total-bdr);
+  font-weight: 600;
+}
+.data-table .tr-total td {
+  color: var(--tbl-total-fg) !important;
+}
+
+/* 현재(당월·금주) 강조 행 */
+.data-table .tr-current {
+  background-color: var(--tbl-current-bg);
+  font-weight: 600;
+}
+.data-table .tr-current td { color: var(--tbl-current-fg); }
+
+/* sticky 열 (첫 번째 셀) */
+.data-table .td-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background-color: inherit;  /* 행 배경 상속 */
+}
+.data-table .tr-total .td-sticky { background-color: var(--tbl-total-bg); }
+.data-table .tr-current .td-sticky { background-color: var(--tbl-current-bg); }
+
+/* 호버 (특수 행 제외) */
+.data-table tbody tr:not(.tr-total):not(.tr-current):hover {
+  background-color: var(--tbl-hover);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   배지 유틸리티 — 상태 색상이 다크/라이트 모드에 자동 반응
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 9999px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1;
+  border-width: 1px;
+  border-style: solid;
+}
+
+.badge-success { background-color: var(--badge-success-bg); color: var(--badge-success-fg); border-color: var(--badge-success-bdr); }
+.badge-warn    { background-color: var(--badge-warn-bg);    color: var(--badge-warn-fg);    border-color: var(--badge-warn-bdr); }
+.badge-danger  { background-color: var(--badge-danger-bg);  color: var(--badge-danger-fg);  border-color: var(--badge-danger-bdr); }
+.badge-info    { background-color: var(--badge-info-bg);    color: var(--badge-info-fg);    border-color: var(--badge-info-bdr); }
+.badge-neutral { background-color: var(--badge-neutral-bg); color: var(--badge-neutral-fg); border-color: var(--badge-neutral-bdr); }
+.badge-amber   { background-color: var(--badge-amber-bg);   color: var(--badge-amber-fg);   border-color: var(--badge-amber-bdr); }
+
+/* ── 시멘틱 카드 유틸리티 ─────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-sm);
+}
+.card-raised {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-md);
+}
+
+/* ── 스크롤바 숨김 ────────────────────────────────────────────────────────── */
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+}
+
+/* ── 페이지 앵커 보정 ─────────────────────────────────────────────────────── */
+[id="saved-report"],
+[id="upload-data"] {
+  scroll-margin-top: 4rem;
+}
+
+/* ── 다크모드 스크롤바 스타일링 ───────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: 9999px;
 }

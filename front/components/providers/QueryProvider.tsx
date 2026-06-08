@@ -9,12 +9,12 @@ export default function QueryProvider({ children }: { children: React.ReactNode 
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 0,
-            retry: 1,
+            staleTime: 30_000,       // 30초간 fresh 유지 → 탭 전환 시 즉시 표시
+            retry: 2,
             refetchOnWindowFocus: false,
           },
         },
-      })
+      }),
   );
 
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;

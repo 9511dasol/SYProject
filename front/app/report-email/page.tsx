@@ -1,16 +1,11 @@
 import type { Metadata } from 'next';
-import ComingSoon from '@/components/layout/ComingSoon';
+import ReportEmailClient from './ReportEmailClient';
 
-export const metadata: Metadata = { title: '코멘트 & 리포트 메일' };
-
-const ITEM = {
-  id: 'report-email',
-  label: '코멘트 & 리포트 메일',
-  icon: 'bx-mail-send',
-  href: '/report-email',
-  description: '분석 기반 코멘트를 작성하고 Excel 파일로 만들어 메일로 발송합니다.',
-} as const;
+export const metadata: Metadata = {
+  title: '코멘트 & 리포트 메일',
+  description: '분석 데이터를 기반으로 AI 코멘트를 생성하고 리포트 메일을 발송합니다.',
+};
 
 export default function ReportEmailPage() {
-  return <ComingSoon item={ITEM} />;
+  return <ReportEmailClient />;
 }

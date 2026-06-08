@@ -194,11 +194,25 @@ async def _run_analysis(task_id: str, files: list[FileEntry]) -> None:
 
 def _run_export_task(task_id: str, rows: list, period: str) -> None:
     """동기 함수 → FastAPI BackgroundTasks가 스레드풀에서 실행"""
+    def is_cancelled() -> bool:
+        return export_store.get(task_id, {}).get("cancelled", False)
+
     try:
+        if is_cancelled():
+            export_store[task_id]["status"] = "cancelled"
+            return
         export_store[task_id]["progress"] = 15
         media_kpis = _db_rows_to_media_kpis(rows)
+
+        if is_cancelled():
+            export_store[task_id]["status"] = "cancelled"
+            return
         export_store[task_id]["progress"] = 45
         excel_bytes = ExcelService().fill_template(media_kpis, period)
+
+        if is_cancelled():
+            export_store[task_id]["status"] = "cancelled"
+            return
         filename = f"마케팅분석_{period.replace(' ', '')}.xlsx"
         export_store[task_id].update({
             "status": "done",
@@ -315,7 +329,7 @@ async def start_export_db_task(
 
     task_id = str(uuid.uuid4())
     period = _period_label(year, month)
-    export_store[task_id] = {"status": "pending", "progress": 5}
+    export_store[task_id] = {"status": "pending", "progress": 5, "cancelled": False}
     background_tasks.add_task(_run_export_task, task_id, rows, period)
 
     return {"task_id": task_id, "filename": f"마케팅분석_{period.replace(' ', '')}.xlsx"}
@@ -332,6 +346,19 @@ async def get_export_task_status(task_id: str) -> dict:
         "progress": task.get("progress", 0),
         "error": task.get("error"),
     }
+
+
+@router.delete("/export-db-task/{task_id}")
+async def cancel_export_task(task_id: str) -> dict:
+    """진행 중인 export 태스크를 취소 요청"""
+    task = export_store.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
+    task["cancelled"] = True
+    if task["status"] not in ("done", "error"):
+        task["status"] = "cancelled"
+    export_store.pop(task_id, None)
+    return {"message": "취소되었습니다."}
 
 
 @router.get("/export-db-result/{task_id}")
