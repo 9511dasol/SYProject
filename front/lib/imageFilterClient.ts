@@ -56,16 +56,17 @@ export async function filterAndResize(
     let detail = `서버 오류: ${res.status}`;
     let reason = '';
     let provider = '';
+    let suggestions: string[] = [];
     try {
       const json = await res.json();
-      detail   = json.detail   ?? detail;
-      reason   = json.reason   ?? '';
-      provider = json.provider ?? '';
+      detail      = json.detail      ?? detail;
+      reason      = json.reason      ?? '';
+      provider    = json.provider    ?? '';
+      suggestions = Array.isArray(json.suggestions) ? json.suggestions : [];
     } catch {
       // JSON 파싱 실패 무시
     }
     if (res.status === 400 && reason) {
-      const suggestions: string[] = Array.isArray(json.suggestions) ? json.suggestions : [];
       throw new FilterRejectedError(reason, provider, suggestions);
     }
     throw new Error(detail);
