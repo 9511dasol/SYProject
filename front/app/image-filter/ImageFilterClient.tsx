@@ -128,7 +128,7 @@ export default function ImageFilterClient() {
       setAiResult({ pass: true, reason, provider });
     } catch (err) {
       if (err instanceof FilterRejectedError) {
-        setAiResult({ pass: false, reason: err.reason, provider: err.provider });
+        setAiResult({ pass: false, reason: err.reason, provider: err.provider, suggestions: err.suggestions });
       } else {
         setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
       }

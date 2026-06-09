@@ -16,6 +16,8 @@ export interface AiResult {
   reason: string;
   /** 실제 호출된 AI 모델명 (예: "GPT-4o-mini", "Claude Sonnet") */
   provider: string;
+  /** 거절 시 AI가 생성한 개선 제안 목록 */
+  suggestions?: string[];
 }
 
 /** 조건 불일치 에러 (FilterRejectedError 대신 직렬화 가능한 순수 타입) */

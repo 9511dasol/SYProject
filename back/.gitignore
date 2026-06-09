@@ -33,5 +33,9 @@ build/
 example
 example/
 
+./uv.*
+./*.lock
+
+./uv.lock
 uv.*
 *.lock

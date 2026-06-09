@@ -30,10 +30,11 @@ class AnalyzeInput:
 
 class FilterRejectResponse(BaseModel):
     """AI 조건 불일치 시 400 응답 바디."""
-    passed:   bool  = Field(False, alias="pass")
-    reason:   str
-    provider: str
-    detail:   str   = "조건에 맞지 않는 이미지입니다."
+    passed:      bool       = Field(False, alias="pass")
+    reason:      str
+    provider:    str
+    suggestions: list[str]  = Field(default_factory=list)
+    detail:      str        = "조건에 맞지 않는 이미지입니다."
 
     model_config = {"populate_by_name": True}
 

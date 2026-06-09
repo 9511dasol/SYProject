@@ -12,6 +12,7 @@ export class FilterRejectedError extends Error {
   constructor(
     public readonly reason: string,
     public readonly provider: string,
+    public readonly suggestions: string[] = [],
   ) {
     super(reason);
     this.name = 'FilterRejectedError';
@@ -63,7 +64,10 @@ export async function filterAndResize(
     } catch {
       // JSON 파싱 실패 무시
     }
-    if (res.status === 400 && reason) throw new FilterRejectedError(reason, provider);
+    if (res.status === 400 && reason) {
+      const suggestions: string[] = Array.isArray(json.suggestions) ? json.suggestions : [];
+      throw new FilterRejectedError(reason, provider, suggestions);
+    }
     throw new Error(detail);
   }
 

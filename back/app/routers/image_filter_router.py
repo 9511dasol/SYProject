@@ -33,6 +33,7 @@ async def analyze_and_resize_endpoint(
         body = FilterRejectResponse(
             reason=exc.reason,
             provider=exc.provider,
+            suggestions=exc.suggestions,
         )
         return JSONResponse(
             status_code=400,
