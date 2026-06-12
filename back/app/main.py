@@ -14,7 +14,7 @@ from app.models.report_log_model import ReportLog as _RL  # noqa: F401,W0611
 from app.models.system_setting_model import SystemSetting as _SS  # noqa: F401
 from app.models.user_model import User as _User  # noqa: F401
 from app.repositories.system_setting_repo import SystemSettingRepository
-from app.routers import auth_router, marketing_router, keyword_compare_router, image_resize_router, image_filter_router, heading_router, system_setting_router
+from app.routers import auth_router, marketing_router, keyword_compare_router, image_resize_router, image_filter_router, heading_router, system_setting_router, user_admin_router, ai_status_router
 from app.services.excel_service import _template_bytes
 
 logger = logging.getLogger(__name__)
@@ -124,6 +124,8 @@ app.include_router(image_resize_router.router)
 app.include_router(image_filter_router.router)
 app.include_router(heading_router.router)
 app.include_router(system_setting_router.router)
+app.include_router(user_admin_router.router)
+app.include_router(ai_status_router.router)
 
 if settings.MAIL_ENABLED:
     from app.routers import report_mail_router

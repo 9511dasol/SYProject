@@ -38,11 +38,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   callbacks: {
     // 로그인 시점에만 user가 채워지므로 이때 FastAPI 토큰/역할을 JWT에 실어둔다.
-    async jwt({ token, user }) {
+    // 프로필 수정 후 useSession().update()가 호출되면 trigger === 'update'로 들어와
+    // 변경된 이름/이메일을 토큰에 반영한다.
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.accessToken = user.accessToken;
         token.role = user.role;
         token.id = user.id;
+      }
+      if (trigger === 'update' && session) {
+        if (typeof session.name === 'string') token.name = session.name;
+        if (typeof session.email === 'string') token.email = session.email;
       }
       return token;
     },

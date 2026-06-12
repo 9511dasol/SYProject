@@ -35,7 +35,6 @@
   4. `gcloud run services update back-api --region=asia-northeast3 --project=syproject-20260612 --update-secrets="OPENAI_API_KEY=OPENAI_API_KEY:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest"`
 
 
-사용자 관리 — 계정 목록 조회, role 변경(user↔admin), 활성/비활성 토글. 현재 운영 계정 생성 수단이 없어 admin이 직접 계정을 만들 방법도 필요
 리포트 발송 로그 — ReportLog 조회 + 실패 건 수동 재발송 버튼
 AI 프로바이더 현황 — 방금 Gemini로 임시 전환했으니, 현재 LLM_PROVIDER/모델, API 키 설정 여부를 대시보드에서 한눈에 보이게 (값 노출 X, 설정 여부만)
 업로드 데이터 관리 — MarketingPeriodMeta 목록 조회 및 삭제

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { signOut } from 'next-auth/react';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 
@@ -47,10 +48,21 @@ export default function SidebarProfile() {
         )}
 
         {/* 이름 / 이메일 */}
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-fg truncate">{user.name}</p>
+        <Link href="/profile" className="flex-1 min-w-0 group" title="프로필 설정">
+          <p className="text-sm font-semibold text-fg truncate group-hover:text-primary transition-colors">{user.name}</p>
           <p className="text-xs text-fg-subtle truncate">{user.email}</p>
-        </div>
+        </Link>
+
+        {/* 프로필 설정 */}
+        <Link
+          href="/profile"
+          aria-label="프로필 설정"
+          title="프로필 설정"
+          className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0
+            text-fg-subtle hover:text-fg hover:bg-surface-2 transition-colors"
+        >
+          <i className="bx bx-cog text-lg" />
+        </Link>
 
         {/* 로그아웃 */}
         <button

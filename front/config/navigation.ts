@@ -69,6 +69,13 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         href: '/admin/settings',
         description: '서비스 기능을 켜고 끌 수 있는 관리자 설정',
       },
+      {
+        id: 'admin-users',
+        label: '사용자 관리',
+        icon: 'bx-group',
+        href: '/admin/users',
+        description: '계정 목록 조회, 권한 · 활성 상태 관리, 운영 계정 생성',
+      },
     ],
   },
 ] as const;
