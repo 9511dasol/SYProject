@@ -36,5 +36,4 @@
 
 
 리포트 발송 로그 — ReportLog 조회 + 실패 건 수동 재발송 버튼
-AI 프로바이더 현황 — 방금 Gemini로 임시 전환했으니, 현재 LLM_PROVIDER/모델, API 키 설정 여부를 대시보드에서 한눈에 보이게 (값 노출 X, 설정 여부만)
 업로드 데이터 관리 — MarketingPeriodMeta 목록 조회 및 삭제
