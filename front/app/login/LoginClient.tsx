@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { signIn } from 'next-auth/react';
+import { getSession, signIn } from 'next-auth/react';
 import { isAxiosError } from 'axios';
 import axios from 'axios';
 import BackgroundCurve from '@/components/login/BackgroundCurve';
@@ -50,7 +50,8 @@ export default function LoginClient() {
         return;
       }
 
-      router.push('/');
+      const session = await getSession();
+      router.push(session?.user.role === 'admin' ? '/admin/settings' : '/');
       router.refresh();
     } finally {
       setPending(false);

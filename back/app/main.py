@@ -11,12 +11,24 @@ from app.core.database import SessionLocal, engine, Base
 from app.core.settings import settings
 from app.models.marketing_model import MarketingData as _MD, MarketingPeriodMeta as _MPM  # noqa: F401
 from app.models.report_log_model import ReportLog as _RL  # noqa: F401,W0611
+from app.models.system_setting_model import SystemSetting as _SS  # noqa: F401
 from app.models.user_model import User as _User  # noqa: F401
-from app.routers import auth_router, marketing_router, keyword_compare_router, image_resize_router, image_filter_router, heading_router
+from app.repositories.system_setting_repo import SystemSettingRepository
+from app.routers import auth_router, marketing_router, keyword_compare_router, image_resize_router, image_filter_router, heading_router, system_setting_router
 from app.services.excel_service import _template_bytes
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
+
+# 관리자 페이지 "기능 플래그" 기본값 — key: (기본값, 설명)
+_DEFAULT_FEATURE_FLAGS: dict[str, tuple[str, str]] = {
+    "is_dashboard_enabled":      ("true", "SA 광고 대시보드 (/)"),
+    "is_report_email_enabled":   ("true", "코멘트 & 리포트 메일 (/report-email)"),
+    "is_keyword_compare_enabled": ("true", "키워드 성과 비교 (/keyword-compare)"),
+    "is_image_filter_enabled":   ("true", "이미지 정제 (/image-filter)"),
+    "is_image_resize_enabled":   ("true", "이미지 리사이저 (/image-resize)"),
+    "is_heading_suggest_enabled": ("true", "헤딩 문구 추천 (/heading-suggest)"),
+}
 
 
 def _init_db() -> None:
@@ -27,6 +39,12 @@ def _init_db() -> None:
         conn.execute(text("ALTER TABLE marketing_data ADD COLUMN IF NOT EXISTS signup FLOAT DEFAULT 0.0"))
         conn.execute(text("ALTER TABLE marketing_data ADD COLUMN IF NOT EXISTS purchase FLOAT DEFAULT 0.0"))
         conn.execute(text("ALTER TABLE marketing_data ADD COLUMN IF NOT EXISTS apply FLOAT DEFAULT 0.0"))
+
+    db = SessionLocal()
+    try:
+        SystemSettingRepository(db).ensure_defaults(_DEFAULT_FEATURE_FLAGS)
+    finally:
+        db.close()
 
 
 def _auto_send_report() -> None:
@@ -105,6 +123,7 @@ app.include_router(keyword_compare_router.router)
 app.include_router(image_resize_router.router)
 app.include_router(image_filter_router.router)
 app.include_router(heading_router.router)
+app.include_router(system_setting_router.router)
 
 if settings.MAIL_ENABLED:
     from app.routers import report_mail_router

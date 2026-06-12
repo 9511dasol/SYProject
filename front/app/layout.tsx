@@ -5,8 +5,10 @@ import './globals.css';
 import 'boxicons/css/boxicons.min.css';
 import AppShell from '@/components/layout/AppShell';
 import AuthProvider from '@/components/providers/AuthProvider';
+import FeatureFlagProvider from '@/components/providers/FeatureFlagProvider';
 import QueryProvider from '@/components/providers/QueryProvider';
 import ThemeProvider from '@/components/providers/ThemeProvider';
+import TaskNotificationWidget from '@/components/task-notification/TaskNotificationWidget';
 import { TASK_ID_COOKIE } from '@/lib/taskCookieUtils';
 
 const geistSans = Geist({
@@ -48,7 +50,11 @@ export default async function RootLayout({
         <ThemeProvider>
           <AuthProvider>
             <QueryProvider>
-              <AppShell>{children}</AppShell>
+              <FeatureFlagProvider>
+                <AppShell>{children}</AppShell>
+              </FeatureFlagProvider>
+              {/* 우측 하단 고정 백그라운드 태스크 알림창 */}
+              <TaskNotificationWidget initialTaskId={initialTaskId} />
             </QueryProvider>
           </AuthProvider>
         </ThemeProvider>

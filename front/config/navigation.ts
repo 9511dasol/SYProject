@@ -57,4 +57,18 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       },
     ],
   },
+  {
+    id: 'admin',
+    groupLabel: '관리자',
+    adminOnly: true,
+    items: [
+      {
+        id: 'admin-settings',
+        label: '기능 플래그 관리',
+        icon: 'bx-toggle-left',
+        href: '/admin/settings',
+        description: '서비스 기능을 켜고 끌 수 있는 관리자 설정',
+      },
+    ],
+  },
 ] as const;

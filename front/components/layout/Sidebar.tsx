@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { NAV_GROUPS } from '@/config/navigation';
 import type { NavBadge, NavItem } from '@/types/navigation';
 import SidebarProfile from '@/components/layout/SidebarProfile';
+import { useAuthStore } from '@/lib/store/useAuthStore';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -94,6 +95,8 @@ function NavItemRow({
 
 export default function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const role = useAuthStore((state) => state.user?.role);
+  const visibleGroups = NAV_GROUPS.filter((group) => !group.adminOnly || role === 'admin');
 
   return (
     <>
@@ -138,7 +141,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
 
         {/* 네비게이션 */}
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5 scrollbar-hide">
-          {NAV_GROUPS.map((group) => (
+          {visibleGroups.map((group) => (
             <div key={group.id}>
               {group.groupLabel && (
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-fg-subtle px-3 mb-1.5">

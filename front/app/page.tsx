@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import HomeClient from '@/app/HomeClient';
+import FeatureGate from '@/components/ui/FeatureGate';
 
 export const metadata: Metadata = {
   title: 'SA 광고 대시보드',
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function HomePage() {
-  return <HomeClient />;
+  return (
+    <FeatureGate flag="is_dashboard_enabled">
+      <HomeClient />
+    </FeatureGate>
+  );
 }

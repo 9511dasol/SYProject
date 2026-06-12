@@ -12,6 +12,7 @@ function isPublicPath(pathname: string) {
 // 실제 데이터 접근 권한 체크는 각 Route Handler/서버 컴포넌트에서 auth()로 다시 검증한다.
 export const proxy = auth((req) => {
   const isLoggedIn = !!req.auth;
+  const isAdmin = req.auth?.user?.role === 'admin';
   const { pathname } = req.nextUrl;
 
   if (!isLoggedIn && !isPublicPath(pathname)) {
@@ -20,6 +21,12 @@ export const proxy = auth((req) => {
   }
 
   if (isLoggedIn && pathname === '/login') {
+    const homeUrl = new URL(isAdmin ? '/admin/settings' : '/', req.nextUrl.origin);
+    return NextResponse.redirect(homeUrl);
+  }
+
+  // 관리자 전용 경로 — admin이 아니면 접근 차단
+  if (isLoggedIn && !isAdmin && pathname.startsWith('/admin')) {
     return NextResponse.redirect(new URL('/', req.nextUrl.origin));
   }
 });
