@@ -161,7 +161,7 @@ export default function LoginClient() {
       </div>
 
       {/* CONTENT 영역 (데스크탑 안내 문구) */}
-      <div className="pointer-events-none absolute top-0 left-0 z-[6] hidden h-screen w-full flex-wrap md:flex">
+      <div className="pointer-events-none absolute top-0 left-0 z-6 hidden h-screen w-full flex-wrap md:flex">
         <InfoPanel title="환영합니다" visible={signInVisible} direction="left" />
         <InfoPanel title="함께해요" visible={signUpVisible} direction="right" />
       </div>
