@@ -30,6 +30,7 @@ class Settings:
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 
     # Mail
+    MAIL_ENABLED: bool = os.getenv("MAIL_ENABLED", "true").lower() == "true"
     MAIL_PROVIDER: str = os.getenv("MAIL_PROVIDER", "smtp")  # "resend" | "smtp"
     RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
     RESEND_FROM: str = os.getenv("RESEND_FROM", "")

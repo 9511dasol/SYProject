@@ -18,6 +18,7 @@ RUN uv sync --frozen --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH"
 
-EXPOSE 8000
+EXPOSE 8080
 
-CMD ["fastapi", "run", "app/main.py", "--host", "0.0.0.0", "--port", "8000"]
+# Cloud Run은 PORT 환경변수로 리스닝 포트를 지정 (기본 8080)
+CMD ["sh", "-c", "fastapi run app/main.py --host 0.0.0.0 --port ${PORT:-8080}"]
