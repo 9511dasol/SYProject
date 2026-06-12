@@ -31,8 +31,10 @@ class Settings:
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     OPENAI_EMBEDDING_MODEL: str = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
-    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai")  # "openai" | "claude"
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai")  # "openai" | "claude" | "gemini"
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
     # Mail
     MAIL_ENABLED: bool = os.getenv("MAIL_ENABLED", "true").lower() == "true"

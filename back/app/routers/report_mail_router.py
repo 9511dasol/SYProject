@@ -32,9 +32,12 @@ def get_db():
 def _build_llm():
     from app.services.llm.openai_client import OpenAIClient
     from app.services.llm.claude_client import ClaudeClient
+    from app.services.llm.gemini_client import GeminiClient
 
     if settings.LLM_PROVIDER == "claude":
         return ClaudeClient(api_key=settings.ANTHROPIC_API_KEY)
+    if settings.LLM_PROVIDER == "gemini":
+        return GeminiClient(api_key=settings.GEMINI_API_KEY, model=settings.GEMINI_MODEL)
     return OpenAIClient(api_key=settings.OPENAI_API_KEY, model=settings.OPENAI_MODEL)
 
 

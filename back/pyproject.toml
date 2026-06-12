@@ -23,6 +23,7 @@ dependencies = [
     "anthropic>=0.107.1",
     "langgraph>=1.2.4",
     "pgvector>=0.4.2",
+    "google-genai>=2.8.0",
 ]
 
 [dependency-groups]

@@ -1,54 +1,45 @@
 """LangGraph 기반 멀티스텝 이미지 필터 그래프
 
 흐름:
-  [initial_screen]  GPT-4o-mini — confidence 포함 1차 판단
+  [initial_screen]  Gemini — confidence 포함 1차 판단
       ├─ confidence ≥ 0.75, pass=True  →  [finalize]                     (fast_pass)
       ├─ confidence ≥ 0.75, pass=False →  [generate_suggestions]         (fast_fail)
-      └─ confidence < 0.75 (borderline) → [deep_analysis] Claude Sonnet
+      └─ confidence < 0.75 (borderline) → [deep_analysis] Gemini (심층)
               ├─ pass=True  →  [finalize]                                 (deep_pass)
               └─ pass=False →  [generate_suggestions] → [finalize]        (deep_fail)
 
 단순 pass/fail 단일 호출에서 → 신뢰도 기반 동적 라우팅 + 거절 시 개선 제안 생성으로 개선.
+
+※ 임시 조치: OpenAI/Claude 대신 Gemini(GEMINI_API_KEY)를 단일 프로바이더로 사용.
 """
 
+import base64
 import json
-import os
 from typing import Literal, TypedDict
 
-import anthropic
+from google import genai
+from google.genai import types
 from langgraph.graph import END, StateGraph
-from openai import AsyncOpenAI
+
+from app.core.settings import settings
 
 # ── 상수 ──────────────────────────────────────────────────────────────────────
 
-_OPENAI_MODEL          = "gpt-4o-mini"
-_CLAUDE_MODEL          = "claude-3-5-sonnet-20241022"
-_CONFIDENCE_THRESHOLD  = 0.75
+_MODEL                = settings.GEMINI_MODEL
+_CONFIDENCE_THRESHOLD = 0.75
 
 # ── 지연 초기화 클라이언트 ─────────────────────────────────────────────────────
 
-_openai_client: AsyncOpenAI | None                   = None
-_anthropic_client: anthropic.AsyncAnthropic | None   = None
+_gemini_client: genai.Client | None = None
 
 
-def _openai() -> AsyncOpenAI:
-    global _openai_client
-    if _openai_client is None:
-        key = os.getenv("OPENAI_API_KEY")
-        if not key:
-            raise RuntimeError("OPENAI_API_KEY 환경변수가 설정되지 않았습니다.")
-        _openai_client = AsyncOpenAI(api_key=key)
-    return _openai_client
-
-
-def _anthropic_c() -> anthropic.AsyncAnthropic:
-    global _anthropic_client
-    if _anthropic_client is None:
-        key = os.getenv("ANTHROPIC_API_KEY")
-        if not key:
-            raise RuntimeError("ANTHROPIC_API_KEY 환경변수가 설정되지 않았습니다.")
-        _anthropic_client = anthropic.AsyncAnthropic(api_key=key)
-    return _anthropic_client
+def _gemini() -> genai.Client:
+    global _gemini_client
+    if _gemini_client is None:
+        if not settings.GEMINI_API_KEY:
+            raise RuntimeError("GEMINI_API_KEY 환경변수가 설정되지 않았습니다.")
+        _gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    return _gemini_client
 
 
 # ── State ─────────────────────────────────────────────────────────────────────
@@ -109,34 +100,25 @@ _SUGGEST_SYSTEM = (
 # ── 노드 ──────────────────────────────────────────────────────────────────────
 
 async def initial_screen_node(state: ImageFilterState) -> dict:
-    """GPT-4o-mini — confidence 포함 1차 스크리닝."""
+    """Gemini — confidence 포함 1차 스크리닝."""
     try:
-        resp = await _openai().chat.completions.create(
-            model=_OPENAI_MODEL,
-            response_format={"type": "json_object"},
-            max_tokens=300,
-            temperature=0,
-            messages=[
-                {"role": "system", "content": _INITIAL_SYSTEM},
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{state['thumbnail_b64']}",
-                                "detail": "low",
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": f"정제 조건: {state['condition']}\n\n조건 충족 여부를 판별해주세요.",
-                        },
-                    ],
-                },
+        resp = await _gemini().aio.models.generate_content(
+            model=_MODEL,
+            contents=[
+                types.Part.from_bytes(
+                    data=base64.b64decode(state["thumbnail_b64"]),
+                    mime_type="image/jpeg",
+                ),
+                f"정제 조건: {state['condition']}\n\n조건 충족 여부를 판별해주세요.",
             ],
+            config=types.GenerateContentConfig(
+                system_instruction=_INITIAL_SYSTEM,
+                response_mime_type="application/json",
+                max_output_tokens=300,
+                temperature=0,
+            ),
         )
-        result: dict = json.loads(resp.choices[0].message.content or "{}")
+        result: dict = json.loads(resp.text or "{}")
     except (json.JSONDecodeError, Exception):
         result = {}
 
@@ -148,39 +130,28 @@ async def initial_screen_node(state: ImageFilterState) -> dict:
 
 
 async def deep_analysis_node(state: ImageFilterState) -> dict:
-    """Claude Sonnet — borderline 케이스 심층 분석."""
+    """Gemini — borderline 케이스 심층 분석."""
     prev_context = f"\n이전 AI 판단: {state['initial_reason']}" if state.get("initial_reason") else ""
     try:
-        resp = await _anthropic_c().messages.create(
-            model=_CLAUDE_MODEL,
-            max_tokens=400,
-            system=_DEEP_SYSTEM,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": state["thumbnail_b64"],
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": (
-                                f"정제 조건: {state['condition']}{prev_context}\n\n"
-                                "이 이미지의 조건 충족 여부를 심층 분석해주세요."
-                            ),
-                        },
-                    ],
-                },
-                {"role": "assistant", "content": "{"},
+        resp = await _gemini().aio.models.generate_content(
+            model=_MODEL,
+            contents=[
+                types.Part.from_bytes(
+                    data=base64.b64decode(state["thumbnail_b64"]),
+                    mime_type="image/jpeg",
+                ),
+                (
+                    f"정제 조건: {state['condition']}{prev_context}\n\n"
+                    "이 이미지의 조건 충족 여부를 심층 분석해주세요."
+                ),
             ],
+            config=types.GenerateContentConfig(
+                system_instruction=_DEEP_SYSTEM,
+                response_mime_type="application/json",
+                max_output_tokens=400,
+            ),
         )
-        raw = "{" + (resp.content[0].text if resp.content else "}")
-        result: dict = json.loads(raw)
+        result: dict = json.loads(resp.text or "{}")
     except (json.JSONDecodeError, Exception):
         result = {}
 
@@ -191,40 +162,29 @@ async def deep_analysis_node(state: ImageFilterState) -> dict:
 
 
 async def generate_suggestions_node(state: ImageFilterState) -> dict:
-    """Claude — 거절 이유 기반 이미지 개선 제안 생성."""
+    """Gemini — 거절 이유 기반 이미지 개선 제안 생성."""
     rejection_reason = state.get("deep_reason") or state.get("initial_reason", "")
     try:
-        resp = await _anthropic_c().messages.create(
-            model=_CLAUDE_MODEL,
-            max_tokens=400,
-            system=_SUGGEST_SYSTEM,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": state["thumbnail_b64"],
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": (
-                                f"정제 조건: {state['condition']}\n"
-                                f"거절 이유: {rejection_reason}\n\n"
-                                "이 이미지가 조건을 통과하려면 구체적으로 어떻게 해야 할지 제안해주세요."
-                            ),
-                        },
-                    ],
-                },
-                {"role": "assistant", "content": "{"},
+        resp = await _gemini().aio.models.generate_content(
+            model=_MODEL,
+            contents=[
+                types.Part.from_bytes(
+                    data=base64.b64decode(state["thumbnail_b64"]),
+                    mime_type="image/jpeg",
+                ),
+                (
+                    f"정제 조건: {state['condition']}\n"
+                    f"거절 이유: {rejection_reason}\n\n"
+                    "이 이미지가 조건을 통과하려면 구체적으로 어떻게 해야 할지 제안해주세요."
+                ),
             ],
+            config=types.GenerateContentConfig(
+                system_instruction=_SUGGEST_SYSTEM,
+                response_mime_type="application/json",
+                max_output_tokens=400,
+            ),
         )
-        raw = "{" + (resp.content[0].text if resp.content else "}")
-        result: dict = json.loads(raw)
+        result: dict = json.loads(resp.text or "{}")
         raw_list = result.get("suggestions", [])
         suggestions = [str(s) for s in raw_list[:3]] if isinstance(raw_list, list) else []
     except (json.JSONDecodeError, Exception):
@@ -240,12 +200,12 @@ def finalize_node(state: ImageFilterState) -> dict:
     if used_deep:
         final_pass   = bool(state["deep_pass"])
         final_reason = state.get("deep_reason") or state.get("initial_reason", "")
-        provider     = "Claude Sonnet"
+        provider     = f"Gemini ({_MODEL}, deep)"
         path         = "deep_pass" if final_pass else "deep_fail"
     else:
         final_pass   = state["initial_pass"]
         final_reason = state.get("initial_reason", "")
-        provider     = "GPT-4o-mini"
+        provider     = f"Gemini ({_MODEL})"
         path         = "fast_pass" if final_pass else "fast_fail"
 
     return {

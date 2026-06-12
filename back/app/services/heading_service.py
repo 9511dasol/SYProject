@@ -2,40 +2,40 @@
 
 처리 흐름:
   1. 원본 이미지 → 512×512 JPEG 썸네일 (메모리 내)
-  2. 썸네일 Base64 → Anthropic Claude Vision (ANTHROPIC_API_KEY)
+  2. 썸네일 → Google Gemini Vision (GEMINI_API_KEY)
   3. 응답 JSON 파싱 + 마크다운 제거 + Pydantic 검증
   4. HeadingResponse 반환
 """
 
-import base64
 import io
 import json
-import os
 import re
 
-import anthropic
+from google import genai
+from google.genai import errors as genai_errors
+from google.genai import types
 from PIL import Image
 
-from app.schemas.heading_schema import HeadingItem, HeadingResponse
+from app.core.settings import settings
+from app.schemas.heading_schema import HeadingResponse
 
 # ── 클라이언트 (지연 초기화) ──────────────────────────────────────────────────
 
-_client: anthropic.AsyncAnthropic | None = None
+_client: genai.Client | None = None
 
 
-def _anthropic() -> anthropic.AsyncAnthropic:
+def _gemini() -> genai.Client:
     global _client
     if _client is None:
-        key = os.getenv("ANTHROPIC_API_KEY")
-        if not key:
-            raise RuntimeError("ANTHROPIC_API_KEY 환경변수가 설정되지 않았습니다.")
-        _client = anthropic.AsyncAnthropic(api_key=key)
+        if not settings.GEMINI_API_KEY:
+            raise RuntimeError("GEMINI_API_KEY 환경변수가 설정되지 않았습니다.")
+        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
     return _client
 
 
 # ── 상수 ──────────────────────────────────────────────────────────────────────
 
-_MODEL        = "claude-3-5-sonnet-20241022"
+_MODEL         = settings.GEMINI_MODEL
 _THUMBNAIL_BOX = (512, 512)
 
 _SYSTEM_PROMPT = """\
@@ -56,12 +56,10 @@ STRICT OUTPUT RULES:
 {"headings": [{"id": 1, "platform": "Instagram", "text": "...", "desc": "이 문구를 추천하는 이유"}, ...]}
 """
 
-_PREFILL = '{"headings": ['
-
 
 # ── 썸네일 생성 ───────────────────────────────────────────────────────────────
 
-def _make_thumbnail_b64(file_bytes: bytes) -> str:
+def _make_thumbnail_bytes(file_bytes: bytes) -> bytes:
     buf = io.BytesIO(file_bytes)
     img: Image.Image = Image.open(buf)
     img.load()
@@ -79,8 +77,7 @@ def _make_thumbnail_b64(file_bytes: bytes) -> str:
     img.thumbnail(_THUMBNAIL_BOX, Image.Resampling.LANCZOS)
     out = io.BytesIO()
     img.save(out, format="JPEG", quality=85, optimize=True)
-    out.seek(0)
-    return base64.b64encode(out.read()).decode("utf-8")
+    return out.getvalue()
 
 
 # ── JSON 정제 + 파싱 ──────────────────────────────────────────────────────────
@@ -95,15 +92,11 @@ def _clean_json(raw: str) -> str:
 
 def _parse_response(raw: str) -> HeadingResponse:
     """AI 응답 텍스트 → HeadingResponse (엄격 검증)."""
-    # prefill 로 시작하는 완성된 JSON 조립
-    full    = _PREFILL + raw
-    cleaned = _clean_json(full)
+    cleaned = _clean_json(raw)
 
-    # 1차: 직접 파싱
     try:
         data = json.loads(cleaned)
     except json.JSONDecodeError:
-        # 2차: 텍스트 안에서 JSON 객체 추출
         match = re.search(r'\{.*\}', cleaned, re.DOTALL)
         if not match:
             raise RuntimeError(f"AI 응답에서 JSON을 찾을 수 없습니다: {cleaned[:300]!r}")
@@ -134,42 +127,26 @@ async def generate_headings(file_bytes: bytes) -> HeadingResponse:
     ------
     RuntimeError — API 오류 또는 응답 파싱 실패
     """
-    thumbnail_b64 = _make_thumbnail_b64(file_bytes)
+    thumbnail_bytes = _make_thumbnail_bytes(file_bytes)
 
     try:
-        response = await _anthropic().messages.create(
+        response = await _gemini().aio.models.generate_content(
             model=_MODEL,
-            max_tokens=1500,
-            system=_SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type":       "base64",
-                                "media_type": "image/jpeg",
-                                "data":       thumbnail_b64,
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": (
-                                "이 이미지에 어울리는 매체별 마케팅 헤딩 문구 10개를 "
-                                "지정된 JSON 형식으로만 생성해주세요."
-                            ),
-                        },
-                    ],
-                },
-                # prefill: Claude가 반드시 JSON 배열로 응답 시작
-                {"role": "assistant", "content": _PREFILL},
+            contents=[
+                types.Part.from_bytes(data=thumbnail_bytes, mime_type="image/jpeg"),
+                (
+                    "이 이미지에 어울리는 매체별 마케팅 헤딩 문구 10개를 "
+                    "지정된 JSON 형식으로만 생성해주세요."
+                ),
             ],
+            config=types.GenerateContentConfig(
+                system_instruction=_SYSTEM_PROMPT,
+                response_mime_type="application/json",
+                max_output_tokens=1500,
+            ),
         )
-    except anthropic.APIStatusError as exc:
-        raise RuntimeError(f"Anthropic API 오류 ({exc.status_code}): {exc.message}") from exc
-    except anthropic.APIConnectionError as exc:
-        raise RuntimeError(f"Anthropic 연결 실패: {exc}") from exc
+    except genai_errors.APIError as exc:
+        raise RuntimeError(f"Gemini API 오류 ({exc.code}): {exc.message}") from exc
 
-    raw_text = response.content[0].text if response.content else ""
+    raw_text = response.text or ""
     return _parse_response(raw_text)
