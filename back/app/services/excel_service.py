@@ -22,7 +22,7 @@ import pandas as pd
 TEMPLATE_PATH = (
     Path(__file__).resolve().parent.parent.parent
     / "example"
-    / "(🔸SA) 매체별 데이터 & 경쟁사 모니터링_20265월.xlsx"
+    / "report_template.xlsx"
 )
 
 SHEET_PREFIX: dict[str, str] = {

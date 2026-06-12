@@ -1,13 +1,26 @@
-.venv
-__pycache__
-**/__pycache__
-*.pyc
-.env
 .git
-.pytest_cache
+.gitignore
+.gcloudignore
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.venv/
+.env
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.vscode/
+.idea/
+.DS_Store
 *.log
+*.sqlite3
+*.db
+.ruff_cache/
 
-# example/ 안에는 앱 구동에 필요한 보고서 템플릿(xlsx)이 있으므로
+# example/ 안에는 앱 구동에 필요한 보고서 템플릿(report_template.xlsx)이 있으므로
 # 디렉토리 전체는 제외하지 않고 불필요한 파일만 개별 제외
 example/1/
 example/(HM)스메그_DA_META협력광고_29cmFOCUS 운영성과_260420.xlsx

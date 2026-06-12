@@ -2,15 +2,21 @@ import time
 import uuid as _uuid
 
 from sqlalchemy import func, extract, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 import pandas as pd
 
 from app.core.database import engine
 from app.models.marketing_model import MarketingData, MarketingPeriodMeta
+from app.services import storage_service
 
 # 되돌리기용 임시 저장소 — {undo_id: {"created_at": float, "rows": [dict, ...]}}
 undo_store: dict[str, dict] = {}
 _UNDO_TTL = 1800  # 30분
+
+# Supabase 풀러의 트랜잭션/메시지 크기 제한에 걸리지 않도록 청크 단위로 INSERT
+_INSERT_CHUNK_SIZE = 500
 
 
 def _purge_expired() -> None:
@@ -18,6 +24,22 @@ def _purge_expired() -> None:
     expired = [k for k, v in undo_store.items() if now - v["created_at"] > _UNDO_TTL]
     for k in expired:
         del undo_store[k]
+
+
+@retry(
+    retry=retry_if_exception_type(OperationalError),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+)
+def _insert_chunk(df_chunk: pd.DataFrame) -> None:
+    with engine.begin() as conn:
+        df_chunk.to_sql("marketing_data", con=conn, if_exists="append", index=False, method="multi")
+
+
+def _insert_in_chunks(db_df: pd.DataFrame, chunk_size: int = _INSERT_CHUNK_SIZE) -> None:
+    """대량 INSERT를 작은 트랜잭션으로 나눠 커넥션 리셋(WinError 10054) 위험을 줄인다."""
+    for start in range(0, len(db_df), chunk_size):
+        _insert_chunk(db_df.iloc[start : start + chunk_size])
 
 
 class MarketingRepository:
@@ -117,7 +139,7 @@ class MarketingRepository:
                         {"d": row["report_date"], "c": ct},
                     )
 
-            db_df.to_sql("marketing_data", con=conn, if_exists="append", index=False)
+        _insert_in_chunks(db_df)
 
         undo_store[undo_id] = {"created_at": time.time(), "rows": undo_rows}
         return len(db_df), diff, undo_id
@@ -149,7 +171,8 @@ class MarketingRepository:
                     ),
                     {"d": row["report_date"], "c": row["campaign_type"]},
                 )
-            df.to_sql("marketing_data", con=conn, if_exists="append", index=False)
+
+        _insert_in_chunks(df)
 
         return True, f"이전 상태로 되돌렸습니다. ({len(df)}개 행 복원)"
 
@@ -182,8 +205,11 @@ class MarketingRepository:
         return row.comment if row else ""
 
     def get_excel_content(self, year: int, month: int) -> bytes | None:
+        """Supabase Storage에서 해당 연월의 엑셀 원본을 가져온다."""
         row = self._get_period_meta(year, month)
-        return row.excel_content if row else None
+        if not row or not row.excel_path:
+            return None
+        return storage_service.download_excel(row.excel_path)
 
     def upsert_period_meta(
         self,
@@ -193,19 +219,26 @@ class MarketingRepository:
         comment: str | None = None,
         excel_content: bytes | None = None,
     ) -> None:
+        """엑셀 원본은 Supabase Storage에 업로드하고, DB에는 object path만 저장한다."""
+        excel_path = (
+            storage_service.upload_excel(year, month, excel_content)
+            if excel_content is not None
+            else None
+        )
+
         row = self._get_period_meta(year, month)
         if row:
             if comment is not None:
                 row.comment = comment
-            if excel_content is not None:
-                row.excel_content = excel_content
+            if excel_path is not None:
+                row.excel_path = excel_path
         else:
             self.db.add(
                 MarketingPeriodMeta(
                     year=year,
                     month=month,
                     comment=comment or "",
-                    excel_content=excel_content,
+                    excel_path=excel_path,
                 )
             )
 
