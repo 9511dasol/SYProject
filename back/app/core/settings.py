@@ -1,10 +1,31 @@
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 class Settings:
+    # Environment
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")  # "development" | "production"
+
+    # CORS (쉼표 구분, 예: "https://example.com,https://admin.example.com")
+    CORS_ORIGINS: list[str] = [
+        origin.strip()
+        for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+        if origin.strip()
+    ]
+
+    # Database
+    DATABASE_URL: str = os.getenv(
+        "DATABASE_URL",
+        "postgresql+psycopg2://postgres:1234@localhost:5432/marketing_db",
+    )
+
     # LLM
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    OPENAI_EMBEDDING_MODEL: str = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai")  # "openai" | "claude"
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 
