@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import './globals.css';
 import 'boxicons/css/boxicons.min.css';
 import AppShell from '@/components/layout/AppShell';
+import AuthProvider from '@/components/providers/AuthProvider';
 import QueryProvider from '@/components/providers/QueryProvider';
 import ThemeProvider from '@/components/providers/ThemeProvider';
 import { TASK_ID_COOKIE } from '@/lib/taskCookieUtils';
@@ -45,9 +46,11 @@ export default async function RootLayout({
     >
       <body className="min-h-full">
         <ThemeProvider>
-          <QueryProvider>
-            <AppShell>{children}</AppShell>
-          </QueryProvider>
+          <AuthProvider>
+            <QueryProvider>
+              <AppShell>{children}</AppShell>
+            </QueryProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

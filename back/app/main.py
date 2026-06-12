@@ -11,7 +11,8 @@ from app.core.database import SessionLocal, engine, Base
 from app.core.settings import settings
 from app.models.marketing_model import MarketingData as _MD, MarketingPeriodMeta as _MPM  # noqa: F401
 from app.models.report_log_model import ReportLog as _RL  # noqa: F401,W0611
-from app.routers import marketing_router, keyword_compare_router, image_resize_router, image_filter_router, heading_router
+from app.models.user_model import User as _User  # noqa: F401
+from app.routers import auth_router, marketing_router, keyword_compare_router, image_resize_router, image_filter_router, heading_router
 from app.services.excel_service import _template_bytes
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,8 @@ scheduler = AsyncIOScheduler()
 def _init_db() -> None:
     Base.metadata.create_all(bind=engine)
     with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE marketing_period_meta ADD COLUMN IF NOT EXISTS excel_content BYTEA"))
+        conn.execute(text("ALTER TABLE marketing_period_meta ADD COLUMN IF NOT EXISTS excel_path TEXT"))
+        conn.execute(text("ALTER TABLE marketing_period_meta DROP COLUMN IF EXISTS excel_content"))
         conn.execute(text("ALTER TABLE marketing_data ADD COLUMN IF NOT EXISTS signup FLOAT DEFAULT 0.0"))
         conn.execute(text("ALTER TABLE marketing_data ADD COLUMN IF NOT EXISTS purchase FLOAT DEFAULT 0.0"))
         conn.execute(text("ALTER TABLE marketing_data ADD COLUMN IF NOT EXISTS apply FLOAT DEFAULT 0.0"))
@@ -97,6 +99,7 @@ app.add_middleware(
     expose_headers=["Content-Disposition", "X-AI-Reason", "X-AI-Provider"],
 )
 
+app.include_router(auth_router.router)
 app.include_router(marketing_router.router)
 app.include_router(keyword_compare_router.router)
 app.include_router(image_resize_router.router)
