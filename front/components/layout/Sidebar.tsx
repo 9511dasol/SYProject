@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { NAV_GROUPS } from '@/config/navigation';
 import type { NavBadge, NavItem } from '@/types/navigation';
+import SidebarProfile from '@/components/layout/SidebarProfile';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -155,12 +156,8 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           ))}
         </nav>
 
-        {/* 하단 */}
-        <div className="px-5 py-4 border-t border-border-soft shrink-0">
-          <p className="text-[10px] text-fg-subtle text-center">
-            © {new Date().getFullYear()} Marketing AI Platform
-          </p>
-        </div>
+        {/* 하단 프로필 영역 */}
+        <SidebarProfile />
       </aside>
     </>
   );

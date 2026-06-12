@@ -1,0 +1,70 @@
+'use client';
+
+import { useState } from 'react';
+import Image from 'next/image';
+import { signOut } from 'next-auth/react';
+import { useAuthStore } from '@/lib/store/useAuthStore';
+
+/** 사이드바 하단 고정 프로필 영역 — 사용자 정보 표시 및 로그아웃 */
+export default function SidebarProfile() {
+  const user = useAuthStore((state) => state.user);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  if (!user) return null;
+
+  const initial = user.name.trim().charAt(0).toUpperCase() || '?';
+
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await signOut({ callbackUrl: '/login' });
+    } catch {
+      setLoggingOut(false);
+    }
+  };
+
+  return (
+    <div className="sticky bottom-0 px-3 py-3 border-t border-border-soft bg-surface shrink-0">
+      <div className="flex items-center gap-3 px-2 py-2 rounded-xl">
+        {/* 아바타 */}
+        {user.image ? (
+          <Image
+            src={user.image}
+            alt={user.name}
+            width={36}
+            height={36}
+            unoptimized
+            className="w-9 h-9 rounded-full object-cover shrink-0"
+          />
+        ) : (
+          <div
+            className="flex items-center justify-center w-9 h-9 rounded-full shrink-0
+              bg-linear-to-br from-blue-600 to-indigo-600 text-white text-sm font-bold"
+          >
+            {initial}
+          </div>
+        )}
+
+        {/* 이름 / 이메일 */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-fg truncate">{user.name}</p>
+          <p className="text-xs text-fg-subtle truncate">{user.email}</p>
+        </div>
+
+        {/* 로그아웃 */}
+        <button
+          onClick={handleLogout}
+          disabled={loggingOut}
+          aria-label="로그아웃"
+          title="로그아웃"
+          className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0
+            text-fg-subtle hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20
+            transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <i className={`bx ${loggingOut ? 'bx-loader-alt animate-spin' : 'bx-log-out'} text-lg`} />
+        </button>
+      </div>
+    </div>
+  );
+}
