@@ -48,12 +48,28 @@ class MarketingRepository:
 
     # ── 저장 ──────────────────────────────────────────────────────────────────
 
-    def save_from_kpis(self, media_kpis: dict[str, pd.DataFrame]) -> tuple[int, dict, str]:
-        """media_kpis dict → DB row 변환 후 UPSERT"""
+    def save_from_kpis(
+        self,
+        media_kpis: dict[str, pd.DataFrame],
+        media_authority: dict[str, bool] | None = None,
+        conv_authority: dict[str, bool] | None = None,
+    ) -> tuple[int, dict, str]:
+        """media_kpis dict → DB row 변환 후 UPSERT.
+
+        media_authority/conv_authority: 라벨별로 "이번 업로드가 노출/클릭/비용(media)
+        또는 전환(conv) 데이터를 실제로 갖고 있었는지"를 표시. 파일을 하나씩 나눠
+        올리는 경우(예: 전환 파일만 업로드) 그 그룹은 값이 0으로 계산되는데, 이 정보가
+        없으면 UPSERT가 기존 행을 통째로 지우고 0으로 덮어써 이전에 저장된 값을
+        잃어버린다. 미지정 시 기존 동작대로 항상 덮어씀(회귀 없음).
+        """
         if not media_kpis:
             return 0, {}, ""
+        media_authority = media_authority or {}
+        conv_authority = conv_authority or {}
         records = []
         for campaign_type, daily_df in media_kpis.items():
+            has_media = media_authority.get(campaign_type, True)
+            has_conv = conv_authority.get(campaign_type, True)
             for _, row in daily_df.iterrows():
                 records.append({
                     "report_date": pd.to_datetime(str(row["date"])[:10]).date(),
@@ -66,6 +82,8 @@ class MarketingRepository:
                     "signup": float(row.get("signup") or 0),
                     "purchase": float(row.get("purchase") or 0),
                     "apply": float(row.get("apply") or 0),
+                    "_has_media": has_media,
+                    "_has_conv": has_conv,
                 })
         if not records:
             return 0, {}, ""
@@ -99,11 +117,20 @@ class MarketingRepository:
         db_df["report_date"] = pd.to_datetime(db_df["report_date"]).dt.date
         return self._upsert(db_df)
 
+    _MEDIA_FIELDS = ("impressions", "clicks", "cost")
+    _CONV_FIELDS = ("conversions", "conversion_revenue", "signup", "purchase", "apply")
+
     def _upsert(self, db_df: pd.DataFrame) -> tuple[int, dict, str]:
         """(report_date, campaign_type) 기준 UPSERT.
         삭제된 행을 undo_store에 보관, (삽입 수, diff, undo_id) 반환.
+
+        db_df에 _has_media/_has_conv 컬럼이 있으면(save_from_kpis 경유), 이번 업로드가
+        해당 그룹(노출/클릭/비용 또는 전환)의 데이터를 실제로 갖고 있지 않은 행은
+        기존 DB 값을 그대로 유지한다 — 파일을 하나씩 나눠 올릴 때 이전에 저장된
+        값이 0으로 덮어써지는 것을 방지.
         """
         _purge_expired()
+        has_authority_cols = "_has_media" in db_df.columns and "_has_conv" in db_df.columns
         combos = db_df[["report_date", "campaign_type"]].drop_duplicates()
         diff: dict[str, dict[str, list[str]]] = {}
         undo_rows: list[dict] = []
@@ -131,6 +158,18 @@ class MarketingRepository:
                 if existing:
                     for r in existing:
                         undo_rows.append(dict(r._mapping))
+
+                    if has_authority_cols:
+                        existing_row = dict(existing[0]._mapping)
+                        mask = (db_df["report_date"] == row["report_date"]) & (db_df["campaign_type"] == ct)
+                        for i in db_df.index[mask]:
+                            if not db_df.at[i, "_has_media"]:
+                                for f in self._MEDIA_FIELDS:
+                                    db_df.at[i, f] = existing_row[f]
+                            if not db_df.at[i, "_has_conv"]:
+                                for f in self._CONV_FIELDS:
+                                    db_df.at[i, f] = existing_row[f]
+
                     conn.execute(
                         text(
                             "DELETE FROM marketing_data "
@@ -138,6 +177,9 @@ class MarketingRepository:
                         ),
                         {"d": row["report_date"], "c": ct},
                     )
+
+        if has_authority_cols:
+            db_df = db_df.drop(columns=["_has_media", "_has_conv"])
 
         _insert_in_chunks(db_df)
 
