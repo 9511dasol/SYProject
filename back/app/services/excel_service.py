@@ -11,6 +11,7 @@
 CTR·CPC·전환율 등 수식 컬럼은 Excel이 자동 계산 → 여기서는 RAW(type='n') 컬럼만 씀.
 """
 
+import calendar
 import io
 import math
 from datetime import date, datetime
@@ -98,20 +99,22 @@ _SHEET_COLS: dict[str, list[tuple[str, int]]] = {
 }
 
 
-def _day_from_date(raw_date) -> int:
-    """date / datetime / 'YYYY-MM-DD' 문자열에서 일(day) 추출"""
-    if raw_date is None:
-        return 1
-    if isinstance(raw_date, (date, datetime)):
-        return raw_date.day
+def _to_date(raw_date) -> date:
+    """date / datetime / 'YYYY-MM-DD' 문자열을 Python date 객체로 변환"""
+    if isinstance(raw_date, datetime):
+        return raw_date.date()
+    if isinstance(raw_date, date):
+        return raw_date
     if isinstance(raw_date, str):
-        s = raw_date.strip()[:10]
-        if len(s) >= 10 and s[4] == "-":
-            return int(s[8:10])
-        return datetime.strptime(s, "%Y-%m-%d").day
-    if hasattr(raw_date, "day"):
-        return int(raw_date.day)
-    return raw_date.timetuple().tm_mday
+        return datetime.strptime(raw_date.strip()[:10], "%Y-%m-%d").date()
+    if hasattr(raw_date, "date"):
+        return raw_date.date()
+    t = raw_date.timetuple()
+    return date(t.tm_year, t.tm_mon, t.tm_mday)
+
+
+def _day_from_date(raw_date) -> int:
+    return _to_date(raw_date).day
 
 
 def _clean(val) -> float | int | None:
@@ -123,14 +126,32 @@ def _clean(val) -> float | int | None:
 
 
 _TEMPLATE_BYTES: bytes | None = None
+_TEMPLATE_MTIME: float = 0.0
 
 
 def _template_bytes() -> bytes:
-    """8MB+ 템플릿 디스크 재읽기 방지 (프로세스당 1회 로드)"""
-    global _TEMPLATE_BYTES
-    if _TEMPLATE_BYTES is None:
+    """템플릿 파일이 변경되면 자동으로 재읽기 (mtime 비교)"""
+    global _TEMPLATE_BYTES, _TEMPLATE_MTIME
+    mtime = TEMPLATE_PATH.stat().st_mtime
+    if _TEMPLATE_BYTES is None or mtime != _TEMPLATE_MTIME:
         _TEMPLATE_BYTES = TEMPLATE_PATH.read_bytes()
+        _TEMPLATE_MTIME = mtime
     return _TEMPLATE_BYTES
+
+
+def _copy_sheet_with_formula_update(wb, src_name: str, dst_name: str, old_period: str, new_period: str) -> None:
+    """시트를 복사하고 수식 안의 기간 문자열을 교체한다."""
+    ws = wb.copy_worksheet(wb[src_name])
+    ws.title = dst_name
+    for row in ws.iter_rows():
+        for cell in row:
+            if (
+                cell.value
+                and isinstance(cell.value, str)
+                and cell.value.startswith("=")
+                and old_period in cell.value
+            ):
+                cell.value = cell.value.replace(old_period, new_period)
 
 
 class ExcelService:
@@ -138,6 +159,8 @@ class ExcelService:
         self,
         media_kpis: dict[str, pd.DataFrame],
         period: str,
+        year: int | None = None,
+        month: int | None = None,  # 현재는 미사용, 향후 확장용으로 보존
     ) -> bytes:
         """템플릿을 복사해 각 매체 시트에 일별 원시 지표를 채운 뒤 bytes 반환"""
         wb = openpyxl.load_workbook(
@@ -146,17 +169,50 @@ class ExcelService:
             keep_vba=False,
         )
 
+        # summary 시트가 없으면 가장 최근 summary를 복사해 날짜 수식 기반 보장
+        summary_name = f"summary_{period}"
+        if summary_name not in wb.sheetnames:
+            fallback_summary = next(
+                (s for s in reversed(wb.sheetnames) if s.startswith("summary_")),
+                None,
+            )
+            if fallback_summary:
+                old_period_s = fallback_summary[len("summary_"):]
+                _copy_sheet_with_formula_update(wb, fallback_summary, summary_name, old_period_s, period)
+
+        # summary 시트의 B1(시작일)·D3(월 일수)를 해당 기간에 맞게 보정
+        if year and month and summary_name in wb.sheetnames:
+            ws_sum = wb[summary_name]
+            ws_sum["B1"] = datetime(year, month, 1)
+            ws_sum["D3"] = calendar.monthrange(year, month)[1]
+
+        filled = 0
         for media_label, df in media_kpis.items():
             prefix = SHEET_PREFIX.get(media_label)
             if prefix is None:
                 continue
             sheet_name = f"{prefix}_{period}"
             if sheet_name not in wb.sheetnames:
-                continue
+                # 같은 접두어를 가진 가장 최근 시트를 복사해 새 기간 시트로 사용
+                fallback = next(
+                    (s for s in reversed(wb.sheetnames) if s.startswith(f"{prefix}_")),
+                    None,
+                )
+                if fallback is None:
+                    continue
+                old_period = fallback[len(f"{prefix}_"):]
+                _copy_sheet_with_formula_update(wb, fallback, sheet_name, old_period, period)
 
             ws = wb[sheet_name]
             col_map = _SHEET_COLS.get(media_label, _NAVER_SA_COLS)
             self._fill_sheet(ws, df, col_map)
+            filled += 1
+
+        if filled == 0:
+            raise ValueError(
+                f"템플릿에 '{period}' 기간에 맞는 시트가 없고 복사할 시트도 없습니다. "
+                "report_template.xlsx를 업데이트해 주세요."
+            )
 
         wb.calculation.forceFullCalc = True  # 열 때 Excel이 수식 전체 재계산
         buf = io.BytesIO()
@@ -170,7 +226,9 @@ class ExcelService:
         df: pd.DataFrame,
         col_map: list[tuple[str, int]],
     ) -> None:
-        """row 23 = 1일 오프셋 기준으로 날짜별 RAW 지표 기입"""
+        """row 23 = 1일 오프셋 기준으로 날짜별 RAW 지표 기입.
+        B열(날짜)은 수식 참조 대신 실제 날짜 값을 직접 기입한다.
+        """
         fields = [f for f, _ in col_map]
         cols = [c for _, c in col_map]
         for field in fields:
@@ -179,7 +237,9 @@ class ExcelService:
         dates = df["date"].tolist()
         values = df[fields].values
         for i, date_val in enumerate(dates):
-            target_row = DATA_ROW + _day_from_date(date_val) - 1
+            d = _to_date(date_val)
+            target_row = DATA_ROW + d.day - 1
+            ws.cell(target_row, 2, d)          # B열: 날짜 직접 기입
             row_vals = values[i]
             for col_num, val in zip(cols, row_vals, strict=True):
                 ws.cell(target_row, col_num, _clean(val))

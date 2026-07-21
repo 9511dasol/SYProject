@@ -192,7 +192,7 @@ async def _run_analysis(task_id: str, files: list[FileEntry]) -> None:
         db.close()
 
 
-def _run_export_task(task_id: str, rows: list, period: str) -> None:
+def _run_export_task(task_id: str, rows: list, period: str, year: int, month: int) -> None:
     """동기 함수 → FastAPI BackgroundTasks가 스레드풀에서 실행"""
     def is_cancelled() -> bool:
         return export_store.get(task_id, {}).get("cancelled", False)
@@ -208,7 +208,7 @@ def _run_export_task(task_id: str, rows: list, period: str) -> None:
             export_store[task_id]["status"] = "cancelled"
             return
         export_store[task_id]["progress"] = 45
-        excel_bytes = ExcelService().fill_template(media_kpis, period)
+        excel_bytes = ExcelService().fill_template(media_kpis, period, year, month)
 
         if is_cancelled():
             export_store[task_id]["status"] = "cancelled"
@@ -330,7 +330,7 @@ async def start_export_db_task(
     task_id = str(uuid.uuid4())
     period = _period_label(year, month)
     export_store[task_id] = {"status": "pending", "progress": 5, "cancelled": False}
-    background_tasks.add_task(_run_export_task, task_id, rows, period)
+    background_tasks.add_task(_run_export_task, task_id, rows, period, year, month)
 
     return {"task_id": task_id, "filename": f"마케팅분석_{period.replace(' ', '')}.xlsx"}
 
@@ -397,7 +397,7 @@ async def export_db_excel(
     if not media_kpis:
         raise HTTPException(status_code=404, detail="해당 기간의 데이터가 없습니다.")
 
-    excel_bytes = ExcelService().fill_template(media_kpis, period)
+    excel_bytes = ExcelService().fill_template(media_kpis, period, year, month)
     filename = f"마케팅분석_{period.replace(' ', '')}.xlsx"
     return StreamingResponse(
         iter([excel_bytes]),
