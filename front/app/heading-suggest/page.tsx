@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import HeadingSuggestClient from './HeadingSuggestClient';
+import FeatureGate from '@/components/ui/FeatureGate';
 
 export const metadata: Metadata = {
   title: 'AI 헤딩 문구 추천',
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function HeadingSuggestPage() {
-  return <HeadingSuggestClient />;
+  return (
+    <FeatureGate flag="is_heading_suggest_enabled">
+      <HeadingSuggestClient />
+    </FeatureGate>
+  );
 }

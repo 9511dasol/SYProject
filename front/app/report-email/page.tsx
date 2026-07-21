@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import ReportEmailClient from './ReportEmailClient';
+import FeatureGate from '@/components/ui/FeatureGate';
 
 export const metadata: Metadata = {
   title: '코멘트 & 리포트 메일',
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function ReportEmailPage() {
-  return <ReportEmailClient />;
+  return (
+    <FeatureGate flag="is_report_email_enabled">
+      <ReportEmailClient />
+    </FeatureGate>
+  );
 }

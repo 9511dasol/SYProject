@@ -114,7 +114,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["Content-Disposition", "X-AI-Reason", "X-AI-Provider"],
+    expose_headers=["Content-Disposition", "X-AI-Provider", "X-AI-Upscale-Used"],
 )
 
 app.include_router(auth_router.router)

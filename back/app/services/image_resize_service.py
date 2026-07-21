@@ -4,6 +4,8 @@ import io
 
 from PIL import Image
 
+from app.services.image_ai_edit_service import ai_upscale
+
 # 출력 포맷별 Content-Type 매핑
 _CONTENT_TYPES: dict[str, str] = {
     "jpeg": "image/jpeg",
@@ -32,11 +34,12 @@ def resize_image(
     target_width: int | None,
     target_height: int | None,
     output_format: str = "jpeg",
-) -> tuple[io.BytesIO, str, str]:
+    use_ai_upscale: bool = False,
+) -> tuple[io.BytesIO, str, str, bool]:
     """
     Returns
     -------
-    (buffer, download_filename, content_type)
+    (buffer, download_filename, content_type, ai_upscale_used)
     """
     fmt = output_format.lower()
 
@@ -58,6 +61,23 @@ def resize_image(
         new_w = max(1, round(target_height * orig_w / orig_h))
     else:
         new_w, new_h = orig_w, orig_h
+
+    # ── 확대 시 AI 업스케일 시도 (요청 시) ─────────────────────────
+    # LANCZOS는 보간일 뿐이라 목표 크기가 원본보다 크면 디테일을 못 살린다.
+    # 실패하면(키 미설정·응답 오류 등) 조용히 기존 LANCZOS 경로로 폴백한다.
+    ai_upscale_used = False
+    if use_ai_upscale and new_w * new_h > orig_w * orig_h:
+        src_buf = io.BytesIO()
+        img.save(src_buf, format="PNG")
+        ai_bytes = ai_upscale(src_buf.getvalue(), mime_type="image/png")
+        if ai_bytes:
+            try:
+                ai_img = Image.open(io.BytesIO(ai_bytes))
+                ai_img.load()
+                img = ai_img
+                ai_upscale_used = True
+            except Exception:
+                pass  # 디코딩 실패 시 원본 img 유지
 
     # ── JPEG 출력 시 알파 채널 처리 (흰 배경 합성) ───────────────
     if fmt == "jpeg" and img.mode in ("RGBA", "PA", "LA", "P"):
@@ -86,4 +106,4 @@ def resize_image(
     download_name = f"{stem}_resized_{new_w}x{new_h}.{ext}"
     content_type = _CONTENT_TYPES.get(fmt, "application/octet-stream")
 
-    return buf_out, download_name, content_type
+    return buf_out, download_name, content_type, ai_upscale_used

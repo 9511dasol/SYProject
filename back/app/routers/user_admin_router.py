@@ -8,6 +8,8 @@ from app.schemas.user_admin_schema import (
     UserActiveUpdate,
     UserAdminCreate,
     UserAdminOut,
+    UserPasswordReset,
+    UserProfileUpdate,
     UserRoleUpdate,
 )
 
@@ -64,3 +66,40 @@ def update_active(
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다.")
     return user
+
+
+@router.patch("/{user_id}/profile", response_model=UserAdminOut)
+def update_profile(
+    user_id: int,
+    body: UserProfileUpdate,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    repo = UserRepository(db)
+    user = repo.get_by_id(user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다.")
+
+    if body.email is not None and body.email != user.email:
+        if repo.get_by_email(body.email) is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 이메일입니다.")
+
+    return repo.update_profile(user, name=body.name, email=body.email)
+
+
+@router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+def reset_password(
+    user_id: int,
+    body: UserPasswordReset,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="비밀번호는 8자 이상이어야 합니다.")
+
+    repo = UserRepository(db)
+    user = repo.get_by_id(user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다.")
+
+    repo.update_password(user, body.new_password)

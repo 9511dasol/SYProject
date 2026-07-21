@@ -35,8 +35,10 @@ def _gemini() -> genai.Client:
 
 # ── 상수 ──────────────────────────────────────────────────────────────────────
 
-_MODEL         = settings.GEMINI_MODEL
-_THUMBNAIL_BOX = (512, 512)
+_MODEL          = settings.GEMINI_MODEL
+_THUMBNAIL_BOX  = (512, 512)
+_MAX_ATTEMPTS   = 2     # 10개 미달/파싱 실패 시 재시도 횟수
+_TARGET_COUNT   = 10
 
 _SYSTEM_PROMPT = """\
 You are a world-class Korean marketing copywriter specializing in digital advertising.
@@ -100,11 +102,19 @@ def _parse_response(raw: str) -> HeadingResponse:
         match = re.search(r'\{.*\}', cleaned, re.DOTALL)
         if not match:
             raise RuntimeError(f"AI 응답에서 JSON을 찾을 수 없습니다: {cleaned[:300]!r}")
-        data = json.loads(match.group())
+        try:
+            data = json.loads(match.group())
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"AI 응답 JSON이 잘려 파싱할 수 없습니다: {cleaned[:300]!r}") from exc
 
-    # id 자동 보정 (AI가 id 를 잘못 반환한 경우 대비)
-    for i, item in enumerate(data.get("headings", []), start=1):
+    if not isinstance(data, dict) or not isinstance(data.get("headings"), list):
+        raise RuntimeError(f"AI 응답 형식이 예상과 다릅니다: {cleaned[:300]!r}")
+
+    # 10개 초과 시 앞에서부터 자르고, id 자동 보정 (AI가 id 를 잘못 반환한 경우 대비)
+    headings = data["headings"][:_TARGET_COUNT]
+    for i, item in enumerate(headings, start=1):
         item["id"] = i
+    data["headings"] = headings
 
     from pydantic import ValidationError
     try:
@@ -115,20 +125,8 @@ def _parse_response(raw: str) -> HeadingResponse:
 
 # ── 공개 진입점 ───────────────────────────────────────────────────────────────
 
-async def generate_headings(file_bytes: bytes) -> HeadingResponse:
-    """
-    이미지를 분석해 플랫폼별 헤딩 문구 10개를 생성합니다.
-
-    Returns
-    -------
-    HeadingResponse
-
-    Raises
-    ------
-    RuntimeError — API 오류 또는 응답 파싱 실패
-    """
-    thumbnail_bytes = _make_thumbnail_bytes(file_bytes)
-
+async def _call_gemini(thumbnail_bytes: bytes) -> str:
+    """Gemini Vision 호출 → 원본 텍스트 응답. API 오류는 RuntimeError로 변환."""
     try:
         response = await _gemini().aio.models.generate_content(
             model=_MODEL,
@@ -142,11 +140,51 @@ async def generate_headings(file_bytes: bytes) -> HeadingResponse:
             config=types.GenerateContentConfig(
                 system_instruction=_SYSTEM_PROMPT,
                 response_mime_type="application/json",
-                max_output_tokens=1500,
+                max_output_tokens=2500,
             ),
         )
     except genai_errors.APIError as exc:
         raise RuntimeError(f"Gemini API 오류 ({exc.code}): {exc.message}") from exc
 
-    raw_text = response.text or ""
-    return _parse_response(raw_text)
+    return response.text or ""
+
+
+async def generate_headings(file_bytes: bytes) -> HeadingResponse:
+    """
+    이미지를 분석해 플랫폼별 헤딩 문구를 생성합니다 (목표 10개).
+
+    응답이 목표치(10개)에 못 미치거나 파싱에 실패하면 최대 _MAX_ATTEMPTS 회
+    재시도하고, 그래도 부족하면 그때까지 얻은 결과 중 가장 많은 것을 반환합니다
+    (완전 실패는 모든 시도에서 파싱조차 되지 않았을 때만 발생).
+
+    Returns
+    -------
+    HeadingResponse
+
+    Raises
+    ------
+    RuntimeError — 모든 시도에서 API 오류 또는 응답 파싱 실패
+    """
+    thumbnail_bytes = _make_thumbnail_bytes(file_bytes)
+
+    best: HeadingResponse | None = None
+    last_error: RuntimeError | None = None
+
+    for _ in range(_MAX_ATTEMPTS):
+        try:
+            raw_text = await _call_gemini(thumbnail_bytes)
+            result = _parse_response(raw_text)
+        except RuntimeError as exc:
+            last_error = exc
+            continue
+
+        if len(result.headings) >= _TARGET_COUNT:
+            return result
+        if best is None or len(result.headings) > len(best.headings):
+            best = result
+
+    if best is not None:
+        return best
+
+    assert last_error is not None
+    raise last_error

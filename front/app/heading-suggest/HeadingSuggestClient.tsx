@@ -15,7 +15,7 @@ import { fetchHeadings } from '@/lib/headingClient';
 const LOADING_LABELS: Record<HeadingLoadingState, string> = {
   idle:        'AI 분석 후 문구 생성',
   compressing: '이미지 압축 중...',
-  analyzing:   'Claude가 분석 중...',
+  analyzing:   'Gemini가 분석 중...',
 };
 
 export default function HeadingSuggestClient() {
@@ -101,7 +101,7 @@ export default function HeadingSuggestClient() {
           </div>
           <h1 className="text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">헤딩 문구 추천</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            이미지를 업로드하면 Claude가 매체별 마케팅 헤딩 문구 10개를 제안합니다
+            이미지를 업로드하면 Gemini가 매체별 마케팅 헤딩 문구 10개를 제안합니다
           </p>
         </header>
 
@@ -151,7 +151,7 @@ export default function HeadingSuggestClient() {
               </div>
               <div>
                 <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
-                  Claude가 이미지를 분석하는 중...
+                  Gemini가 이미지를 분석하는 중...
                 </p>
                 <p className="text-xs text-amber-500 dark:text-amber-400 mt-0.5">
                   512×512 썸네일로 Vision API 호출 중 · 보통 5~15초 소요
@@ -172,8 +172,15 @@ export default function HeadingSuggestClient() {
                 onChange={setActiveTab}
               />
               {headings.length > 0 && (
-                <p className="text-xs text-slate-400 dark:text-slate-500">
+                <p
+                  className={
+                    headings.length < 10
+                      ? 'text-xs font-medium text-amber-600 dark:text-amber-400'
+                      : 'text-xs text-slate-400 dark:text-slate-500'
+                  }
+                >
                   총 {headings.length}개 문구 생성됨
+                  {headings.length < 10 && ' · AI가 목표치(10개)보다 적게 생성했어요'}
                 </p>
               )}
             </div>

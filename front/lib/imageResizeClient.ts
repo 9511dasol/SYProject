@@ -31,13 +31,15 @@ export async function resizeImage(
   file: File,
   width: number,
   height: number,
-  format: OutputFormat
-): Promise<void> {
+  format: OutputFormat,
+  useAiUpscale: boolean = false
+): Promise<{ aiUpscaleUsed: boolean }> {
   const form = new FormData();
   form.append('file', file);
   form.append('width', String(width));
   form.append('height', String(height));
   form.append('format', format);
+  form.append('use_ai_upscale', String(useAiUpscale));
 
   const res = await fetch(`${API_BASE}/api/image-resize/resize`, {
     method: 'POST',
@@ -59,6 +61,7 @@ export async function resizeImage(
   const contentDisposition = res.headers.get('Content-Disposition') ?? '';
   const match = contentDisposition.match(/filename[^;=\n]*=\s*(?:UTF-8''|"?)([^";\n]*)"?/i);
   const filename = match?.[1] ?? `resized_${file.name}`;
+  const aiUpscaleUsed = res.headers.get('X-AI-Upscale-Used') === 'true';
 
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -68,4 +71,6 @@ export async function resizeImage(
   anchor.click();
   document.body.removeChild(anchor);
   URL.revokeObjectURL(url);
+
+  return { aiUpscaleUsed };
 }

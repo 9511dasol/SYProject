@@ -2,26 +2,16 @@ import type { ImageDimensions, OutputFormat, ResizeFormState } from './imageResi
 
 export type { ImageDimensions, OutputFormat };
 
-/** 이미지 정제 폼 상태 (리사이즈 폼 + 정제 조건) */
+/** 이미지 편집 폼 상태 (리사이즈 폼 + 편집 프롬프트) */
 export interface FilterFormState extends ResizeFormState {
-  condition: string;
+  prompt: string;
 }
 
 /** 클라이언트 처리 단계 */
-export type FilterProcessingState = 'idle' | 'compressing' | 'analyzing' | 'resizing';
+export type FilterProcessingState = 'idle' | 'compressing' | 'editing' | 'resizing';
 
-/** AI 판별 결과 */
+/** AI 편집 결과 */
 export interface AiResult {
-  pass: boolean;
-  reason: string;
-  /** 실제 호출된 AI 모델명 (예: "GPT-4o-mini", "Claude Sonnet") */
+  /** 실제 호출된 AI 모델명 (예: "Gemini (gemini-2.5-flash-image)") */
   provider: string;
-  /** 거절 시 AI가 생성한 개선 제안 목록 */
-  suggestions?: string[];
-}
-
-/** 조건 불일치 에러 (FilterRejectedError 대신 직렬화 가능한 순수 타입) */
-export interface FilterRejected {
-  type: 'rejected';
-  reason: string;
 }

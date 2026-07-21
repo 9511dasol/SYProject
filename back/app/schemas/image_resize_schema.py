@@ -26,9 +26,10 @@ ALLOWED_MIME: frozenset[str] = frozenset({
 class ResizeInput:
     file_bytes:    bytes
     filename:      str
-    width:         int | None
-    height:        int | None
-    output_format: str
+    width:          int | None
+    height:         int | None
+    output_format:  str
+    use_ai_upscale: bool
 
 
 # ── 공통 검증 헬퍼 (image_filter_schema 에서도 import) ────────────────────────
@@ -79,6 +80,7 @@ async def get_resize_input(
     width:  int | None    = Form(None, ge=1, le=99_999, description="목표 가로 (px)"),
     height: int | None    = Form(None, ge=1, le=99_999, description="목표 세로 (px)"),
     format: str           = Form("jpeg", description="출력 포맷: jpeg | png | webp"),
+    use_ai_upscale: bool  = Form(False, description="확대 시 AI 업스케일 사용 여부"),
 ) -> ResizeInput:
     """이미지 업로드 파라미터 전체 검증 후 ResizeInput 반환."""
     validate_content_length(request)
@@ -90,4 +92,5 @@ async def get_resize_input(
         width=width,
         height=height,
         output_format=fmt,
+        use_ai_upscale=use_ai_upscale,
     )

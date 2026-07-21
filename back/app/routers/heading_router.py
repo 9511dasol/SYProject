@@ -3,10 +3,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
+from app.core.feature_flags import require_feature_flag
 from app.schemas.heading_schema import HeadingInput, HeadingResponse, get_heading_input
 from app.services.heading_service import generate_headings
 
-router = APIRouter(prefix="/api/heading", tags=["heading"])
+router = APIRouter(
+    prefix="/api/heading",
+    tags=["heading"],
+    dependencies=[Depends(require_feature_flag("is_heading_suggest_enabled"))],
+)
 
 
 @router.post("/suggest", response_model=HeadingResponse)

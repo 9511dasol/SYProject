@@ -6,7 +6,12 @@ import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Spinner from '@/components/ui/Spinner';
 import ToastContainer, { type ToastItem } from '@/components/ui/Toast';
-import type { AdminUserCreatePayload, AdminUserItem } from '@/types/adminUsers';
+import type {
+  AdminUserCreatePayload,
+  AdminUserItem,
+  AdminUserPasswordResetPayload,
+  AdminUserProfileUpdatePayload,
+} from '@/types/adminUsers';
 import type { UserRole } from '@/types/auth';
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -34,6 +39,15 @@ export default function AdminUsersClient() {
   const [form, setForm] = useState<AdminUserCreatePayload>(EMPTY_FORM);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+
+  const [editTarget, setEditTarget] = useState<AdminUserItem | null>(null);
+  const [editForm, setEditForm] = useState<{ name: string; email: string; newPassword: string }>({
+    name: '',
+    email: '',
+    newPassword: '',
+  });
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
 
   const isAdmin = status === 'authenticated' && session?.user.role === 'admin';
   const currentUserId = session?.user.id;
@@ -97,6 +111,69 @@ export default function AdminUsersClient() {
       addToast('error', err instanceof Error ? err.message : '계정 상태 변경 실패');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const handleEditOpen = (user: AdminUserItem) => {
+    setEditTarget(user);
+    setEditForm({ name: user.name, email: user.email, newPassword: '' });
+    setEditError(null);
+  };
+
+  const handleEditSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editTarget) return;
+    setEditError(null);
+
+    if (!editForm.email) {
+      setEditError('이메일을 입력해주세요.');
+      return;
+    }
+    if (editForm.newPassword && editForm.newPassword.length < 8) {
+      setEditError('새 비밀번호는 8자 이상이어야 합니다.');
+      return;
+    }
+
+    setEditSaving(true);
+    try {
+      const profilePayload: AdminUserProfileUpdatePayload = {
+        name: editForm.name,
+        email: editForm.email,
+      };
+      const res = await fetch(`/api/admin/users/${editTarget.id}/profile`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(profilePayload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? '계정 정보 변경 실패');
+      const updated = data as AdminUserItem;
+
+      if (editForm.newPassword) {
+        const pwPayload: AdminUserPasswordResetPayload = { new_password: editForm.newPassword };
+        const pwRes = await fetch(`/api/admin/users/${editTarget.id}/reset-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(pwPayload),
+        });
+        if (!pwRes.ok) {
+          const pwData = await pwRes.json().catch(() => ({}));
+          throw new Error(pwData.message ?? '비밀번호 재설정 실패');
+        }
+      }
+
+      setUsers((prev) => prev?.map((u) => (u.id === updated.id ? updated : u)) ?? prev);
+      addToast(
+        'success',
+        editForm.newPassword
+          ? `${updated.email} 계정 정보와 비밀번호를 변경했습니다.`
+          : `${updated.email} 계정 정보를 변경했습니다.`
+      );
+      setEditTarget(null);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : '계정 정보 변경 실패');
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -194,6 +271,7 @@ export default function AdminUsersClient() {
                 <th className="px-4 py-3">권한</th>
                 <th className="px-4 py-3">상태</th>
                 <th className="px-4 py-3">가입일</th>
+                <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -237,6 +315,18 @@ export default function AdminUsersClient() {
                       </button>
                     </td>
                     <td className="px-4 py-3 text-fg-subtle">{formatDate(user.created_at)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => handleEditOpen(user)}
+                        disabled={isUpdating}
+                        className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-fg-subtle
+                          hover:bg-surface-2 hover:text-fg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <i className="bx bx-edit-alt text-sm" />
+                        편집
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -306,6 +396,62 @@ export default function AdminUsersClient() {
             </Button>
             <Button type="submit" isLoading={creating}>
               생성
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={!!editTarget} onClose={() => setEditTarget(null)} title="계정 정보 수정" icon="bx-edit-alt">
+        <form onSubmit={handleEditSave} className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-600 dark:text-fg-muted">이름</label>
+            <input
+              type="text"
+              value={editForm.name}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+              placeholder="홍길동"
+              className={INPUT_CLASS}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-600 dark:text-fg-muted">이메일</label>
+            <input
+              type="email"
+              required
+              value={editForm.email}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, email: e.target.value }))}
+              placeholder="user@example.com"
+              autoComplete="off"
+              className={INPUT_CLASS}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-600 dark:text-fg-muted">
+              새 비밀번호 <span className="font-normal text-fg-subtle">(변경할 때만 입력)</span>
+            </label>
+            <input
+              type="password"
+              value={editForm.newPassword}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, newPassword: e.target.value }))}
+              placeholder="8자 이상 · 비워두면 유지"
+              autoComplete="new-password"
+              className={INPUT_CLASS}
+            />
+          </div>
+
+          {editError && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700
+              dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
+              {editError}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="outline" onClick={() => setEditTarget(null)} disabled={editSaving}>
+              취소
+            </Button>
+            <Button type="submit" isLoading={editSaving}>
+              저장
             </Button>
           </div>
         </form>

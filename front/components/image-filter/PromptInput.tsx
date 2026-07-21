@@ -1,27 +1,23 @@
 'use client';
 
-import type { ChangeEvent, KeyboardEvent } from 'react';
+import type { ChangeEvent } from 'react';
 
-interface ConditionInputProps {
+interface PromptInputProps {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
 }
 
 const EXAMPLES = [
-  '텍스트나 글자가 없는 깨끗한 사진',
-  '사람 얼굴이 포함된 인물 사진',
-  '야외 자연 풍경 사진',
-  '배경이 단색이거나 밝은 사진',
-  '음식이 담긴 사진',
-  '로고나 워터마크가 없는 사진',
+  '배경을 하얀색 배경으로 바꿔줘',
+  '흑백 사진으로 변환해줘',
+  '사진 속 워터마크나 텍스트를 제거해줘',
+  '더 화사하고 밝은 분위기로 보정해줘',
+  '배경을 흐릿하게(아웃포커스) 처리해줘',
+  '오래된 필름 사진 느낌으로 바꿔줘',
 ] as const;
 
-export default function ConditionInput({ value, onChange, disabled = false }: ConditionInputProps) {
-  const handleKeyDown = (_e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Shift+Enter 줄바꿈, Enter 단독은 기본 동작 허용
-  };
-
+export default function PromptInput({ value, onChange, disabled = false }: PromptInputProps) {
   return (
     <div className="space-y-3">
       {/* 텍스트 입력 */}
@@ -29,9 +25,8 @@ export default function ConditionInput({ value, onChange, disabled = false }: Co
         <textarea
           value={value}
           onChange={(e: ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value)}
-          onKeyDown={handleKeyDown}
           disabled={disabled}
-          placeholder="예) 배경이 깨끗하고 텍스트가 없는 상품 이미지만 선별해줘"
+          placeholder="예) 배경을 스튜디오 흰 배경으로 바꾸고 인물은 그대로 유지해줘"
           rows={3}
           maxLength={500}
           className={[
@@ -51,10 +46,10 @@ export default function ConditionInput({ value, onChange, disabled = false }: Co
         </span>
       </div>
 
-      {/* 예시 조건 칩 */}
+      {/* 예시 프롬프트 칩 */}
       <div>
         <p className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
-          예시 조건
+          예시 프롬프트
         </p>
         <div className="flex flex-wrap gap-1.5">
           {EXAMPLES.map((example) => (

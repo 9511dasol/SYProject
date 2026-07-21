@@ -4,24 +4,25 @@ import { useState, useCallback, useEffect } from 'react';
 import DropZone from '@/components/image-resize/DropZone';
 import DimensionInputs from '@/components/image-resize/DimensionInputs';
 import FormatSelector from '@/components/image-resize/FormatSelector';
-import ConditionInput from '@/components/image-filter/ConditionInput';
+import PromptInput from '@/components/image-filter/PromptInput';
 import AiResultBanner from '@/components/image-filter/AiResultBanner';
 import Button from '@/components/ui/Button';
 import type { ImageDimensions, AiResult, FilterFormState, FilterProcessingState } from '@/types/imageFilter';
-import { filterAndResize, FilterRejectedError } from '@/lib/imageFilterClient';
+import { editAndResize } from '@/lib/imageFilterClient';
 
 const INITIAL_FORM: FilterFormState = {
-  condition: '',
+  prompt: '',
   targetWidth: '',
   targetHeight: '',
   keepAspectRatio: true,
   outputFormat: 'jpeg',
+  useAiUpscale: false,
 };
 
 const PROCESSING_LABELS: Record<FilterProcessingState, string> = {
-  idle: 'AI 분석 후 다운로드',
+  idle: 'AI 편집 후 다운로드',
   compressing: '이미지 압축 중...',
-  analyzing: 'GPT-4o 분석 중...',
+  editing: 'Gemini가 편집하는 중...',
   resizing: '리사이징 중...',
 };
 
@@ -105,9 +106,9 @@ export default function ImageFilterClient() {
     [originalDimensions],
   );
 
-  /* ── AI 분석 & 다운로드 ─────────────────────────────────────── */
-  const handleAnalyze = async () => {
-    if (!file || !form.condition.trim()) return;
+  /* ── AI 편집 & 다운로드 ─────────────────────────────────────── */
+  const handleEdit = async () => {
+    if (!file || !form.prompt.trim()) return;
 
     const w = parseInt(form.targetWidth, 10) || 0;
     const h = parseInt(form.targetHeight, 10) || 0;
@@ -116,22 +117,18 @@ export default function ImageFilterClient() {
     setAiResult(null);
 
     try {
-      const { reason, provider } = await filterAndResize(
+      const { provider } = await editAndResize(
         file,
-        form.condition,
+        form.prompt,
         w,
         h,
         form.outputFormat,
         () => setProcessing('compressing'),
-        () => setProcessing('analyzing'),
+        () => setProcessing('editing'),
       );
-      setAiResult({ pass: true, reason, provider });
+      setAiResult({ provider });
     } catch (err) {
-      if (err instanceof FilterRejectedError) {
-        setAiResult({ pass: false, reason: err.reason, provider: err.provider, suggestions: err.suggestions });
-      } else {
-        setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
-      }
+      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
       setProcessing('idle');
     }
@@ -145,7 +142,7 @@ export default function ImageFilterClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const canAnalyze = !!file && !!form.condition.trim() && !isProcessing;
+  const canEdit = !!file && !!form.prompt.trim() && !isProcessing;
 
   /* ── 렌더 ───────────────────────────────────────────────────── */
   return (
@@ -154,12 +151,12 @@ export default function ImageFilterClient() {
         {/* 헤더 */}
         <header className="text-center space-y-3">
           <div className="inline-flex items-center gap-2 text-xs font-semibold tracking-widest text-indigo-500 dark:text-indigo-400 uppercase bg-indigo-50 dark:bg-indigo-950/50 rounded-full px-4 py-1.5 ring-1 ring-indigo-100 dark:ring-indigo-900">
-            <i className="bx bx-brain text-sm" />
-            AI Image Filter
+            <i className="bx bx-magic-wand text-sm" />
+            AI Image Edit
           </div>
           <h1 className="text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">이미지 정제</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            GPT-4o가 이미지를 분석해 조건을 충족하는 경우에만 리사이징 후 반환합니다
+            원하는 대로 프롬프트를 입력하면 Gemini가 이미지를 수정해 돌려드립니다
           </p>
         </header>
 
@@ -185,19 +182,19 @@ export default function ImageFilterClient() {
             <>
               <Divider />
 
-              {/* 섹션 2: 정제 조건 */}
+              {/* 섹션 2: 편집 프롬프트 */}
               <section className="p-6">
                 <SectionLabel
                   number={2}
-                  label="정제 조건"
-                  badge="GPT-4o"
+                  label="편집 프롬프트"
+                  badge="Gemini"
                 />
                 <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 mb-3">
-                  AI가 조건을 분석합니다. 조건 불일치 시 다운로드가 차단됩니다.
+                  이미지를 어떻게 바꾸고 싶은지 자유롭게 입력하세요.
                 </p>
-                <ConditionInput
-                  value={form.condition}
-                  onChange={(v) => setForm((prev) => ({ ...prev, condition: v }))}
+                <PromptInput
+                  value={form.prompt}
+                  onChange={(v) => setForm((prev) => ({ ...prev, prompt: v }))}
                   disabled={isProcessing}
                 />
               </section>
@@ -210,7 +207,7 @@ export default function ImageFilterClient() {
                   <section className="p-6">
                     <SectionLabel number={3} label="리사이즈 크기" />
                     <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 mb-3">
-                      조건 통과 시에만 적용됩니다.
+                      편집 완료 후 이 크기로 리사이즈됩니다.
                     </p>
                     <DimensionInputs
                       targetWidth={form.targetWidth}
@@ -245,12 +242,12 @@ export default function ImageFilterClient() {
               {/* 결과 & 액션 */}
               <Divider />
               <div className="p-6 space-y-4">
-                {/* AI 분석 중 인디케이터 */}
+                {/* AI 처리 중 인디케이터 */}
                 {isProcessing && (
-                  <AnalyzingIndicator state={processing} />
+                  <ProcessingIndicator state={processing} />
                 )}
 
-                {/* AI 판별 결과 배너 */}
+                {/* AI 편집 결과 배너 */}
                 {!isProcessing && aiResult && (
                   <AiResultBanner result={aiResult} />
                 )}
@@ -263,20 +260,20 @@ export default function ImageFilterClient() {
                   </div>
                 )}
 
-                {/* 분석 버튼 */}
+                {/* 실행 버튼 */}
                 <Button
                   className="w-full bg-indigo-600! hover:bg-indigo-700! rounded-xl!"
-                  onClick={handleAnalyze}
+                  onClick={handleEdit}
                   isLoading={isProcessing}
-                  disabled={!canAnalyze}
+                  disabled={!canEdit}
                 >
-                  {!isProcessing && <i className="bx bx-analyse text-lg" />}
+                  {!isProcessing && <i className="bx bx-magic-wand text-lg" />}
                   {PROCESSING_LABELS[processing]}
                 </Button>
 
-                {!form.condition.trim() && !isProcessing && (
+                {!form.prompt.trim() && !isProcessing && (
                   <p className="text-center text-xs text-slate-400 dark:text-slate-500">
-                    정제 조건을 입력해야 분석을 시작할 수 있습니다.
+                    편집 프롬프트를 입력해야 시작할 수 있습니다.
                   </p>
                 )}
               </div>
@@ -286,7 +283,7 @@ export default function ImageFilterClient() {
 
         {/* 안내 문구 */}
         <p className="text-center text-xs text-slate-400 dark:text-slate-500">
-          이미지는 서버에 저장되지 않으며, AI 분석용 512×512 썸네일만 임시로 생성됩니다.
+          이미지는 서버에 저장되지 않으며, AI 편집 처리 후 즉시 반환됩니다.
         </p>
       </div>
     </div>
@@ -323,8 +320,8 @@ function Divider() {
   return <div className="border-t border-slate-100 dark:border-slate-800" />;
 }
 
-function AnalyzingIndicator({ state }: { state: FilterProcessingState }) {
-  const isAI = state === 'analyzing';
+function ProcessingIndicator({ state }: { state: FilterProcessingState }) {
+  const isAI = state === 'editing';
 
   return (
     <div
@@ -354,11 +351,11 @@ function AnalyzingIndicator({ state }: { state: FilterProcessingState }) {
             isAI ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-600 dark:text-slate-400'
           }`}
         >
-          {isAI ? 'GPT-4o가 이미지를 분석하는 중...' : PROCESSING_LABELS[state]}
+          {isAI ? 'Gemini가 이미지를 편집하는 중...' : PROCESSING_LABELS[state]}
         </p>
         {isAI && (
           <p className="text-xs text-indigo-400 dark:text-indigo-500 mt-0.5">
-            512×512 썸네일로 Vision API 호출 중 · 보통 5~10초 소요
+            프롬프트에 따라 이미지를 생성 중 · 보통 5~10초 소요
           </p>
         )}
       </div>

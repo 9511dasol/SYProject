@@ -13,6 +13,7 @@ const INITIAL_FORM: ResizeFormState = {
   targetHeight: '',
   keepAspectRatio: true,
   outputFormat: 'jpeg',
+  useAiUpscale: false,
 };
 
 type ProcessingState = 'idle' | 'compressing' | 'resizing';
@@ -114,15 +115,31 @@ export default function ImageResizeClient() {
       const compressed = await compressImageIfNeeded(file);
 
       setProcessing('resizing');
-      await resizeImage(compressed, w, h, form.outputFormat);
+      const { aiUpscaleUsed } = await resizeImage(compressed, w, h, form.outputFormat, form.useAiUpscale);
 
-      setSuccessMsg('리사이즈 완료! 다운로드가 시작되었습니다.');
+      setSuccessMsg(
+        aiUpscaleUsed
+          ? 'AI 업스케일 완료! 다운로드가 시작되었습니다.'
+          : '리사이즈 완료! 다운로드가 시작되었습니다.'
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
       setProcessing('idle');
     }
   };
+
+  const isUpscaling =
+    !!originalDimensions &&
+    Number(form.targetWidth) * Number(form.targetHeight) >
+      originalDimensions.width * originalDimensions.height;
+
+  /* ── 축소/동일 비율로 바뀌면 AI 업스케일 옵션 자동 해제 ────────── */
+  useEffect(() => {
+    if (!isUpscaling && form.useAiUpscale) {
+      setForm((prev) => ({ ...prev, useAiUpscale: false }));
+    }
+  }, [isUpscaling, form.useAiUpscale]);
 
   /* ── 언마운트 시 URL 해제 ───────────────────────────────────── */
   useEffect(() => {
@@ -139,7 +156,9 @@ export default function ImageResizeClient() {
     processing === 'compressing'
       ? '압축 중...'
       : processing === 'resizing'
-      ? '리사이징 중...'
+      ? form.useAiUpscale
+        ? 'AI 업스케일 중...'
+        : '리사이징 중...'
       : '리사이즈 & 다운로드';
 
   /* ── 렌더 ───────────────────────────────────────────────────── */
@@ -212,6 +231,31 @@ export default function ImageResizeClient() {
                   />
                 </div>
               </section>
+
+              {/* 섹션 4: AI 업스케일 (확대 시에만 표시) */}
+              {isUpscaling && (
+                <>
+                  <Divider />
+                  <section className="p-6">
+                    <SectionLabel number={4} label="AI 업스케일" />
+                    <label className="mt-3 flex items-start gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-4 py-3.5 cursor-pointer has-disabled:cursor-not-allowed has-disabled:opacity-50">
+                      <input
+                        type="checkbox"
+                        checked={form.useAiUpscale}
+                        onChange={(e) => setForm((prev) => ({ ...prev, useAiUpscale: e.target.checked }))}
+                        disabled={isProcessing}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                      />
+                      <span className="text-sm text-slate-600 dark:text-slate-300">
+                        <span className="font-medium text-slate-800 dark:text-slate-100">AI로 디테일 보강</span>
+                        <br />
+                        원본보다 큰 사이즈로 확대합니다. 일반 리사이즈는 흐려질 수 있어 AI 모델이 디테일을
+                        보강한 뒤 리사이즈합니다. 처리 시간이 조금 더 걸릴 수 있어요.
+                      </span>
+                    </label>
+                  </section>
+                </>
+              )}
             </>
           )}
 

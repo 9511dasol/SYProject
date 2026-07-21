@@ -122,7 +122,7 @@ export default function LoginClient() {
                 <p className="mt-4 text-center text-xs text-slate-500">
                   <span>이미 계정이 있으신가요? </span>
                   <button type="button" onClick={toggle} className="cursor-pointer font-bold text-slate-700">
-                    로그인하기
+                    로그인
                   </button>
                 </p>
               }
@@ -151,7 +151,7 @@ export default function LoginClient() {
                   <p className="mt-2 text-center text-xs text-slate-500">
                     <span>계정이 없으신가요? </span>
                     <button type="button" onClick={toggle} className="cursor-pointer font-bold text-slate-700">
-                      회원가입하기
+                      회원가입
                     </button>
                   </p>
                 </>

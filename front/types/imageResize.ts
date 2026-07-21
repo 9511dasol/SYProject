@@ -10,6 +10,7 @@ export interface ResizeFormState {
   targetHeight: string;
   keepAspectRatio: boolean;
   outputFormat: OutputFormat;
+  useAiUpscale: boolean;
 }
 
 export interface DropZoneProps {

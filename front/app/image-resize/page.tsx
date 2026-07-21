@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import ImageResizeClient from '@/components/image-resize/ImageResizeClient';
+import FeatureGate from '@/components/ui/FeatureGate';
 
 export const metadata: Metadata = {
   title: '이미지 리사이저',
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function ImageResizePage() {
-  return <ImageResizeClient />;
+  return (
+    <FeatureGate flag="is_image_resize_enabled">
+      <ImageResizeClient />
+    </FeatureGate>
+  );
 }

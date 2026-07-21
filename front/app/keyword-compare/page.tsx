@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import FileCompareClient from './FileCompareClient';
+import FeatureGate from '@/components/ui/FeatureGate';
 
 export const metadata: Metadata = {
   title: '키워드 성과 비교',
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function FileComparePage() {
-  return <FileCompareClient />;
+  return (
+    <FeatureGate flag="is_keyword_compare_enabled">
+      <FileCompareClient />
+    </FeatureGate>
+  );
 }

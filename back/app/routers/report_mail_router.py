@@ -7,6 +7,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
+from app.core.feature_flags import require_feature_flag
 from app.core.settings import settings
 from app.models.report_log_model import ReportLog
 from app.services.analysis_service import AnalysisService
@@ -16,7 +17,11 @@ from app.services.report_builder_service import ReportBuilderService
 from app.services.report_orchestrator import ReportOrchestrator
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/report-mail", tags=["report-mail"])
+router = APIRouter(
+    prefix="/api/report-mail",
+    tags=["report-mail"],
+    dependencies=[Depends(require_feature_flag("is_report_email_enabled"))],
+)
 
 
 # ── 의존성 ────────────────────────────────────────────────────────────────────

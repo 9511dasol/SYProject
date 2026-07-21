@@ -38,7 +38,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         icon: 'bx-filter-alt',
         href: '/image-filter',
         badge: 'NEW',
-        description: 'GPT-4o가 조건을 분석해 맞는 이미지만 리사이징',
+        description: 'Gemini가 프롬프트대로 이미지를 편집',
       },
       {
         id: 'image-resize',
