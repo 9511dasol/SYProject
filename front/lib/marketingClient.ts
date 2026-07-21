@@ -1,9 +1,9 @@
 import axios, { isAxiosError } from 'axios';
 import type { ExcelReport, ReportData, RowFormData, TaskStatusResponse, UploadTaskResponse } from '@/types/marketing';
 
-const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000',
-});
+// BFF Route Handler(/api/marketing/*)를 거쳐 FastAPI로 전달된다.
+// 같은 오리진이라 baseURL이 필요 없고, 인증은 Route Handler가 세션으로 처리한다.
+const api = axios.create();
 
 function toFormData(files: File[]): FormData {
   const formData = new FormData();

@@ -1,8 +1,13 @@
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
+from app.core.security import get_current_user
 from app.services.keyword_compare_service import KeywordCompareService
 
-router = APIRouter(prefix="/api/keyword-compare", tags=["Keyword Compare"])
+router = APIRouter(
+    prefix="/api/keyword-compare",
+    tags=["Keyword Compare"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.post("/parse")

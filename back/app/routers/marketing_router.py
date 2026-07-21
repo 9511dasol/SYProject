@@ -3,10 +3,11 @@ import uuid
 from urllib.parse import quote
 
 import pandas as pd
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.core.database import SessionLocal
+from app.core.security import get_current_user
 from app.repositories.marketing_repo import MarketingRepository, undo_store
 from app.schemas.marketing_schema import (
     MediaDailyRow,
@@ -22,7 +23,11 @@ from app.services.excel_service import ExcelService
 from app.services.excel_reader_service import ExcelReaderService
 from app.services.marketing_service import FileEntry, MarketingService
 
-router = APIRouter(prefix="/api/marketing", tags=["Marketing"])
+router = APIRouter(
+    prefix="/api/marketing",
+    tags=["Marketing"],
+    dependencies=[Depends(get_current_user)],
+)
 
 task_store: dict[str, dict] = {}
 export_store: dict[str, dict] = {}  # {task_id: {status, progress, data?, filename, error?}}
