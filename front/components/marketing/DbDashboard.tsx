@@ -25,6 +25,7 @@ interface DownloadTask {
   progress: number;
   phase: DlPhase;
   error?: string;
+  deliverBy: 'download' | 'email';
 }
 
 interface DbDashboardProps {
@@ -117,9 +118,9 @@ function DownloadProgressToast({
           {isError && <i className="bx bx-error-circle text-xl shrink-0" />}
           <span className="text-sm font-semibold truncate">
             {isError ? 'Excel 생성 실패'
-              : isDone ? 'Excel 준비 완료'
+              : isDone ? (task.deliverBy === 'email' ? '이메일로 발송 완료' : 'Excel 준비 완료')
               : isPaused ? '일시정지됨'
-              : 'Excel 생성 중…'}
+              : task.deliverBy === 'email' ? 'Excel 생성 후 메일 발송 중…' : 'Excel 생성 중…'}
           </span>
         </div>
 
@@ -246,9 +247,12 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
     if (!exportStatus || !dlTask) return;
     if (exportStatus.status === 'done') {
       setDlTask((t) => t ? { ...t, progress: 100, phase: 'done' } : null);
-      getDbExportResult(dlTask.taskId).then((blob) =>
-        saveFileWithPicker(blob, dlTask.filename),
-      );
+      // 이메일 전송은 백엔드가 이미 완료했으므로 브라우저에서 추가로 받을 파일이 없다.
+      if (dlTask.deliverBy === 'download') {
+        getDbExportResult(dlTask.taskId).then((blob) =>
+          saveFileWithPicker(blob, dlTask.filename),
+        );
+      }
     } else if (exportStatus.status === 'error') {
       setDlTask((t) => t ? { ...t, phase: 'error', error: exportStatus.error ?? 'Excel 생성 실패' } : null);
     } else {
@@ -259,11 +263,11 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   }, [exportStatus]);
 
   // ── 다운로드 시작 ─────────────────────────────────────────────────────────
-  async function handleDownload() {
+  async function handleDownload(deliverBy: 'download' | 'email' = 'download') {
     if (!selected || !report?.by_media.length || dlTask) return;
     try {
-      const { task_id, filename } = await startDbExportTask(selected.year, selected.month);
-      setDlTask({ taskId: task_id, filename, progress: 5, phase: 'pending' });
+      const { task_id, filename } = await startDbExportTask(selected.year, selected.month, deliverBy);
+      setDlTask({ taskId: task_id, filename, progress: 5, phase: 'pending', deliverBy });
     } catch (err) {
       // 에러는 summaryError 처리 흐름과 일관성 있게 콘솔에만
       console.error(err);
@@ -397,13 +401,29 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
             <Button
               variant="ghost"
               className="border border-slate-200 dark:border-border shrink-0"
-              onClick={handleDownload}
+              onClick={() => handleDownload('download')}
               disabled={!canDownload || isFetching}
               title={isNewPeriod ? 'DB에 저장 후 다운로드 가능합니다' : dlTask ? 'Excel 생성 중…' : 'Excel 다운로드'}
             >
-              {dlTask
+              {dlTask && dlTask.deliverBy === 'download'
                 ? <span className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-slate-500 animate-spin" />
                 : <i className="bx bx-download text-lg" />}
+            </Button>
+
+            <Button
+              variant="ghost"
+              className="border border-slate-200 dark:border-border shrink-0"
+              onClick={() => handleDownload('email')}
+              disabled={!canDownload || isFetching}
+              title={
+                isNewPeriod ? 'DB에 저장 후 이용 가능합니다'
+                  : dlTask ? '처리 중…'
+                  : '이메일로 받기 (파일이 커서 다운로드가 안 될 때)'
+              }
+            >
+              {dlTask && dlTask.deliverBy === 'email'
+                ? <span className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-slate-500 animate-spin" />
+                : <i className="bx bx-envelope text-lg" />}
             </Button>
           </div>
         </div>

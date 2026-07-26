@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel
 
@@ -45,6 +46,7 @@ class ReportResponse(BaseModel):
     by_media: list[MediaSummary]
     daily: dict[str, list[MediaDailyRow]]
     comment: str = ""
+    comment_updated_at: datetime | None = None
     diff: dict[str, RowDiff] = {}
     undo_id: str = ""
 

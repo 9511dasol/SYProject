@@ -4,8 +4,12 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 
 from app.core.feature_flags import require_feature_flag
+from app.core.security import get_current_user, get_db
+from app.models.user_model import User
+from app.repositories.ai_tool_usage_log_repo import AIToolUsageLogRepository
 from app.schemas.image_filter_schema import EditInput, get_edit_input
 from app.services.image_filter_service import ImageEditError, edit_and_resize
 
@@ -19,9 +23,11 @@ router = APIRouter(
 @router.post("/edit")
 async def edit_endpoint(
     inp: EditInput = Depends(get_edit_input),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     try:
-        buf, download_name, content_type, ai_provider = edit_and_resize(
+        buf, download_name, content_type, ai_provider, usage = edit_and_resize(
             file_bytes=inp.file_bytes,
             original_filename=inp.filename,
             prompt=inp.prompt,
@@ -35,6 +41,16 @@ async def edit_endpoint(
 
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"이미지 처리 중 오류: {exc}") from exc
+
+    AIToolUsageLogRepository(db).create(
+        user=current_user,
+        tool="image_filter",
+        image_filename=inp.filename,
+        prompt=inp.prompt,
+        prompt_tokens=usage.prompt_tokens if usage else None,
+        output_tokens=usage.output_tokens if usage else None,
+        total_tokens=usage.total_tokens if usage else None,
+    )
 
     encoded_name = quote(download_name, safe="")
     return StreamingResponse(

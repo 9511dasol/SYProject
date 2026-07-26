@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { SessionProvider, useSession } from 'next-auth/react';
+import { SessionProvider, signOut, useSession } from 'next-auth/react';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 
 /** NextAuth 세션 변화를 zustand store(useAuthStore)에 동기화한다. */
@@ -11,6 +11,14 @@ function AuthStoreSync() {
   const clearUser = useAuthStore((state) => state.clearUser);
 
   useEffect(() => {
+    // accessToken 자동 갱신(refresh token 만료 등으로)이 실패한 경우 —
+    // 세션은 남아있지만 더 이상 API를 호출할 수 없으므로 바로 로그아웃시켜 재로그인을 유도한다.
+    if (session?.error === 'RefreshAccessTokenError') {
+      clearUser();
+      signOut({ callbackUrl: '/login' });
+      return;
+    }
+
     if (status === 'authenticated' && session?.user) {
       setUser({
         id: session.user.id,

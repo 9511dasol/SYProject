@@ -8,12 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.core.feature_flags import require_feature_flag
-from app.core.settings import settings
 from app.models.report_log_model import ReportLog
 from app.services.analysis_service import AnalysisService
 from app.services.comment_service import CommentService
 from app.services.llm import build_llm
-from app.services.mail.base import AbstractMailSender
+from app.services.mail import build_mail_sender
 from app.services.report_builder_service import ReportBuilderService
 from app.services.report_orchestrator import ReportOrchestrator
 
@@ -35,26 +34,12 @@ def get_db():
         db.close()
 
 
-def _build_mail_sender() -> AbstractMailSender:
-    if settings.MAIL_PROVIDER == "resend":
-        from app.services.mail.resend_sender import ResendSender
-        return ResendSender(api_key=settings.RESEND_API_KEY, from_email=settings.RESEND_FROM)
-    from app.services.mail.smtp_sender import SmtpSender
-    return SmtpSender(
-        host=settings.SMTP_HOST,
-        port=settings.SMTP_PORT,
-        username=settings.SMTP_USERNAME,
-        password=settings.SMTP_PASSWORD,
-        from_email=settings.SMTP_FROM,
-    )
-
-
 def _build_orchestrator(db: Session) -> ReportOrchestrator:
     return ReportOrchestrator(
         analysis_svc=AnalysisService(db),
         comment_svc=CommentService(llm=build_llm()),
         builder_svc=ReportBuilderService(),
-        mail_sender=_build_mail_sender(),
+        mail_sender=build_mail_sender(),
         db=db,
     )
 

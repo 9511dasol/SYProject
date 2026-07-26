@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { authFetch } from '@/lib/api/authFetch';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Spinner from '@/components/ui/Spinner';
@@ -63,7 +64,7 @@ export default function AdminUsersClient() {
   useEffect(() => {
     if (!isAdmin) return;
 
-    fetch('/api/admin/users')
+    authFetch('/api/admin/users')
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.message ?? '계정 조회 실패');
@@ -77,7 +78,7 @@ export default function AdminUsersClient() {
     if (role === user.role) return;
     setUpdatingId(user.id);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/role`, {
+      const res = await authFetch(`/api/admin/users/${user.id}/role`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role }),
@@ -97,7 +98,7 @@ export default function AdminUsersClient() {
   const handleActiveToggle = async (user: AdminUserItem) => {
     setUpdatingId(user.id);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/active`, {
+      const res = await authFetch(`/api/admin/users/${user.id}/active`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: !user.is_active }),
@@ -140,7 +141,7 @@ export default function AdminUsersClient() {
         name: editForm.name,
         email: editForm.email,
       };
-      const res = await fetch(`/api/admin/users/${editTarget.id}/profile`, {
+      const res = await authFetch(`/api/admin/users/${editTarget.id}/profile`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(profilePayload),
@@ -151,7 +152,7 @@ export default function AdminUsersClient() {
 
       if (editForm.newPassword) {
         const pwPayload: AdminUserPasswordResetPayload = { new_password: editForm.newPassword };
-        const pwRes = await fetch(`/api/admin/users/${editTarget.id}/reset-password`, {
+        const pwRes = await authFetch(`/api/admin/users/${editTarget.id}/reset-password`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(pwPayload),
@@ -192,7 +193,7 @@ export default function AdminUsersClient() {
 
     setCreating(true);
     try {
-      const res = await fetch('/api/admin/users', {
+      const res = await authFetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),

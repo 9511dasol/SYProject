@@ -18,6 +18,7 @@ from PIL import Image
 
 from app.core.settings import settings
 from app.schemas.heading_schema import HeadingResponse
+from app.services.gemini_usage import TokenUsage
 
 # ── 클라이언트 (지연 초기화) ──────────────────────────────────────────────────
 
@@ -125,8 +126,8 @@ def _parse_response(raw: str) -> HeadingResponse:
 
 # ── 공개 진입점 ───────────────────────────────────────────────────────────────
 
-async def _call_gemini(thumbnail_bytes: bytes) -> str:
-    """Gemini Vision 호출 → 원본 텍스트 응답. API 오류는 RuntimeError로 변환."""
+async def _call_gemini(thumbnail_bytes: bytes) -> tuple[str, TokenUsage | None]:
+    """Gemini Vision 호출 → (원본 텍스트 응답, 토큰 사용량). API 오류는 RuntimeError로 변환."""
     try:
         response = await _gemini().aio.models.generate_content(
             model=_MODEL,
@@ -146,10 +147,10 @@ async def _call_gemini(thumbnail_bytes: bytes) -> str:
     except genai_errors.APIError as exc:
         raise RuntimeError(f"Gemini API 오류 ({exc.code}): {exc.message}") from exc
 
-    return response.text or ""
+    return response.text or "", TokenUsage.from_response(response)
 
 
-async def generate_headings(file_bytes: bytes) -> HeadingResponse:
+async def generate_headings(file_bytes: bytes) -> tuple[HeadingResponse, TokenUsage | None]:
     """
     이미지를 분석해 플랫폼별 헤딩 문구를 생성합니다 (목표 10개).
 
@@ -159,7 +160,7 @@ async def generate_headings(file_bytes: bytes) -> HeadingResponse:
 
     Returns
     -------
-    HeadingResponse
+    (HeadingResponse, token_usage) — token_usage는 채택된 시도의 사용량
 
     Raises
     ------
@@ -168,23 +169,25 @@ async def generate_headings(file_bytes: bytes) -> HeadingResponse:
     thumbnail_bytes = _make_thumbnail_bytes(file_bytes)
 
     best: HeadingResponse | None = None
+    best_usage: TokenUsage | None = None
     last_error: RuntimeError | None = None
 
     for _ in range(_MAX_ATTEMPTS):
         try:
-            raw_text = await _call_gemini(thumbnail_bytes)
+            raw_text, usage = await _call_gemini(thumbnail_bytes)
             result = _parse_response(raw_text)
         except RuntimeError as exc:
             last_error = exc
             continue
 
         if len(result.headings) >= _TARGET_COUNT:
-            return result
+            return result, usage
         if best is None or len(result.headings) > len(best.headings):
             best = result
+            best_usage = usage
 
     if best is not None:
-        return best
+        return best, best_usage
 
     assert last_error is not None
     raise last_error

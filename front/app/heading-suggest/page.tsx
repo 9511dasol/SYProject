@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import HeadingSuggestClient from './HeadingSuggestClient';
+import AuthGate from '@/components/ui/AuthGate';
 import FeatureGate from '@/components/ui/FeatureGate';
 
 export const metadata: Metadata = {
@@ -9,8 +10,10 @@ export const metadata: Metadata = {
 
 export default function HeadingSuggestPage() {
   return (
-    <FeatureGate flag="is_heading_suggest_enabled">
-      <HeadingSuggestClient />
-    </FeatureGate>
+    <AuthGate>
+      <FeatureGate flag="is_heading_suggest_enabled">
+        <HeadingSuggestClient />
+      </FeatureGate>
+    </AuthGate>
   );
 }

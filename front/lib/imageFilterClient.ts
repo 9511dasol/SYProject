@@ -1,7 +1,6 @@
 import type { OutputFormat } from '@/types/imageResize';
+import { authFetch } from '@/lib/api/authFetch';
 import { compressImageIfNeeded } from './imageResizeClient';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
 /**
  * 서버에 이미지 + 편집 프롬프트 + 크기를 전송하고,
@@ -29,7 +28,7 @@ export async function editAndResize(
   form.append('height', height > 0 ? String(height) : '');
   form.append('format', format);
 
-  const res = await fetch(`${API_BASE}/api/image-filter/edit`, {
+  const res = await authFetch('/api/image-filter/edit', {
     method: 'POST',
     body: form,
   });
@@ -39,7 +38,7 @@ export async function editAndResize(
     let detail = `서버 오류: ${res.status}`;
     try {
       const json = await res.json();
-      detail = json.detail ?? detail;
+      detail = json.detail ?? json.message ?? detail;
     } catch {
       // JSON 파싱 실패 무시
     }

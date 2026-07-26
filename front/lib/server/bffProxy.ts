@@ -8,6 +8,8 @@ export interface ProxyOptions {
   backendPath: string;
   /** true면 응답 바디를 JSON 파싱하지 않고 그대로(Blob) 전달한다 — Excel 다운로드 등 */
   binary?: boolean;
+  /** binary 응답일 때 Content-Type/Content-Disposition 외에 그대로 전달할 백엔드 응답 헤더 이름 목록 */
+  passthroughHeaders?: string[];
 }
 
 /**
@@ -65,13 +67,15 @@ export async function proxyToBackend(
       });
     }
     const buffer = await response.arrayBuffer();
-    return new NextResponse(buffer, {
-      status: response.status,
-      headers: {
-        'Content-Type': response.headers.get('content-type') ?? 'application/octet-stream',
-        'Content-Disposition': response.headers.get('content-disposition') ?? 'attachment',
-      },
-    });
+    const headers: Record<string, string> = {
+      'Content-Type': response.headers.get('content-type') ?? 'application/octet-stream',
+      'Content-Disposition': response.headers.get('content-disposition') ?? 'attachment',
+    };
+    for (const name of opts.passthroughHeaders ?? []) {
+      const value = response.headers.get(name);
+      if (value !== null) headers[name] = value;
+    }
+    return new NextResponse(buffer, { status: response.status, headers });
   }
 
   const text = await response.text();

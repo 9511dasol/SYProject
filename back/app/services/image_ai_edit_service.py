@@ -6,10 +6,13 @@
 공유한다.
 """
 
+from dataclasses import dataclass
+
 from google import genai
 from google.genai import types
 
 from app.core.settings import settings
+from app.services.gemini_usage import TokenUsage
 
 _client: genai.Client | None = None
 
@@ -21,8 +24,14 @@ def _gemini() -> genai.Client | None:
     return _client
 
 
-def generate_image(image_bytes: bytes, prompt: str, mime_type: str = "image/png") -> bytes | None:
-    """프롬프트에 따라 편집된 이미지 바이트를 반환. 실패 시 None."""
+@dataclass(frozen=True)
+class ImageGenResult:
+    image_bytes: bytes
+    usage: TokenUsage | None
+
+
+def generate_image(image_bytes: bytes, prompt: str, mime_type: str = "image/png") -> ImageGenResult | None:
+    """프롬프트에 따라 편집된 이미지 바이트(+토큰 사용량)를 반환. 실패 시 None."""
     client = _gemini()
     if client is None:
         return None
@@ -46,7 +55,7 @@ def generate_image(image_bytes: bytes, prompt: str, mime_type: str = "image/png"
     for part in candidates[0].content.parts or []:
         inline = getattr(part, "inline_data", None)
         if inline and inline.data:
-            return inline.data
+            return ImageGenResult(image_bytes=inline.data, usage=TokenUsage.from_response(resp))
 
     return None
 
@@ -59,6 +68,6 @@ _UPSCALE_PROMPT = (
 )
 
 
-def ai_upscale(image_bytes: bytes, mime_type: str = "image/png") -> bytes | None:
-    """AI로 업스케일된 이미지 바이트를 반환. 실패 시 None."""
+def ai_upscale(image_bytes: bytes, mime_type: str = "image/png") -> ImageGenResult | None:
+    """AI로 업스케일된 이미지 바이트(+토큰 사용량)를 반환. 실패 시 None."""
     return generate_image(image_bytes, _UPSCALE_PROMPT, mime_type)

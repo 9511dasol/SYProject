@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { authFetch } from '@/lib/api/authFetch';
 import Spinner from '@/components/ui/Spinner';
 import type { AIStatus } from '@/types/aiStatus';
 import type { FeatureFlagItem } from '@/types/featureFlags';
@@ -20,7 +21,7 @@ export default function AdminSettingsClient() {
   useEffect(() => {
     if (!isAdmin) return;
 
-    fetch('/api/admin/settings')
+    authFetch('/api/admin/settings')
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.message ?? '설정 조회 실패');
@@ -29,7 +30,7 @@ export default function AdminSettingsClient() {
       .then(setFlags)
       .catch((err) => setError(err instanceof Error ? err.message : '설정 조회 실패'));
 
-    fetch('/api/admin/ai-status')
+    authFetch('/api/admin/ai-status')
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.message ?? 'AI 프로바이더 현황 조회 실패');
@@ -43,7 +44,7 @@ export default function AdminSettingsClient() {
     setTogglingKey(key);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/settings/${key}`, {
+      const res = await authFetch(`/api/admin/settings/${key}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value }),

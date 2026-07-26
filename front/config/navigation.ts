@@ -76,6 +76,13 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         href: '/admin/users',
         description: '계정 목록 조회, 권한 · 활성 상태 관리, 운영 계정 생성',
       },
+      {
+        id: 'admin-ai-usage-logs',
+        label: 'AI 도구 사용 이력',
+        icon: 'bx-history',
+        href: '/admin/ai-usage-logs',
+        description: '이미지 정제 · 리사이저 AI 업스케일 · 헤딩 문구 추천 사용 이력',
+      },
     ],
   },
 ] as const;

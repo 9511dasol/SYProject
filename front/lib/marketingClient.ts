@@ -1,9 +1,9 @@
-import axios, { isAxiosError } from 'axios';
+import { isAxiosError } from 'axios';
+import { browserApi as api } from '@/lib/api/browserApi';
 import type { ExcelReport, ReportData, RowFormData, TaskStatusResponse, UploadTaskResponse } from '@/types/marketing';
 
 // BFF Route Handler(/api/marketing/*)를 거쳐 FastAPI로 전달된다.
 // 같은 오리진이라 baseURL이 필요 없고, 인증은 Route Handler가 세션으로 처리한다.
-const api = axios.create();
 
 function toFormData(files: File[]): FormData {
   const formData = new FormData();
@@ -118,10 +118,13 @@ export async function getSummary(year: number, month: number): Promise<ReportDat
 }
 
 /** 직전월 대비 누적 DB 데이터를 기반으로 AI 코멘트를 새로 생성하고 저장 */
-export async function updateComment(year: number, month: number): Promise<{ comment: string }> {
+export async function updateComment(
+  year: number,
+  month: number,
+): Promise<{ comment: string; comment_updated_at: string | null }> {
   try {
     const { data } = await api.post('/api/marketing/comment', null, { params: { year, month } });
-    return data as { comment: string };
+    return data as { comment: string; comment_updated_at: string | null };
   } catch (err) {
     throw new Error(extractError(err, `코멘트 생성 실패: ${(err as Error).message}`));
   }
@@ -138,16 +141,22 @@ export function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** 백그라운드 DB→Excel 변환 태스크 시작 */
+/**
+ * 백그라운드 DB→Excel 변환 태스크 시작.
+ * deliverBy="email"이면 완료 시 브라우저 다운로드 대신 로그인한 사용자 이메일로
+ * 다운로드 링크를 보낸다 — 파일이 커서(운영 환경 Vercel BFF 응답 크기 제한) 직접
+ * 다운로드가 실패하는 경우를 위한 대안 경로.
+ */
 export async function startDbExportTask(
   year: number,
   month: number,
-): Promise<{ task_id: string; filename: string }> {
+  deliverBy: 'download' | 'email' = 'download',
+): Promise<{ task_id: string; filename: string; deliver_by: 'download' | 'email' }> {
   try {
     const { data } = await api.post('/api/marketing/export-db-task', null, {
-      params: { year, month },
+      params: { year, month, deliver_by: deliverBy },
     });
-    return data as { task_id: string; filename: string };
+    return data as { task_id: string; filename: string; deliver_by: 'download' | 'email' };
   } catch (err) {
     throw new Error(extractError(err, 'Excel 변환 시작 실패'));
   }
@@ -156,10 +165,10 @@ export async function startDbExportTask(
 /** export 태스크 진행률 조회 */
 export async function getDbExportStatus(
   taskId: string,
-): Promise<{ status: string; progress: number; error?: string }> {
+): Promise<{ status: string; progress: number; error?: string; delivered_by?: 'download' | 'email' }> {
   try {
     const { data } = await api.get(`/api/marketing/export-db-task/${taskId}`);
-    return data as { status: string; progress: number; error?: string };
+    return data as { status: string; progress: number; error?: string; delivered_by?: 'download' | 'email' };
   } catch (err) {
     throw new Error(extractError(err, '진행률 조회 실패'));
   }

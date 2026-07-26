@@ -8,6 +8,8 @@ from fastapi.responses import StreamingResponse
 
 from app.core.database import SessionLocal
 from app.core.security import get_current_user
+from app.core.settings import settings
+from app.models.user_model import User
 from app.repositories.marketing_repo import MarketingRepository, undo_store
 from app.schemas.marketing_schema import (
     MediaDailyRow,
@@ -19,11 +21,13 @@ from app.schemas.marketing_schema import (
     TaskStatusResponse,
     UploadTaskResponse,
 )
+from app.services import storage_service
 from app.services.analysis_service import AnalysisService
 from app.services.comment_service import CommentService
 from app.services.excel_service import ExcelService
 from app.services.excel_reader_service import ExcelReaderService
 from app.services.llm import build_llm
+from app.services.mail import build_mail_sender
 from app.services.marketing_service import FileEntry, MarketingService
 
 router = APIRouter(
@@ -200,7 +204,25 @@ async def _run_analysis(task_id: str, files: list[FileEntry]) -> None:
         db.close()
 
 
-def _run_export_task(task_id: str, rows: list, period: str, year: int, month: int) -> None:
+def _send_export_email(to_email: str, period: str, filename: str, download_url: str) -> None:
+    html = f"""
+    <p>{period} 마케팅 데이터 엑셀 파일이 준비되었습니다.</p>
+    <p><a href="{download_url}">{filename} 다운로드</a></p>
+    <p style="color:#888;font-size:12px;">파일 용량이 커서 브라우저 다운로드 대신 이메일로 보내드렸습니다.
+    이 링크는 3일 후 만료됩니다.</p>
+    """
+    build_mail_sender().send(to=[to_email], subject=f"[마케팅 AI] {period} 엑셀 파일 다운로드", html=html)
+
+
+def _run_export_task(
+    task_id: str,
+    rows: list,
+    period: str,
+    year: int,
+    month: int,
+    deliver_by: str = "download",
+    recipient_email: str | None = None,
+) -> None:
     """동기 함수 → FastAPI BackgroundTasks가 스레드풀에서 실행"""
     def is_cancelled() -> bool:
         return export_store.get(task_id, {}).get("cancelled", False)
@@ -222,12 +244,26 @@ def _run_export_task(task_id: str, rows: list, period: str, year: int, month: in
             export_store[task_id]["status"] = "cancelled"
             return
         filename = f"마케팅분석_{period.replace(' ', '')}.xlsx"
-        export_store[task_id].update({
-            "status": "done",
-            "progress": 100,
-            "data": excel_bytes,
-            "filename": filename,
-        })
+
+        if deliver_by == "email" and recipient_email:
+            export_store[task_id]["progress"] = 80
+            path = storage_service.upload_bytes(f"exports/{year:04d}/{month:02d}/{task_id}.xlsx", excel_bytes)
+            download_url = storage_service.create_signed_url(path)
+            _send_export_email(recipient_email, period, filename, download_url)
+            export_store[task_id].update({
+                "status": "done",
+                "progress": 100,
+                "filename": filename,
+                "delivered_by": "email",
+            })
+        else:
+            export_store[task_id].update({
+                "status": "done",
+                "progress": 100,
+                "data": excel_bytes,
+                "filename": filename,
+                "delivered_by": "download",
+            })
     except Exception as exc:
         export_store[task_id].update({
             "status": "error",
@@ -323,9 +359,19 @@ async def get_save_excel_task_status(task_id: str) -> dict:
 async def start_export_db_task(
     year: int = Query(...),
     month: int = Query(...),
+    deliver_by: str = Query("download", pattern="^(download|email)$"),
     background_tasks: BackgroundTasks = ...,
+    current_user: User = Depends(get_current_user),
 ) -> dict:
-    """DB 데이터 → Excel 변환을 백그라운드로 시작하고 task_id 반환"""
+    """DB 데이터 → Excel 변환을 백그라운드로 시작하고 task_id 반환.
+
+    deliver_by="email"이면 완료된 파일을 메모리로 내려주는 대신 Supabase Storage에 올리고
+    로그인한 사용자 이메일로 다운로드 링크를 보낸다 — 파일이 커서 브라우저 다운로드가
+    실패하는 경우(Vercel BFF 응답 크기 제한)를 우회하기 위함.
+    """
+    if deliver_by == "email" and not settings.MAIL_ENABLED:
+        raise HTTPException(status_code=400, detail="메일 발송 기능이 비활성화되어 있습니다.")
+
     db = SessionLocal()
     try:
         rows = MarketingRepository(db).get_rows_by_period(year, month)
@@ -338,9 +384,15 @@ async def start_export_db_task(
     task_id = str(uuid.uuid4())
     period = _period_label(year, month)
     export_store[task_id] = {"status": "pending", "progress": 5, "cancelled": False}
-    background_tasks.add_task(_run_export_task, task_id, rows, period, year, month)
+    background_tasks.add_task(
+        _run_export_task, task_id, rows, period, year, month, deliver_by, current_user.email,
+    )
 
-    return {"task_id": task_id, "filename": f"마케팅분석_{period.replace(' ', '')}.xlsx"}
+    return {
+        "task_id": task_id,
+        "filename": f"마케팅분석_{period.replace(' ', '')}.xlsx",
+        "deliver_by": deliver_by,
+    }
 
 
 @router.get("/export-db-task/{task_id}")
@@ -353,6 +405,7 @@ async def get_export_task_status(task_id: str) -> dict:
         "status": task["status"],
         "progress": task.get("progress", 0),
         "error": task.get("error"),
+        "delivered_by": task.get("delivered_by"),
     }
 
 
@@ -373,7 +426,7 @@ async def cancel_export_task(task_id: str) -> dict:
 async def get_export_task_result(task_id: str) -> StreamingResponse:
     """완료된 export 파일 다운로드 (1회용 — 다운로드 후 메모리에서 제거)"""
     task = export_store.get(task_id)
-    if task is None or task.get("status") != "done":
+    if task is None or task.get("status") != "done" or "data" not in task:
         raise HTTPException(status_code=404, detail="아직 완료되지 않았거나 작업을 찾을 수 없습니다.")
 
     excel_bytes: bytes = task.pop("data")
@@ -436,7 +489,7 @@ async def get_summary(
         rows = repo.get_rows_by_period(year, month)
         report = _build_report(_db_rows_to_media_kpis(rows), _period_label(year, month))
         report_dict = report.model_dump()
-        report_dict['comment'] = repo.get_comment(year, month)
+        report_dict['comment'], report_dict['comment_updated_at'] = repo.get_comment_meta(year, month)
         return ReportResponse(**report_dict)
     except HTTPException:
         raise
@@ -458,14 +511,16 @@ async def update_comment(
     try:
         comparison = AnalysisService(db).compare(year, month, prev_year, prev_month)
         comment = CommentService(llm=build_llm()).generate(comparison)
-        MarketingRepository(db).upsert_period_meta(year, month, comment=comment)
+        repo = MarketingRepository(db)
+        repo.upsert_period_meta(year, month, comment=comment)
         db.commit()
+        _, comment_updated_at = repo.get_comment_meta(year, month)
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"코멘트 생성 실패: {exc}")
     finally:
         db.close()
-    return {"comment": comment}
+    return {"comment": comment, "comment_updated_at": comment_updated_at}
 
 
 @router.post("/upload", response_model=UploadTaskResponse)

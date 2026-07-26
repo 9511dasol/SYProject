@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
@@ -16,6 +16,7 @@ class MarketingPeriodMeta(Base):
     year: Mapped[int] = mapped_column(index=True)
     month: Mapped[int] = mapped_column(index=True)
     comment: Mapped[str] = mapped_column(default="")
+    comment_updated_at: Mapped[datetime | None] = mapped_column(nullable=True)
     # Supabase Storage 내 엑셀 원본의 object path (예: "2026/06/report.xlsx")
     excel_path: Mapped[str | None] = mapped_column(nullable=True)
 

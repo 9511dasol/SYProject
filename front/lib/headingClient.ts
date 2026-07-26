@@ -1,7 +1,6 @@
 import type { HeadingItem } from '@/types/heading';
+import { authFetch } from '@/lib/api/authFetch';
 import { compressImageIfNeeded } from './imageResizeClient';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
 /**
  * 이미지를 서버에 전송해 플랫폼별 헤딩 문구 배열을 반환합니다.
@@ -19,7 +18,7 @@ export async function fetchHeadings(
   const form = new FormData();
   form.append('file', compressed);
 
-  const res = await fetch(`${API_BASE}/api/heading/suggest`, {
+  const res = await authFetch('/api/heading/suggest', {
     method: 'POST',
     body: form,
   });
@@ -28,7 +27,7 @@ export async function fetchHeadings(
     let detail = `서버 오류: ${res.status}`;
     try {
       const json = await res.json();
-      detail = json.detail ?? detail;
+      detail = json.detail ?? json.message ?? detail;
     } catch { /* ignore */ }
     throw new Error(detail);
   }

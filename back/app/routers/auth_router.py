@@ -2,13 +2,22 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.core.security import create_access_token, get_current_user, get_db, verify_password
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
+    get_current_user,
+    get_db,
+    verify_password,
+)
 from app.core.settings import settings
 from app.models.user_model import User
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth_schema import (
+    AccessTokenResponse,
     PasswordChange,
     ProfileUpdate,
+    RefreshRequest,
     TokenResponse,
     UserCreate,
     UserLogin,
@@ -30,7 +39,8 @@ def _to_user_out(user: User) -> UserOut:
 
 def _to_token_response(user: User) -> TokenResponse:
     access_token = create_access_token(subject=str(user.id), extra_claims={"role": user.role})
-    return TokenResponse(access_token=access_token, user=_to_user_out(user))
+    refresh_token = create_refresh_token(subject=str(user.id))
+    return TokenResponse(access_token=access_token, refresh_token=refresh_token, user=_to_user_out(user))
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -63,6 +73,21 @@ def login(body: UserLogin):
         return _to_token_response(user)
     finally:
         db.close()
+
+
+@router.post("/refresh", response_model=AccessTokenResponse)
+def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
+    payload = decode_refresh_token(body.refresh_token)
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="인증 토큰이 유효하지 않습니다.")
+
+    user = db.get(User, int(user_id))
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="사용자를 찾을 수 없습니다.")
+
+    access_token = create_access_token(subject=str(user.id), extra_claims={"role": user.role})
+    return AccessTokenResponse(access_token=access_token)
 
 
 @router.get("/me", response_model=UserOut)

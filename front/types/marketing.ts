@@ -114,6 +114,7 @@ export interface ReportData {
   by_media: MediaSummary[];
   daily: Record<string, MediaDailyRow[]>;
   comment?: string;
+  comment_updated_at?: string | null;
   diff?: Record<string, RowDiff>;  // {campaign_type: {added, updated}}
   undo_id?: string;
 }

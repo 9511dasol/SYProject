@@ -10,6 +10,7 @@ import io
 from PIL import Image
 
 from app.core.settings import settings
+from app.services.gemini_usage import TokenUsage
 from app.services.image_ai_edit_service import generate_image
 from app.services.image_resize_service import resize_image
 
@@ -44,11 +45,11 @@ def edit_and_resize(
     target_width:       int | None,
     target_height:      int | None,
     output_format:      str = "jpeg",
-) -> tuple[io.BytesIO, str, str, str]:
+) -> tuple[io.BytesIO, str, str, str, TokenUsage | None]:
     """
     Returns
     -------
-    (buffer, download_filename, content_type, ai_provider_label)
+    (buffer, download_filename, content_type, ai_provider_label, token_usage)
 
     Raises
     ------
@@ -56,16 +57,16 @@ def edit_and_resize(
     """
     mime_type = _detect_mime(file_bytes)
 
-    edited_bytes = generate_image(file_bytes, prompt, mime_type=mime_type)
-    if edited_bytes is None:
+    result = generate_image(file_bytes, prompt, mime_type=mime_type)
+    if result is None:
         raise ImageEditError("AI 이미지 편집에 실패했습니다. 잠시 후 다시 시도해주세요.")
 
-    buf, download_name, content_type, _ = resize_image(
-        file_bytes=edited_bytes,
+    buf, download_name, content_type, _, _ = resize_image(
+        file_bytes=result.image_bytes,
         original_filename=original_filename,
         target_width=target_width,
         target_height=target_height,
         output_format=output_format,
     )
 
-    return buf, download_name, content_type, f"Gemini ({settings.GEMINI_IMAGE_MODEL})"
+    return buf, download_name, content_type, f"Gemini ({settings.GEMINI_IMAGE_MODEL})", result.usage

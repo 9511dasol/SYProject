@@ -2,7 +2,17 @@
 
 import { useState } from 'react';
 
-export default function CommentSection({ text }: { text: string }) {
+function formatUpdatedAt(value: string): string {
+  return new Date(value).toLocaleString('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+export default function CommentSection({ text, updatedAt }: { text: string; updatedAt?: string | null }) {
   const [open, setOpen] = useState(false);
   if (!text) return null;
   const preview = text.slice(0, 120) + (text.length > 120 ? '...' : '');
@@ -16,6 +26,9 @@ export default function CommentSection({ text }: { text: string }) {
         <span className="flex items-center gap-2">
           <i className="bx bx-comment-detail text-amber-500" />
           코멘트
+          {updatedAt && (
+            <span className="text-xs font-normal text-amber-600">{formatUpdatedAt(updatedAt)} 업데이트</span>
+          )}
         </span>
         <i className={`bx ${open ? 'bx-chevron-up' : 'bx-chevron-down'} text-amber-500`} />
       </button>

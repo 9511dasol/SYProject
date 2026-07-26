@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import ImageFilterClient from './ImageFilterClient';
+import AuthGate from '@/components/ui/AuthGate';
 import FeatureGate from '@/components/ui/FeatureGate';
 
 export const metadata: Metadata = {
@@ -9,8 +10,10 @@ export const metadata: Metadata = {
 
 export default function ImageFilterPage() {
   return (
-    <FeatureGate flag="is_image_filter_enabled">
-      <ImageFilterClient />
-    </FeatureGate>
+    <AuthGate>
+      <FeatureGate flag="is_image_filter_enabled">
+        <ImageFilterClient />
+      </FeatureGate>
+    </AuthGate>
   );
 }

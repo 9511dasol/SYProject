@@ -1,6 +1,5 @@
 import type { OutputFormat } from '@/types/imageResize';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+import { authFetch } from '@/lib/api/authFetch';
 
 /** 10MB 초과 시 Canvas로 압축 (품질 0.85, 원본 해상도 유지) */
 const COMPRESS_THRESHOLD = 10 * 1024 * 1024;
@@ -41,7 +40,7 @@ export async function resizeImage(
   form.append('format', format);
   form.append('use_ai_upscale', String(useAiUpscale));
 
-  const res = await fetch(`${API_BASE}/api/image-resize/resize`, {
+  const res = await authFetch('/api/image-resize/resize', {
     method: 'POST',
     body: form,
   });
@@ -50,7 +49,7 @@ export async function resizeImage(
     let detail = `서버 오류: ${res.status}`;
     try {
       const json = await res.json();
-      detail = json.detail ?? detail;
+      detail = json.detail ?? json.message ?? detail;
     } catch {
       // JSON 파싱 실패 시 기본 메시지 사용
     }

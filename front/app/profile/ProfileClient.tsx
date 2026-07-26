@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { authFetch } from '@/lib/api/authFetch';
 import Button from '@/components/ui/Button';
 import Spinner from '@/components/ui/Spinner';
 import ToastContainer, { type ToastItem } from '@/components/ui/Toast';
@@ -57,7 +58,7 @@ export default function ProfileClient() {
   }, []);
 
   useEffect(() => {
-    fetch('/api/users/me')
+    authFetch('/api/users/me')
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.message ?? '프로필 조회 실패');
@@ -100,7 +101,7 @@ export default function ProfileClient() {
 
     setSavingProfile(true);
     try {
-      const res = await fetch('/api/users/me', {
+      const res = await authFetch('/api/users/me', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -148,7 +149,7 @@ export default function ProfileClient() {
         current_password: currentPassword,
         new_password: newPassword,
       };
-      const res = await fetch('/api/users/me/password', {
+      const res = await authFetch('/api/users/me/password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

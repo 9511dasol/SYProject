@@ -1,5 +1,6 @@
 import time
 import uuid as _uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import func, extract, text
 from sqlalchemy.exc import OperationalError
@@ -242,9 +243,11 @@ class MarketingRepository:
             .first()
         )
 
-    def get_comment(self, year: int, month: int) -> str:
+    def get_comment_meta(self, year: int, month: int) -> tuple[str, datetime | None]:
         row = self._get_period_meta(year, month)
-        return row.comment if row else ""
+        if not row:
+            return "", None
+        return row.comment, row.comment_updated_at
 
     def get_excel_content(self, year: int, month: int) -> bytes | None:
         """Supabase Storage에서 해당 연월의 엑셀 원본을 가져온다."""
@@ -268,10 +271,13 @@ class MarketingRepository:
             else None
         )
 
+        comment_updated_at = datetime.now(timezone.utc) if comment is not None else None
+
         row = self._get_period_meta(year, month)
         if row:
             if comment is not None:
                 row.comment = comment
+                row.comment_updated_at = comment_updated_at
             if excel_path is not None:
                 row.excel_path = excel_path
         else:
@@ -280,6 +286,7 @@ class MarketingRepository:
                     year=year,
                     month=month,
                     comment=comment or "",
+                    comment_updated_at=comment_updated_at,
                     excel_path=excel_path,
                 )
             )

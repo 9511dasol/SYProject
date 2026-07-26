@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import ImageResizeClient from '@/components/image-resize/ImageResizeClient';
+import AuthGate from '@/components/ui/AuthGate';
 import FeatureGate from '@/components/ui/FeatureGate';
 
 export const metadata: Metadata = {
@@ -9,8 +10,10 @@ export const metadata: Metadata = {
 
 export default function ImageResizePage() {
   return (
-    <FeatureGate flag="is_image_resize_enabled">
-      <ImageResizeClient />
-    </FeatureGate>
+    <AuthGate>
+      <FeatureGate flag="is_image_resize_enabled">
+        <ImageResizeClient />
+      </FeatureGate>
+    </AuthGate>
   );
 }

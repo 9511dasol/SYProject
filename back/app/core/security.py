@@ -25,20 +25,42 @@ def verify_password(password: str, hashed_password: str) -> bool:
 
 def create_access_token(subject: str, extra_claims: dict | None = None) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {"sub": subject, "exp": expire}
+    payload = {"sub": subject, "type": "access", "exp": expire}
     if extra_claims:
         payload.update(extra_claims)
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def decode_access_token(token: str) -> dict:
+def create_refresh_token(subject: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    payload = {"sub": subject, "type": "refresh", "exp": expire}
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+
+def _decode_token(token: str, expected_type: str) -> dict:
     try:
-        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
     except jwt.PyJWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="인증 토큰이 유효하지 않습니다.",
         ) from exc
+
+    # access token으로 refresh 엔드포인트를 부르거나 그 반대로 쓰는 걸 막는다.
+    if payload.get("type") != expected_type:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="인증 토큰이 유효하지 않습니다.",
+        )
+    return payload
+
+
+def decode_access_token(token: str) -> dict:
+    return _decode_token(token, "access")
+
+
+def decode_refresh_token(token: str) -> dict:
+    return _decode_token(token, "refresh")
 
 
 def get_db():

@@ -739,7 +739,7 @@ export default function ReportView({ data, onClose, editable = false, year, mont
                     </button>
                   </div>
                 )}
-                <CommentSection text={data.comment ?? ''} />
+                <CommentSection text={data.comment ?? ''} updatedAt={data.comment_updated_at} />
               </div>
             </>
           )}
