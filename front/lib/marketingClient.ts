@@ -117,6 +117,16 @@ export async function getSummary(year: number, month: number): Promise<ReportDat
   }
 }
 
+/** 직전월 대비 누적 DB 데이터를 기반으로 AI 코멘트를 새로 생성하고 저장 */
+export async function updateComment(year: number, month: number): Promise<{ comment: string }> {
+  try {
+    const { data } = await api.post('/api/marketing/comment', null, { params: { year, month } });
+    return data as { comment: string };
+  } catch (err) {
+    throw new Error(extractError(err, `코멘트 생성 실패: ${(err as Error).message}`));
+  }
+}
+
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

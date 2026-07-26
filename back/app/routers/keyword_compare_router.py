@@ -1,20 +1,16 @@
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
-<<<<<<< HEAD
 from app.core.feature_flags import require_feature_flag
-=======
 from app.core.security import get_current_user
->>>>>>> 26c570e4693d28626af1db6ea0e676ff75e7b0b0
 from app.services.keyword_compare_service import KeywordCompareService
 
 router = APIRouter(
     prefix="/api/keyword-compare",
     tags=["Keyword Compare"],
-<<<<<<< HEAD
-    dependencies=[Depends(require_feature_flag("is_keyword_compare_enabled"))],
-=======
-    dependencies=[Depends(get_current_user)],
->>>>>>> 26c570e4693d28626af1db6ea0e676ff75e7b0b0
+    dependencies=[
+        Depends(require_feature_flag("is_keyword_compare_enabled")),
+        Depends(get_current_user),
+    ],
 )
 
 

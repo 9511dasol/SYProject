@@ -19,8 +19,11 @@ from app.schemas.marketing_schema import (
     TaskStatusResponse,
     UploadTaskResponse,
 )
+from app.services.analysis_service import AnalysisService
+from app.services.comment_service import CommentService
 from app.services.excel_service import ExcelService
 from app.services.excel_reader_service import ExcelReaderService
+from app.services.llm import build_llm
 from app.services.marketing_service import FileEntry, MarketingService
 
 router = APIRouter(
@@ -441,6 +444,28 @@ async def get_summary(
         raise HTTPException(status_code=500, detail=f"리포트 집계 중 오류가 발생했습니다: {exc}")
     finally:
         db.close()
+
+
+@router.post("/comment")
+async def update_comment(
+    year: int = Query(...),
+    month: int = Query(...),
+) -> dict:
+    """해당 연월 vs 직전월 누적 DB 데이터를 비교해 AI 코멘트를 새로 생성하고 저장"""
+    prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
+
+    db = SessionLocal()
+    try:
+        comparison = AnalysisService(db).compare(year, month, prev_year, prev_month)
+        comment = CommentService(llm=build_llm()).generate(comparison)
+        MarketingRepository(db).upsert_period_meta(year, month, comment=comment)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"코멘트 생성 실패: {exc}")
+    finally:
+        db.close()
+    return {"comment": comment}
 
 
 @router.post("/upload", response_model=UploadTaskResponse)

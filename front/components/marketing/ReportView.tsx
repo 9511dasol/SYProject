@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { MediaDailyRow, MediaSummary, ReportData, RowDiff, RowFormData } from '@/types/marketing';
 import CommentSection from '@/components/marketing/CommentSection';
 import RowEditorModal from '@/components/marketing/RowEditorModal';
-import { deleteMarketingRow, upsertMarketingRow } from '@/lib/marketingClient';
+import { deleteMarketingRow, updateComment, upsertMarketingRow } from '@/lib/marketingClient';
 
 const fmt = {
   num: (v: number) => Math.round(v).toLocaleString('ko-KR'),
@@ -488,6 +488,7 @@ export default function ReportView({ data, onClose, editable = false, year, mont
   const [pending, setPending] = useState<PendingState>({});
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [commentUpdating, setCommentUpdating] = useState(false);
 
   const { total } = data;
   const convRate = total.clicks > 0 ? total.total_conv / total.clicks : 0;
@@ -587,6 +588,20 @@ export default function ReportView({ data, onClose, editable = false, year, mont
       setActionError(err instanceof Error ? err.message : 'DB 저장 실패');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleUpdateComment() {
+    if (!year || !month) return;
+    setCommentUpdating(true);
+    setActionError(null);
+    try {
+      await updateComment(year, month);
+      onRefresh?.();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '코멘트 생성 실패');
+    } finally {
+      setCommentUpdating(false);
     }
   }
 
@@ -700,7 +715,32 @@ export default function ReportView({ data, onClose, editable = false, year, mont
                 <h3 className="text-sm font-medium text-slate-600 dark:text-fg-muted mb-2">매체별 현황</h3>
                 <SummaryTable rows={data.by_media} />
               </div>
-              <CommentSection text={data.comment ?? ''} />
+              <div className="space-y-2">
+                {editable && year && month && (
+                  <div className="flex justify-end">
+                    <button
+                      onClick={handleUpdateComment}
+                      disabled={commentUpdating}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 transition-colors disabled:opacity-60 shadow-sm"
+                    >
+                      {commentUpdating
+                        ? <span className="w-3 h-3 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                        : <i className="bx bx-comment-detail text-sm" />}
+                      코멘트 업데이트
+                    </button>
+                  </div>
+                )}
+                {actionError && (
+                  <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-100 px-3 py-2 text-xs">
+                    <i className="bx bx-error-circle text-red-500 shrink-0" />
+                    <span className="text-red-600 flex-1">{actionError}</span>
+                    <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-600">
+                      <i className="bx bx-x" />
+                    </button>
+                  </div>
+                )}
+                <CommentSection text={data.comment ?? ''} />
+              </div>
             </>
           )}
 

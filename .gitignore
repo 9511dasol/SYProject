@@ -4,3 +4,9 @@
 .claude_logs
 .vercel
 work/
+
+# env files
+.env
+.env.local
+.env*.local
+env

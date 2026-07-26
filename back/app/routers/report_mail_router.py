@@ -12,6 +12,7 @@ from app.core.settings import settings
 from app.models.report_log_model import ReportLog
 from app.services.analysis_service import AnalysisService
 from app.services.comment_service import CommentService
+from app.services.llm import build_llm
 from app.services.mail.base import AbstractMailSender
 from app.services.report_builder_service import ReportBuilderService
 from app.services.report_orchestrator import ReportOrchestrator
@@ -34,18 +35,6 @@ def get_db():
         db.close()
 
 
-def _build_llm():
-    from app.services.llm.openai_client import OpenAIClient
-    from app.services.llm.claude_client import ClaudeClient
-    from app.services.llm.gemini_client import GeminiClient
-
-    if settings.LLM_PROVIDER == "claude":
-        return ClaudeClient(api_key=settings.ANTHROPIC_API_KEY, model=settings.CLAUDE_MODEL)
-    if settings.LLM_PROVIDER == "gemini":
-        return GeminiClient(api_key=settings.GEMINI_API_KEY, model=settings.GEMINI_MODEL)
-    return OpenAIClient(api_key=settings.OPENAI_API_KEY, model=settings.OPENAI_MODEL)
-
-
 def _build_mail_sender() -> AbstractMailSender:
     if settings.MAIL_PROVIDER == "resend":
         from app.services.mail.resend_sender import ResendSender
@@ -63,7 +52,7 @@ def _build_mail_sender() -> AbstractMailSender:
 def _build_orchestrator(db: Session) -> ReportOrchestrator:
     return ReportOrchestrator(
         analysis_svc=AnalysisService(db),
-        comment_svc=CommentService(llm=_build_llm()),
+        comment_svc=CommentService(llm=build_llm()),
         builder_svc=ReportBuilderService(),
         mail_sender=_build_mail_sender(),
         db=db,
