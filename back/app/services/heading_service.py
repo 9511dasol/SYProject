@@ -150,7 +150,9 @@ async def _call_gemini(thumbnail_bytes: bytes) -> tuple[str, TokenUsage | None]:
     return response.text or "", TokenUsage.from_response(response)
 
 
-async def generate_headings(file_bytes: bytes) -> tuple[HeadingResponse, TokenUsage | None]:
+async def generate_headings(
+    file_bytes: bytes,
+) -> tuple[HeadingResponse, TokenUsage | None, bytes]:
     """
     이미지를 분석해 플랫폼별 헤딩 문구를 생성합니다 (목표 10개).
 
@@ -160,7 +162,9 @@ async def generate_headings(file_bytes: bytes) -> tuple[HeadingResponse, TokenUs
 
     Returns
     -------
-    (HeadingResponse, token_usage) — token_usage는 채택된 시도의 사용량
+    (HeadingResponse, token_usage, thumbnail_bytes)
+      - token_usage: 채택된 시도의 사용량
+      - thumbnail_bytes: AI에 전달한 512×512 JPEG 썸네일 (히스토리 저장용)
 
     Raises
     ------
@@ -181,13 +185,13 @@ async def generate_headings(file_bytes: bytes) -> tuple[HeadingResponse, TokenUs
             continue
 
         if len(result.headings) >= _TARGET_COUNT:
-            return result, usage
+            return result, usage, thumbnail_bytes
         if best is None or len(result.headings) > len(best.headings):
             best = result
             best_usage = usage
 
     if best is not None:
-        return best, best_usage
+        return best, best_usage, thumbnail_bytes
 
     assert last_error is not None
     raise last_error

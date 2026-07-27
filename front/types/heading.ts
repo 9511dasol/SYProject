@@ -12,4 +12,17 @@ export interface HeadingResponse {
   headings: HeadingItem[];
 }
 
+/** DB에 저장된 한 번의 문구 생성 기록 (사용자별 히스토리). */
+export interface HeadingSuggestionRecord {
+  id: number;
+  image_filename: string;
+  has_image: boolean; // 저장된 썸네일 이미지 존재 여부
+  created_at: string; // ISO 8601
+  headings: HeadingItem[];
+}
+
+export interface HeadingHistoryResponse {
+  items: HeadingSuggestionRecord[];
+}
+
 export type HeadingLoadingState = 'idle' | 'compressing' | 'analyzing';

@@ -1,14 +1,13 @@
 """헤딩 문구 추천 — 요청 스키마, 검증 Dependency, 응답 모델."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Annotated, Literal
 
-from fastapi import File, HTTPException, Request, UploadFile
-from pydantic import BaseModel, Field
+from fastapi import File, Request, UploadFile
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.image_resize_schema import (
-    MAX_UPLOAD_BYTES,
-    ALLOWED_MIME,
     validate_content_length,
     read_and_check_file,
 )
@@ -36,6 +35,24 @@ class HeadingItem(BaseModel):
 
 class HeadingResponse(BaseModel):
     headings: Annotated[list[HeadingItem], Field(min_length=1, max_length=10)]
+
+
+# ── 저장된 생성 기록 (사용자별 히스토리) ──────────────────────────────────────
+
+class HeadingSuggestionRecord(BaseModel):
+    """DB에 저장된 한 번의 문구 생성 결과."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id:             int
+    image_filename: str
+    has_image:      bool
+    created_at:     datetime
+    headings:       list[HeadingItem]
+
+
+class HeadingHistoryResponse(BaseModel):
+    items: list[HeadingSuggestionRecord]
 
 
 # ── FastAPI Dependency ────────────────────────────────────────────────────────

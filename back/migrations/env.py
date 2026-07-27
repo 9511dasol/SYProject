@@ -19,6 +19,7 @@ from app.models import (  # noqa: F401
     ai_tool_usage_log_model,
     ai_usage_budget_model,
     embedding_model,
+    heading_suggestion_model,
     marketing_model,
     report_log_model,
     system_setting_model,

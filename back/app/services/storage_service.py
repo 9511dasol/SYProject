@@ -54,8 +54,19 @@ def create_signed_url(path: str, expires_in: int = 259_200) -> str:
     return f"{settings.SUPABASE_URL}/storage/v1{signed_path}"
 
 
-def download_excel(path: str) -> bytes | None:
-    """object path로 엑셀 바이트를 가져온다. 없으면 None."""
+def delete_object(path: str) -> None:
+    """object path의 파일을 삭제한다 (없어도 조용히 통과)."""
+    resp = httpx.delete(
+        _object_url(path),
+        headers={"Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}"},
+        timeout=30,
+    )
+    if resp.status_code not in (200, 404):
+        resp.raise_for_status()
+
+
+def download_bytes(path: str) -> bytes | None:
+    """object path로 바이트를 가져온다. 없으면 None."""
     resp = httpx.get(
         _object_url(path),
         headers={"Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}"},
@@ -65,3 +76,8 @@ def download_excel(path: str) -> bytes | None:
         return None
     resp.raise_for_status()
     return resp.content
+
+
+def download_excel(path: str) -> bytes | None:
+    """object path로 엑셀 바이트를 가져온다. 없으면 None."""
+    return download_bytes(path)
