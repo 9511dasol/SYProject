@@ -1,13 +1,15 @@
 import logging
 from contextlib import asynccontextmanager
 from datetime import date
+from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
 
-from app.core.database import SessionLocal, engine, Base
+from app.core.database import SessionLocal
 from app.core.settings import settings
 from app.models.ai_tool_usage_log_model import AIToolUsageLog as _ATUL  # noqa: F401
 from app.models.ai_usage_budget_model import AIUsageBudget as _AUB  # noqa: F401
@@ -44,14 +46,23 @@ _DEFAULT_FEATURE_FLAGS: dict[str, tuple[str, str]] = {
 }
 
 
+_BACK_DIR = Path(__file__).resolve().parent.parent  # back/ (alembic.ini, migrations/ 위치)
+
+
+def _run_migrations() -> None:
+    """앱 시작 시 DB 스키마를 최신 상태로 맞춘다 (alembic upgrade head).
+
+    스키마 관리는 전적으로 migrations/ 의 Alembic 리비전이 담당한다.
+    (예전처럼 create_all/ALTER 를 여기서 직접 실행하지 않는다.)
+    """
+    cfg = Config(str(_BACK_DIR / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_BACK_DIR / "migrations"))
+    command.upgrade(cfg, "head")
+    logger.info("Alembic migrations applied (head)")
+
+
 def _init_db() -> None:
-    Base.metadata.create_all(bind=engine)
-    with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE marketing_period_meta ADD COLUMN IF NOT EXISTS excel_path TEXT"))
-        conn.execute(text("ALTER TABLE marketing_period_meta DROP COLUMN IF EXISTS excel_content"))
-        conn.execute(text("ALTER TABLE marketing_data ADD COLUMN IF NOT EXISTS signup FLOAT DEFAULT 0.0"))
-        conn.execute(text("ALTER TABLE marketing_data ADD COLUMN IF NOT EXISTS purchase FLOAT DEFAULT 0.0"))
-        conn.execute(text("ALTER TABLE marketing_data ADD COLUMN IF NOT EXISTS apply FLOAT DEFAULT 0.0"))
+    _run_migrations()
 
     db = SessionLocal()
     try:
