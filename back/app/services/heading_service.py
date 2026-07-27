@@ -2,18 +2,17 @@
 
 처리 흐름:
   1. 원본 이미지 → 512×512 JPEG 썸네일 (메모리 내)
-  2. 썸네일 → Google Gemini Vision (GEMINI_API_KEY)
+  2. 썸네일 → OpenAI Vision (OPENAI_API_KEY, gpt-4o 계열)
   3. 응답 JSON 파싱 + 마크다운 제거 + Pydantic 검증
   4. HeadingResponse 반환
 """
 
+import base64
 import io
 import json
 import re
 
-from google import genai
-from google.genai import errors as genai_errors
-from google.genai import types
+from openai import AsyncOpenAI, OpenAIError
 from PIL import Image
 
 from app.core.settings import settings
@@ -22,21 +21,21 @@ from app.services.gemini_usage import TokenUsage
 
 # ── 클라이언트 (지연 초기화) ──────────────────────────────────────────────────
 
-_client: genai.Client | None = None
+_client: AsyncOpenAI | None = None
 
 
-def _gemini() -> genai.Client:
+def _openai() -> AsyncOpenAI:
     global _client
     if _client is None:
-        if not settings.GEMINI_API_KEY:
-            raise RuntimeError("GEMINI_API_KEY 환경변수가 설정되지 않았습니다.")
-        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        if not settings.OPENAI_API_KEY:
+            raise RuntimeError("OPENAI_API_KEY 환경변수가 설정되지 않았습니다.")
+        _client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
     return _client
 
 
 # ── 상수 ──────────────────────────────────────────────────────────────────────
 
-_MODEL          = settings.GEMINI_MODEL
+_MODEL          = settings.OPENAI_MODEL
 _THUMBNAIL_BOX  = (512, 512)
 _MAX_ATTEMPTS   = 2     # 10개 미달/파싱 실패 시 재시도 횟수
 _TARGET_COUNT   = 10
@@ -126,28 +125,46 @@ def _parse_response(raw: str) -> HeadingResponse:
 
 # ── 공개 진입점 ───────────────────────────────────────────────────────────────
 
-async def _call_gemini(thumbnail_bytes: bytes) -> tuple[str, TokenUsage | None]:
-    """Gemini Vision 호출 → (원본 텍스트 응답, 토큰 사용량). API 오류는 RuntimeError로 변환."""
-    try:
-        response = await _gemini().aio.models.generate_content(
-            model=_MODEL,
-            contents=[
-                types.Part.from_bytes(data=thumbnail_bytes, mime_type="image/jpeg"),
-                (
-                    "이 이미지에 어울리는 매체별 마케팅 헤딩 문구 10개를 "
-                    "지정된 JSON 형식으로만 생성해주세요."
-                ),
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction=_SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                max_output_tokens=2500,
-            ),
-        )
-    except genai_errors.APIError as exc:
-        raise RuntimeError(f"Gemini API 오류 ({exc.code}): {exc.message}") from exc
+async def _call_openai(thumbnail_bytes: bytes) -> tuple[str, TokenUsage | None]:
+    """OpenAI Vision 호출 → (원본 텍스트 응답, 토큰 사용량). API 오류는 RuntimeError로 변환."""
+    b64 = base64.b64encode(thumbnail_bytes).decode("ascii")
+    data_url = f"data:image/jpeg;base64,{b64}"
 
-    return response.text or "", TokenUsage.from_response(response)
+    try:
+        response = await _openai().chat.completions.create(
+            model=_MODEL,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "이 이미지에 어울리는 매체별 마케팅 헤딩 문구 10개를 "
+                                "지정된 JSON 형식으로만 생성해주세요."
+                            ),
+                        },
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                },
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=2500,
+            temperature=0.7,
+        )
+    except OpenAIError as exc:
+        raise RuntimeError(f"OpenAI API 오류: {exc}") from exc
+
+    text = response.choices[0].message.content or ""
+    usage: TokenUsage | None = None
+    if response.usage is not None:
+        usage = TokenUsage(
+            prompt_tokens=response.usage.prompt_tokens,
+            output_tokens=response.usage.completion_tokens,
+            total_tokens=response.usage.total_tokens,
+        )
+    return text, usage
 
 
 async def generate_headings(
@@ -178,7 +195,7 @@ async def generate_headings(
 
     for _ in range(_MAX_ATTEMPTS):
         try:
-            raw_text, usage = await _call_gemini(thumbnail_bytes)
+            raw_text, usage = await _call_openai(thumbnail_bytes)
             result = _parse_response(raw_text)
         except RuntimeError as exc:
             last_error = exc
