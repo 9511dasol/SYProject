@@ -38,7 +38,6 @@ def upgrade() -> None:
         sa.Column("user_id", sa.Integer(), nullable=False),
         sa.Column("user_email", sa.String(length=255), nullable=False),
         sa.Column("image_filename", sa.String(length=255), nullable=False),
-        sa.Column("image_path", sa.String(length=512), nullable=True),
         sa.Column("headings", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column(
             "created_at",
