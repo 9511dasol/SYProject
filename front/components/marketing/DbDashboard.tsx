@@ -15,6 +15,12 @@ import { queryKeys } from '@/lib/queryKeys';
 import type { ReportData } from '@/types/marketing';
 import ReportView from '@/components/marketing/ReportView';
 import Button from '@/components/ui/Button';
+import ToastContainer, { type ToastItem } from '@/components/ui/Toast';
+
+// 서비스 준비중 — Excel 다운로드/이메일 발송 기능을 일시적으로 막아둔다.
+// 기능을 다시 열 때: 이 플래그만 false 로 바꾸면 아래 handleDownload 의 원래 로직이 그대로 동작한다.
+// (boolean 으로 명시해 아래 코드가 '도달 불가'로 분석되지 않게 한다)
+const DOWNLOAD_UNDER_MAINTENANCE: boolean = true;
 
 type Period = { year: number; month: number };
 type DlPhase = 'idle' | 'pending' | 'processing' | 'paused' | 'done' | 'error';
@@ -194,6 +200,12 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   const [dlTask, setDlTask] = useState<DownloadTask | null>(null);
   const [newPeriodOpen, setNewPeriodOpen] = useState(false);
   const newPeriodRef = useRef<HTMLDivElement>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  function pushToast(type: ToastItem['type'], message: string) {
+    const id = `${Date.now()}-${Math.random()}`;
+    setToasts((prev) => [...prev, { id, type, message }]);
+  }
 
   // ── 기간 목록 ─────────────────────────────────────────────────────────────
   const {
@@ -264,6 +276,11 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
 
   // ── 다운로드 시작 ─────────────────────────────────────────────────────────
   async function handleDownload(deliverBy: 'download' | 'email' = 'download') {
+    if (DOWNLOAD_UNDER_MAINTENANCE) {
+      const what = deliverBy === 'email' ? '이메일 발송' : '다운로드';
+      pushToast('info', `${what} 기능은 현재 서비스 준비중입니다.`);
+      return;
+    }
     if (!selected || !report?.by_media.length || dlTask) return;
     try {
       const { task_id, filename } = await startDbExportTask(selected.year, selected.month, deliverBy);
@@ -337,6 +354,11 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
 
   return (
     <>
+      <ToastContainer
+        toasts={toasts}
+        onRemove={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
+      />
+
       {dlTask && (
         <DownloadProgressToast
           task={dlTask}
@@ -402,8 +424,13 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
               variant="ghost"
               className="border border-slate-200 dark:border-border shrink-0"
               onClick={() => handleDownload('download')}
-              disabled={!canDownload || isFetching}
-              title={isNewPeriod ? 'DB에 저장 후 다운로드 가능합니다' : dlTask ? 'Excel 생성 중…' : 'Excel 다운로드'}
+              disabled={(!canDownload && !DOWNLOAD_UNDER_MAINTENANCE) || isFetching}
+              title={
+                DOWNLOAD_UNDER_MAINTENANCE ? '서비스 준비중입니다'
+                  : isNewPeriod ? 'DB에 저장 후 다운로드 가능합니다'
+                  : dlTask ? 'Excel 생성 중…'
+                  : 'Excel 다운로드'
+              }
             >
               {dlTask && dlTask.deliverBy === 'download'
                 ? <span className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-slate-500 animate-spin" />
@@ -414,9 +441,10 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
               variant="ghost"
               className="border border-slate-200 dark:border-border shrink-0"
               onClick={() => handleDownload('email')}
-              disabled={!canDownload || isFetching}
+              disabled={(!canDownload && !DOWNLOAD_UNDER_MAINTENANCE) || isFetching}
               title={
-                isNewPeriod ? 'DB에 저장 후 이용 가능합니다'
+                DOWNLOAD_UNDER_MAINTENANCE ? '서비스 준비중입니다'
+                  : isNewPeriod ? 'DB에 저장 후 이용 가능합니다'
                   : dlTask ? '처리 중…'
                   : '이메일로 받기 (파일이 커서 다운로드가 안 될 때)'
               }
