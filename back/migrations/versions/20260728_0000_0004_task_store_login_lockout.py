@@ -1,6 +1,6 @@
 """add background_tasks / undo_snapshots tables and user login lockout columns
 
-Revision ID: 0004_task_store_and_login_lockout
+Revision ID: 0004_task_store_login_lockout
 Revises: 0003_heading_image_path
 Create Date: 2026-07-28
 
@@ -10,6 +10,10 @@ Create Date: 2026-07-28
 이 프로젝트의 0001_baseline 은 `Base.metadata.create_all(checkfirst=True)` 로
 "현재 모델 전체"를 동기화하므로, 신규 DB에서는 baseline 단계에 이미 만들어졌을 수 있다.
 그 경우와 아직 없는 경우를 모두 안전하게 처리한다(멱등).
+
+주의: 리비전 ID는 32자를 넘으면 안 된다. alembic_version.version_num 이
+VARCHAR(32) 라서, DDL 이 다 끝난 뒤 버전 기록 단계에서 실패하고 트랜잭션이
+통째로 롤백된다(= 마이그레이션이 조용히 적용되지 않은 것처럼 보인다).
 """
 
 from typing import Sequence, Union
@@ -19,7 +23,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = "0004_task_store_and_login_lockout"
+revision: str = "0004_task_store_login_lockout"
 down_revision: Union[str, None] = "0003_heading_image_path"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

@@ -129,10 +129,11 @@ function UploadZone({
           </div>
         </button>
 
+        {/* .xls(구형 BIFF)는 서버에서 파싱할 수 없어 accept에서 뺀다 — 위 안내 문구도 .xlsx만 표기 */}
         <input
           ref={fileInputRef}
           type="file"
-          accept=".xlsx,.xls"
+          accept=".xlsx"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
