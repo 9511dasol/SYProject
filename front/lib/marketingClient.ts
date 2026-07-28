@@ -372,10 +372,20 @@ export async function saveFileWithPicker(blob: Blob, defaultName: string): Promi
   }
 
   if (handle) {
-    // 여기서 실패하면 예외를 그대로 올린다. 호출부가 오류를 보여주고 사용자가 다시
-    // 시도하게 하는 편이, 조용히 다운로드 폴더에 한 벌 더 떨구는 것보다 낫다.
-    // (대상 파일을 Excel이 열어두고 있으면 이 단계에서 막힌다)
-    const writable = await handle.createWritable();
+    let writable: FileSystemWritableFileStream;
+    try {
+      writable = await handle.createWritable();
+    } catch (e) {
+      // 여기서 실패하면 아직 아무것도 쓰이지 않았다 — 폴백해도 파일이 두 벌이 되지 않는다.
+      // 브라우저가 이 출처에 '파일 편집'을 막아둔 경우 여기서 NotAllowedError가 난다
+      // (사이트별로 기억되므로 배포 도메인은 되는데 localhost만 막히는 일이 생긴다).
+      console.warn('[save] 저장 위치에 쓸 수 없어 기본 다운로드로 전환합니다.', e);
+      downloadBlob(blob, defaultName);
+      return 'downloaded';
+    }
+
+    // 스트림을 연 뒤의 실패는 파일이 일부 쓰였을 수 있다 — 폴백하면 두 벌이 되므로
+    // 예외를 그대로 올려 호출부가 오류를 보여주고 다시 시도하게 한다.
     await writable.write(blob);
     await writable.close();
     return 'saved';
