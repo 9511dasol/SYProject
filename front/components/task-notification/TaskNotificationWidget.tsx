@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -14,10 +14,44 @@ import ProgressBar from './ProgressBar';
 import ProgressRing from './ProgressRing';
 
 const LS_KEY = 'task_notification_minimized';
+const MINIMIZED_EVENT = 'task-notification-minimized';
 
 function isTerminal(status?: TaskStatus): boolean {
   return status === 'completed' || status === 'failed';
 }
+
+// ── 최소화 상태: localStorage를 외부 스토어로 구독한다 ────────────────────────
+// 이펙트에서 localStorage를 읽어 setState 하면 마운트마다 렌더가 한 번 더 돌고,
+// 서버/클라이언트 첫 렌더를 맞추려고 별도의 "준비됨" 플래그까지 필요했다.
+// useSyncExternalStore는 서버 스냅샷을 따로 주므로 두 문제가 함께 없어지고,
+// 덤으로 다른 탭에서의 변경(storage 이벤트)까지 반영된다.
+
+function subscribeMinimized(onStoreChange: () => void): () => void {
+  window.addEventListener('storage', onStoreChange);        // 다른 탭
+  window.addEventListener(MINIMIZED_EVENT, onStoreChange);  // 같은 탭
+  return () => {
+    window.removeEventListener('storage', onStoreChange);
+    window.removeEventListener(MINIMIZED_EVENT, onStoreChange);
+  };
+}
+
+function readMinimized(): boolean {
+  return window.localStorage.getItem(LS_KEY) === 'true';
+}
+
+function setMinimized(value: boolean): void {
+  window.localStorage.setItem(LS_KEY, String(value));
+  window.dispatchEvent(new Event(MINIMIZED_EVENT));
+}
+
+function clearMinimized(): void {
+  window.localStorage.removeItem(LS_KEY);
+  window.dispatchEvent(new Event(MINIMIZED_EVENT));
+}
+
+// 하이드레이션이 끝나야 localStorage 값을 알 수 있다 — 그 전에는 렌더하지 않아
+// 접힘/펼침이 바뀌며 생기는 레이아웃 시프트를 막는다.
+const subscribeNever = () => () => {};
 
 interface Props {
   /** 서버 컴포넌트(layout)에서 SSR 단계에 읽어 온 초기 task_id */
@@ -26,36 +60,23 @@ interface Props {
 
 export default function TaskNotificationWidget({ initialTaskId }: Props) {
   const [taskId, setTaskId] = useState<string | null>(initialTaskId);
-  const [isMinimized, setIsMinimized] = useState(false);
-  // localStorage 값 로드 전까지 렌더링 suppressed (Layout Shift 방지)
-  const [lsReady, setLsReady] = useState(false);
   const prevStatusRef = useRef<TaskStatus | undefined>(undefined);
 
-  // 1) localStorage에서 최소화 상태 복원
-  useEffect(() => {
-    const stored = localStorage.getItem(LS_KEY);
-    if (stored !== null) setIsMinimized(stored === 'true');
-    setLsReady(true);
-  }, []);
+  const isHydrated = useSyncExternalStore(subscribeNever, () => true, () => false);
+  const isMinimized = useSyncExternalStore(subscribeMinimized, readMinimized, () => false);
 
-  // 2) 최소화 상태 변경 시 localStorage 동기화
-  useEffect(() => {
-    if (!lsReady) return;
-    localStorage.setItem(LS_KEY, String(isMinimized));
-  }, [isMinimized, lsReady]);
-
-  // 3) 다른 컴포넌트에서 task-started 이벤트를 보내면 위젯 활성화
+  // 1) 다른 컴포넌트에서 task-started 이벤트를 보내면 위젯 활성화
   useEffect(() => {
     const handler = (e: Event) => {
       const { taskId: id } = (e as CustomEvent<{ taskId: string }>).detail;
       setTaskId(id);
-      setIsMinimized(false);
+      setMinimized(false);
     };
     window.addEventListener('task-started', handler);
     return () => window.removeEventListener('task-started', handler);
   }, []);
 
-  // 4) 페이지 포커스 시 쿠키 재확인 (다른 탭에서 작업 시작한 경우 대비)
+  // 2) 페이지 포커스 시 쿠키 재확인 (다른 탭에서 작업 시작한 경우 대비)
   useEffect(() => {
     const sync = () => {
       const id = getTaskIdFromCookie();
@@ -65,7 +86,7 @@ export default function TaskNotificationWidget({ initialTaskId }: Props) {
     return () => window.removeEventListener('focus', sync);
   }, [taskId]);
 
-  // 5) TanStack Query 폴링
+  // 3) TanStack Query 폴링
   const { data } = useQuery({
     queryKey: ['taskStatus', taskId],
     queryFn: () => fetchTaskStatus(taskId!),
@@ -77,11 +98,11 @@ export default function TaskNotificationWidget({ initialTaskId }: Props) {
     },
   });
 
-  // 6) 완료/실패 시 최소화 해제 (접혀 있었다면 펼쳐서 결과 보여주기)
+  // 4) 완료/실패 시 최소화 해제 (접혀 있었다면 펼쳐서 결과 보여주기)
   useEffect(() => {
     if (!data) return;
     if (isTerminal(data.status) && !isTerminal(prevStatusRef.current)) {
-      setIsMinimized(false);
+      setMinimized(false);
     }
     prevStatusRef.current = data.status;
   }, [data]);
@@ -89,11 +110,11 @@ export default function TaskNotificationWidget({ initialTaskId }: Props) {
   const handleClose = () => {
     clearTaskIdCookie();
     setTaskId(null);
-    localStorage.removeItem(LS_KEY);
+    clearMinimized();
   };
 
-  // task_id 없으면 아무것도 렌더링하지 않음
-  if (!taskId || !lsReady) return null;
+  // task_id 없거나 아직 최소화 상태를 모르면 아무것도 렌더링하지 않음
+  if (!taskId || !isHydrated) return null;
 
   const progress = data?.progress ?? 0;
   const status: TaskStatus = data?.status ?? 'processing';
@@ -119,7 +140,7 @@ export default function TaskNotificationWidget({ initialTaskId }: Props) {
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.6, opacity: 0 }}
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-            onClick={() => setIsMinimized(false)}
+            onClick={() => setMinimized(false)}
             aria-label="알림창 열기"
             className={`relative w-14 h-14 rounded-full bg-gradient-to-br ${statusColor} shadow-lg shadow-blue-500/30 flex items-center justify-center cursor-pointer`}
           >
@@ -175,7 +196,7 @@ export default function TaskNotificationWidget({ initialTaskId }: Props) {
 
               <div className="flex items-center gap-0.5 shrink-0 ml-2">
                 <button
-                  onClick={() => setIsMinimized(true)}
+                  onClick={() => setMinimized(true)}
                   className="text-white/70 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-colors"
                   aria-label="최소화"
                 >

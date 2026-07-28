@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import Link from 'next/link';
 
 interface ErrorProps {
   error: Error & { digest?: string };
@@ -61,14 +62,14 @@ export default function GlobalError({ error, reset }: ErrorProps) {
           <i className="bx bx-refresh" />
           다시 시도
         </button>
-        <a
+        <Link
           href="/"
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold
             border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
         >
           <i className="bx bx-home-alt" />
           홈으로
-        </a>
+        </Link>
       </div>
     </div>
   );
