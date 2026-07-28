@@ -2,10 +2,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from datetime import date
-from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +11,8 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.core.database import SessionLocal
+from app.core.logging_config import configure_logging
+from app.core.migrations import schema_state, upgrade_to_head
 from app.core.rate_limit import limiter
 from app.core.settings import settings
 from app.models.ai_tool_usage_log_model import AIToolUsageLog as _ATUL  # noqa: F401
@@ -43,6 +42,8 @@ from app.routers import (
 from app.services import task_store
 from app.services.report_factory import build_orchestrator
 
+configure_logging(settings.LOG_LEVEL)  # 아래 기동 로그가 실제로 남으려면 먼저 호출돼야 한다
+
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
@@ -57,18 +58,39 @@ _DEFAULT_FEATURE_FLAGS: dict[str, tuple[str, str]] = {
 }
 
 
-_BACK_DIR = Path(__file__).resolve().parent.parent  # back/ (alembic.ini, migrations/ 위치)
+def _apply_migrations() -> None:
+    """개발 편의용 자동 적용 (RUN_MIGRATIONS_ON_STARTUP=true)."""
+    logger.info("기동 1/2: DB 마이그레이션 적용 (alembic upgrade head)")
+    started = time.monotonic()
+    try:
+        upgrade_to_head()
+    except Exception:
+        logger.exception(
+            "기동 실패: DB 마이그레이션 (%.1fs 경과). DATABASE_URL 접속 가능 여부를 확인하세요.",
+            time.monotonic() - started,
+        )
+        raise
+    logger.info("기동 1/2 완료: 마이그레이션 적용됨 (%.1fs)", time.monotonic() - started)
 
 
-def _run_migrations() -> None:
-    """앱 시작 시 DB 스키마를 최신 상태로 맞춘다 (alembic upgrade head).
+def _verify_schema() -> None:
+    """운영 기본 동작 — 적용하지 않고 상태만 확인한다.
 
-    스키마 관리는 전적으로 migrations/ 의 Alembic 리비전이 담당한다.
-    (예전처럼 create_all/ALTER 를 여기서 직접 실행하지 않는다.)
+    스키마가 어긋나 있어도 기동을 막지 않는다. 여기서 예외를 던지면 포트가 열리지
+    않아 Cloud Run에는 원인 불명의 전면 장애로 보이기 때문이다. 대신 무엇이
+    어긋났는지 ERROR 로그로 분명히 남긴다 — 적용 책임은 배포 단계에 있다.
     """
-    cfg = Config(str(_BACK_DIR / "alembic.ini"))
-    cfg.set_main_option("script_location", str(_BACK_DIR / "migrations"))
-    command.upgrade(cfg, "head")
+    logger.info("기동 1/2: DB 스키마 상태 확인 (자동 적용 꺼짐)")
+    try:
+        state, detail = schema_state()
+    except Exception:
+        logger.exception("기동 1/2: 스키마 상태를 확인하지 못했습니다 (DB 접속 실패).")
+        return
+
+    if state == "ok":
+        logger.info("기동 1/2 완료: %s", detail)
+    else:
+        logger.error("스키마 불일치 [%s] — %s", state, detail)
 
 
 def _init_db() -> None:
@@ -78,17 +100,10 @@ def _init_db() -> None:
     "컨테이너가 PORT에서 리슨하지 못했다"로만 보이고 원인이 드러나지 않는다.
     단계마다 로그를 남겨, 실패했을 때 어디까지 갔는지 로그만 보고 알 수 있게 한다.
     """
-    logger.info("기동 1/2: DB 마이그레이션 시작 (alembic upgrade head)")
-    started = time.monotonic()
-    try:
-        _run_migrations()
-    except Exception:
-        logger.exception(
-            "기동 실패: DB 마이그레이션 (%.1fs 경과). DATABASE_URL 접속 가능 여부를 확인하세요.",
-            time.monotonic() - started,
-        )
-        raise
-    logger.info("기동 1/2 완료: 마이그레이션 적용됨 (%.1fs)", time.monotonic() - started)
+    if settings.RUN_MIGRATIONS_ON_STARTUP:
+        _apply_migrations()
+    else:
+        _verify_schema()
 
     logger.info("기동 2/2: 기능 플래그 기본값 확인")
     db = SessionLocal()

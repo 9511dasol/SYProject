@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     # Environment
     ENVIRONMENT: str = "development"  # "development" | "production"
+    LOG_LEVEL: str = "INFO"  # 기동 진단 로그가 INFO — 낮추면 원인 추적이 어려워진다
 
     # CORS (쉼표 구분, 예: "https://example.com,https://admin.example.com")
     # 리스트 필드로 선언하면 pydantic-settings가 환경변수를 JSON으로 파싱하려 들기 때문에
@@ -38,6 +39,11 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = _DEV_DATABASE_URL
+
+    # 기동 시 `alembic upgrade head` 를 자동 실행할지.
+    # 기본값은 개발 True / 운영 False (아래 _validate 에서 결정) — 운영에서는
+    # 배포 파이프라인의 별도 단계에서 적용하고, 앱은 상태 점검만 한다.
+    RUN_MIGRATIONS_ON_STARTUP: bool | None = None
 
     # Supabase Storage (대용량 첨부파일 — bytea 대신 객체 스토리지에 저장)
     SUPABASE_URL: str = ""
@@ -108,6 +114,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate(self) -> "Settings":
+        if self.RUN_MIGRATIONS_ON_STARTUP is None:
+            # 개발에서는 켜두는 편이 편하고, 운영에서는 배포 단계가 책임진다.
+            # 명시적으로 지정하면 그 값이 우선한다.
+            self.RUN_MIGRATIONS_ON_STARTUP = not self.is_production
+
         if self.is_production:
             problems: list[str] = []
             if len(self.SECRET_KEY) < 32:
