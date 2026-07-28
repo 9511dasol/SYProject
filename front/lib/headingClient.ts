@@ -40,15 +40,9 @@ export async function fetchHeadings(
   return (await res.json()) as HeadingSuggestionRecord;
 }
 
-/** 로그인한 사용자의 과거 문구 생성 기록을 최신순으로 가져옵니다. */
-export async function fetchHeadingHistory(limit = 20): Promise<HeadingSuggestionRecord[]> {
-  return (await fetchHeadingHistoryPage(limit, 0)).items;
-}
-
 /**
  * 히스토리를 페이지 단위로 가져옵니다 (전체 건수 포함).
- * 생성 페이지의 썸네일 스트립은 최근 몇 건만 필요하지만, 히스토리 페이지는
- * 오래된 기록까지 이어서 볼 수 있어야 하므로 offset/total 이 필요합니다.
+ * 오래된 기록까지 이어서 볼 수 있어야 해서 offset/total 이 필요합니다.
  */
 export async function fetchHeadingHistoryPage(
   limit: number,
