@@ -1,8 +1,7 @@
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.core.ai_budget import current_month_start as _current_month_start
 from app.core.security import get_db, require_admin
 from app.models.user_model import User
 from app.repositories.ai_tool_usage_log_repo import AIToolUsageLogRepository
@@ -14,11 +13,6 @@ from app.schemas.ai_tool_usage_log_schema import (
 )
 
 router = APIRouter(prefix="/api/admin/ai-usage-logs", tags=["admin-ai-usage-logs"])
-
-
-def _current_month_start() -> datetime:
-    now = datetime.now(timezone.utc)
-    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
 @router.get("", response_model=AIToolUsageLogListResponse)

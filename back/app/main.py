@@ -8,14 +8,19 @@ from alembic.config import Config
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.core.database import SessionLocal
+from app.core.rate_limit import limiter
 from app.core.settings import settings
 from app.models.ai_tool_usage_log_model import AIToolUsageLog as _ATUL  # noqa: F401
 from app.models.ai_usage_budget_model import AIUsageBudget as _AUB  # noqa: F401
+from app.models.background_task_model import BackgroundTask as _BT  # noqa: F401
 from app.models.marketing_model import MarketingData as _MD, MarketingPeriodMeta as _MPM  # noqa: F401
 from app.models.report_log_model import ReportLog as _RL  # noqa: F401,W0611
 from app.models.system_setting_model import SystemSetting as _SS  # noqa: F401
+from app.models.undo_snapshot_model import UndoSnapshot as _US  # noqa: F401
 from app.models.user_model import User as _User  # noqa: F401
 from app.repositories.system_setting_repo import SystemSettingRepository
 from app.routers import (
@@ -30,6 +35,7 @@ from app.routers import (
     system_setting_router,
     user_admin_router,
 )
+from app.services import task_store
 from app.services.excel_service import _template_bytes
 
 logger = logging.getLogger(__name__)
@@ -103,10 +109,27 @@ def _auto_send_report() -> None:
         db.close()
 
 
+def _purge_expired_tasks() -> None:
+    """만료된 background_tasks / undo_snapshots 행을 정리한다."""
+    tasks, undos = task_store.purge_expired()
+    if tasks or undos:
+        logger.info("만료 정리 — 작업 %d건, 되돌리기 스냅샷 %d건 삭제", tasks, undos)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     _init_db()
     _template_bytes()  # 대용량 템플릿 선로드
+    _purge_expired_tasks()  # 재시작 시 남아 있던 만료 행 먼저 정리
+
+    # 작업 상태를 DB에 두면서 생긴 정리 책임 — 인스턴스가 살아 있는 동안 주기적으로 비운다.
+    scheduler.add_job(
+        _purge_expired_tasks,
+        trigger="interval",
+        hours=1,
+        id="purge_expired_tasks",
+        replace_existing=True,
+    )
 
     if settings.MAIL_ENABLED:
         # APScheduler: 매월 1일 오전 9시 자동 리포트 (환경변수로 재설정 가능)
@@ -118,19 +141,24 @@ async def lifespan(_: FastAPI):
             id="monthly_report",
             replace_existing=True,
         )
-        scheduler.start()
-        logger.info("APScheduler started — monthly report cron active")
+        logger.info("monthly report cron active")
     else:
         logger.info("MAIL_ENABLED=false — 메일 발송 기능 비활성화")
 
+    scheduler.start()
+    logger.info("APScheduler started")
+
     yield
 
-    if settings.MAIL_ENABLED:
-        scheduler.shutdown(wait=False)
-        logger.info("APScheduler stopped")
+    scheduler.shutdown(wait=False)
+    logger.info("APScheduler stopped")
 
 
 app = FastAPI(title="Marketing AI Pipeline API", version="1.0.0", lifespan=lifespan)
+
+# slowapi: 데코레이터가 app.state.limiter를 찾고, 초과 시 429를 응답한다.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,

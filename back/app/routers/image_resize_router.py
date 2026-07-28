@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.core.ai_budget import check_ai_budget
 from app.core.feature_flags import require_feature_flag
 from app.core.security import get_current_user, get_db
 from app.models.user_model import User
@@ -27,6 +28,10 @@ async def resize_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
+    # 순수 Pillow 리사이즈는 과금이 없으므로, AI 업스케일을 요청한 경우에만 예산을 확인한다.
+    if inp.use_ai_upscale:
+        check_ai_budget(db)
+
     try:
         buf, download_name, media_type, ai_upscale_used, usage = resize_image(
             file_bytes=inp.file_bytes,
