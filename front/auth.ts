@@ -69,6 +69,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           };
         } catch (err) {
           if (isAxiosError(err) && err.response?.status === 401) return null;
+
+          // 응답 자체가 없으면 자격 증명 문제가 아니라 백엔드에 도달하지 못한 것이다.
+          // Auth.js가 CallbackRouteError로 감싸버리면 원인이 보이지 않으므로 여기서 명시적으로 남긴다.
+          if (isAxiosError(err) && !err.response) {
+            console.error(
+              `[auth] FastAPI 연결 실패 (${err.code}) — baseURL=${publicApi.defaults.baseURL}. ` +
+              '백엔드가 실행 중인지, API_URL의 포트가 실제 uvicorn 포트와 같은지 확인하세요.',
+            );
+          }
           throw err;
         }
       },
