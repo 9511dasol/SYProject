@@ -26,6 +26,11 @@ import ToastContainer, { type ToastItem } from '@/components/ui/Toast';
 // (boolean 으로 명시해 아래 코드가 '도달 불가'로 분석되지 않게 한다)
 const DOWNLOAD_UNDER_MAINTENANCE: boolean = false;
 
+// 엑셀을 이메일로 보내는 경로만 막아둔다 (다운로드는 그대로 사용).
+// 다시 열 때 이 값만 false 로 되돌리면 된다 — 백엔드 쪽 스위치는
+// marketing_router.py 의 EXPORT_EMAIL_UNDER_MAINTENANCE (여기만 풀면 API는 여전히 막힌다).
+const EXPORT_EMAIL_UNDER_MAINTENANCE: boolean = true;
+
 type Period = { year: number; month: number };
 type DlPhase = 'idle' | 'pending' | 'processing' | 'paused' | 'done' | 'error';
 
@@ -494,6 +499,10 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
       pushToast('info', `${what} 기능은 현재 서비스 준비중입니다.`);
       return;
     }
+    if (deliverBy === 'email' && EXPORT_EMAIL_UNDER_MAINTENANCE) {
+      pushToast('info', '엑셀 이메일 발송 기능은 현재 서비스 준비중입니다.');
+      return;
+    }
     if (!selected || !report?.by_media.length || dlTask) return;
     try {
       const task = await startDbExportTask(selected.year, selected.month, deliverBy, recipients);
@@ -666,9 +675,14 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
                 variant="ghost"
                 className="border border-slate-200 dark:border-border"
                 onClick={() => setRecipientOpen((v) => !v)}
-                disabled={(!canDownload && !DOWNLOAD_UNDER_MAINTENANCE) || isFetching}
+                disabled={
+                  EXPORT_EMAIL_UNDER_MAINTENANCE
+                  || (!canDownload && !DOWNLOAD_UNDER_MAINTENANCE)
+                  || isFetching
+                }
                 title={
-                  DOWNLOAD_UNDER_MAINTENANCE ? '서비스 준비중입니다'
+                  EXPORT_EMAIL_UNDER_MAINTENANCE ? '이메일 발송은 현재 서비스 준비중입니다'
+                    : DOWNLOAD_UNDER_MAINTENANCE ? '서비스 준비중입니다'
                     : isNewPeriod ? 'DB에 저장 후 이용 가능합니다'
                     : dlTask ? '처리 중…'
                     : '이메일로 받기 — 받는 사람을 지정할 수 있습니다'

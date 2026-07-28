@@ -3,13 +3,19 @@
 import smtplib
 
 import pytest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
+from app.routers import marketing_router
 from app.routers.marketing_router import _clean_recipients
 from app.services import mail as mail_module
 from app.services.mail import mail_config_error
 from app.services.mail.base import MailSendError
 from app.services.mail.smtp_sender import SmtpSender
+
+
+class _FakeUser:
+    id = 1
+    email = "me@example.com"
 
 
 class TestCleanRecipients:
@@ -223,3 +229,37 @@ class TestPortHandling:
         )
         assert fake.started_tls is False
         assert fake.sent is True
+
+
+class TestExportEmailBlocked:
+    """엑셀 이메일 발송 차단 스위치.
+
+    프론트에서 버튼만 감추면 API는 그대로 열려 있다 — 실제 차단은 여기서 한다.
+    다시 열 때는 EXPORT_EMAIL_UNDER_MAINTENANCE 를 False 로 되돌린다.
+    """
+
+    def test_switch_is_currently_on(self):
+        assert marketing_router.EXPORT_EMAIL_UNDER_MAINTENANCE is True
+
+    @pytest.mark.asyncio
+    async def test_email_delivery_is_rejected(self):
+        with pytest.raises(HTTPException) as exc:
+            await marketing_router.start_export_db_task(
+                year=2026, month=6, deliver_by="email", recipient=None,
+                background_tasks=BackgroundTasks(), current_user=_FakeUser(),
+            )
+        assert exc.value.status_code == 503
+        assert "준비중" in exc.value.detail
+
+    @pytest.mark.asyncio
+    async def test_switch_off_lets_the_request_through(self, monkeypatch):
+        """차단만 걸려 있고 나머지 로직은 그대로여야 한다 — 스위치를 내리면 다음 검증으로 넘어간다."""
+        monkeypatch.setattr(marketing_router, "EXPORT_EMAIL_UNDER_MAINTENANCE", False)
+        monkeypatch.setattr(marketing_router, "mail_config_error", lambda: "메일 설정 없음")
+
+        with pytest.raises(HTTPException) as exc:
+            await marketing_router.start_export_db_task(
+                year=2026, month=6, deliver_by="email", recipient=None,
+                background_tasks=BackgroundTasks(), current_user=_FakeUser(),
+            )
+        assert exc.value.status_code == 400  # 503이 아니라 원래의 설정 검증으로 넘어갔다

@@ -4,7 +4,17 @@ import re
 from urllib.parse import quote
 
 import pandas as pd
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 
 from app.core.database import SessionLocal
@@ -52,6 +62,12 @@ router = APIRouter(
 _KIND_UPLOAD = "marketing_upload"
 _KIND_EXPORT = "marketing_export"
 _KIND_SAVE = "marketing_save"
+
+# 엑셀을 메일로 보내는 경로(export-db-task?deliver_by=email)를 막아둔다.
+# 다시 열 때 이 값만 False 로 되돌리면 된다 — 프론트 쪽 스위치는
+# DbDashboard.tsx 의 EXPORT_EMAIL_UNDER_MAINTENANCE.
+# (리포트 메일 /api/report-mail 은 별개이며 영향을 받지 않는다)
+EXPORT_EMAIL_UNDER_MAINTENANCE: bool = True
 
 
 def _safe(v) -> float:
@@ -521,6 +537,11 @@ async def start_export_db_task(
     """
     recipients: list[str] = []
     if deliver_by == "email":
+        if EXPORT_EMAIL_UNDER_MAINTENANCE:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="엑셀 이메일 발송 기능은 현재 서비스 준비중입니다.",
+            )
         # 엑셀을 다 만든 뒤에 설정 문제로 실패하면 시간만 버린다 — 시작 전에 걸러낸다
         config_error = mail_config_error()
         if config_error:
