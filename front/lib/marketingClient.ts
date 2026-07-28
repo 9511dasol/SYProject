@@ -326,8 +326,34 @@ export type SaveResult =
 
 type SaveFilePicker = (opts: unknown) => Promise<FileSystemFileHandle>;
 
+// 이 출처에서 저장 위치 지정이 실제로 막혀 있는지 기억한다.
+//
+// 브라우저가 '파일 편집'을 차단한 출처에서는 대화상자는 뜨지만 createWritable이 거부된다.
+// 그때 기본 다운로드로 폴백하는데, 브라우저의 "저장 위치 확인" 설정이 켜져 있으면
+// 거기서 대화상자가 한 번 더 뜬다 — 사용자에겐 위치를 두 번 묻는 것으로 보인다.
+// 한 번 막힌 걸 확인했으면 이후에는 대화상자를 건너뛰고 바로 기본 다운로드로 간다.
+// (localStorage는 출처별로 분리되므로 배포 도메인은 영향받지 않는다)
+const _FSA_BLOCKED_KEY = 'save:file-system-access-blocked';
+
+function isSaveLocationBlocked(): boolean {
+  try {
+    return localStorage.getItem(_FSA_BLOCKED_KEY) === '1';
+  } catch {
+    return false; // 스토리지를 못 쓰면 매번 시도한다 — 기능이 막히는 것보다 낫다
+  }
+}
+
+function markSaveLocationBlocked(): void {
+  try {
+    localStorage.setItem(_FSA_BLOCKED_KEY, '1');
+  } catch {
+    /* 스토리지를 못 써도 저장 자체는 폴백으로 진행된다 */
+  }
+}
+
 function getSavePicker(): SaveFilePicker | null {
   if (typeof window === 'undefined') return null;
+  if (isSaveLocationBlocked()) return null;
   const picker = (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
   return typeof picker === 'function' ? picker : null;
 }
@@ -379,7 +405,13 @@ export async function saveFileWithPicker(blob: Blob, defaultName: string): Promi
       // 여기서 실패하면 아직 아무것도 쓰이지 않았다 — 폴백해도 파일이 두 벌이 되지 않는다.
       // 브라우저가 이 출처에 '파일 편집'을 막아둔 경우 여기서 NotAllowedError가 난다
       // (사이트별로 기억되므로 배포 도메인은 되는데 localhost만 막히는 일이 생긴다).
-      console.warn('[save] 저장 위치에 쓸 수 없어 기본 다운로드로 전환합니다.', e);
+      // 기록해 두고 다음부터는 대화상자를 건너뛴다 — 안 그러면 매번 위치를 두 번 묻는다.
+      markSaveLocationBlocked();
+      console.warn(
+        '[save] 이 사이트는 저장 위치 지정이 막혀 있어 기본 다운로드로 전환합니다. '
+        + "주소창 왼쪽 아이콘 → '파일 편집'을 허용으로 바꾸면 위치 지정을 쓸 수 있습니다.",
+        e,
+      );
       downloadBlob(blob, defaultName);
       return 'downloaded';
     }

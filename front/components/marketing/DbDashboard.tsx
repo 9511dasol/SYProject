@@ -337,7 +337,7 @@ function DownloadProgressToast({
           <p className="text-[11px] opacity-70 mt-1.5 text-center">
             {pickerSupported
               ? '저장할 폴더와 파일 이름을 직접 고를 수 있습니다.'
-              : '이 브라우저는 저장 위치 선택을 지원하지 않아 다운로드 폴더에 저장됩니다.'}
+              : '브라우저 다운로드로 저장됩니다.'}
           </p>
         </div>
       )}
@@ -465,7 +465,7 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
       if (result === 'cancelled') return; // 토스트를 남겨 다시 저장할 수 있게 한다
       pushToast(
         'success',
-        result === 'saved' ? '선택한 위치에 저장했습니다.' : '다운로드 폴더에 저장했습니다.',
+        result === 'saved' ? '선택한 위치에 저장했습니다.' : '브라우저 다운로드로 저장했습니다.',
       );
       closeDownloadToast();
     } catch (err) {
