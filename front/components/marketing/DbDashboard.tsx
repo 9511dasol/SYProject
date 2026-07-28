@@ -4,13 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  canPickSaveLocation,
   cancelDbExportTask,
   getDbExportResult,
   getDbExportStatus,
   getPeriods,
   getSummary,
-  saveFileWithPicker,
+  saveFile,
   startDbExportTask,
 } from '@/lib/marketingClient';
 import { queryKeys } from '@/lib/queryKeys';
@@ -203,7 +202,6 @@ function RecipientPopover({
 function DownloadProgressToast({
   task,
   fileReady,
-  isSaving,
   onSave,
   onDismiss,
   onPause,
@@ -213,7 +211,6 @@ function DownloadProgressToast({
   task: DownloadTask;
   /** 파일을 서버에서 받아 메모리에 들고 있어 저장만 남은 상태 */
   fileReady: boolean;
-  isSaving: boolean;
   onSave: () => void;
   onDismiss: () => void;
   onPause: () => void;
@@ -226,7 +223,6 @@ function DownloadProgressToast({
   const isActive = !isDone && !isError && !isPaused;
   // 저장 단계 — 다운로드 방식이면서 생성이 끝난 경우에만 노출
   const isSaveStep = isDone && task.deliverBy === 'download';
-  const pickerSupported = canPickSaveLocation();
 
   return (
     <div
@@ -323,21 +319,15 @@ function DownloadProgressToast({
         <div className="px-4 pb-4">
           <button
             onClick={onSave}
-            disabled={!fileReady || isSaving}
+            disabled={!fileReady}
             className="w-full flex items-center justify-center gap-2 rounded-xl bg-white/15 hover:bg-white/25
               disabled:opacity-50 disabled:cursor-not-allowed px-3 py-2.5 text-sm font-semibold transition-colors"
           >
-            {isSaving ? (
-              <span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
-            ) : (
-              <i className={`bx ${pickerSupported ? 'bx-save' : 'bx-download'} text-base`} />
-            )}
-            {isSaving ? '저장 중…' : pickerSupported ? '다른 이름으로 저장' : '다운로드'}
+            <i className="bx bx-download text-base" />
+            다운로드
           </button>
           <p className="text-[11px] opacity-70 mt-1.5 text-center">
-            {pickerSupported
-              ? '저장할 폴더와 파일 이름을 직접 고를 수 있습니다.'
-              : '브라우저 다운로드로 저장됩니다.'}
+            브라우저 다운로드로 저장됩니다.
           </p>
         </div>
       )}
@@ -361,8 +351,7 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   // 서버에서 받아 저장을 기다리는 파일 (사용자가 저장 위치를 고를 때까지 붙들고 있는다)
   const [readyBlob, setReadyBlob] = useState<Blob | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  // 버튼 비활성화(isSaving)는 리렌더 뒤에야 걸린다 — 빠른 더블클릭 방어는 ref로 한다
+  // 다운로드는 동기 호출이라 '저장 중' 상태가 없다. 같은 프레임 안의 중복 클릭만 ref로 막는다.
   const savingRef = useRef(false);
   // 완료된 export를 두 번 내려받지 않도록 (StrictMode의 이펙트 2회 실행 대비)
   const fetchedTaskRef = useRef<string | null>(null);
@@ -454,25 +443,18 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   }, [newPeriodOpen, recipientOpen]);
 
   // ── 저장 (사용자 클릭) ────────────────────────────────────────────────────
-  async function handleSaveFile() {
-    // isSaving(상태)만으로는 같은 프레임 안의 두 번째 클릭을 막지 못한다 —
-    // setIsSaving은 즉시 반영되지 않아 두 번 다 가드를 통과하고 저장 대화상자가 두 번 뜬다.
+  function handleSaveFile() {
+    // 상태 가드는 setState가 즉시 반영되지 않아 같은 프레임의 두 번째 클릭을 통과시킨다 — ref로 막는다.
     if (!readyBlob || !dlTask || savingRef.current) return;
     savingRef.current = true;
-    setIsSaving(true);
     try {
-      const result = await saveFileWithPicker(readyBlob, dlTask.filename);
-      if (result === 'cancelled') return; // 토스트를 남겨 다시 저장할 수 있게 한다
-      pushToast(
-        'success',
-        result === 'saved' ? '선택한 위치에 저장했습니다.' : '브라우저 다운로드로 저장했습니다.',
-      );
+      saveFile(readyBlob, dlTask.filename);
+      pushToast('success', '다운로드를 시작했습니다.');
       closeDownloadToast();
     } catch (err) {
       pushToast('error', err instanceof Error ? err.message : '파일 저장 실패');
     } finally {
       savingRef.current = false;
-      setIsSaving(false);
     }
   }
 
@@ -593,7 +575,6 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
         <DownloadProgressToast
           task={dlView}
           fileReady={readyBlob !== null}
-          isSaving={isSaving}
           onSave={handleSaveFile}
           onDismiss={handleDismissDownload}
           onPause={handlePauseDownload}

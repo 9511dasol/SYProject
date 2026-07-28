@@ -318,111 +318,19 @@ export async function undoUpload(undoId: string): Promise<{ message: string }> {
   }
 }
 
-/** saveFileWithPicker 결과 — 호출부가 안내 문구를 다르게 낼 수 있도록 구분한다. */
-export type SaveResult =
-  | 'saved'       // 사용자가 고른 위치에 저장 완료
-  | 'cancelled'   // 사용자가 저장 대화상자를 닫음 (blob은 그대로라 다시 시도 가능)
-  | 'downloaded'; // picker를 못 써서 브라우저 기본 다운로드로 처리
-
-type SaveFilePicker = (opts: unknown) => Promise<FileSystemFileHandle>;
-
-// 이 출처에서 저장 위치 지정이 실제로 막혀 있는지 기억한다.
-//
-// 브라우저가 '파일 편집'을 차단한 출처에서는 대화상자는 뜨지만 createWritable이 거부된다.
-// 그때 기본 다운로드로 폴백하는데, 브라우저의 "저장 위치 확인" 설정이 켜져 있으면
-// 거기서 대화상자가 한 번 더 뜬다 — 사용자에겐 위치를 두 번 묻는 것으로 보인다.
-// 한 번 막힌 걸 확인했으면 이후에는 대화상자를 건너뛰고 바로 기본 다운로드로 간다.
-// (localStorage는 출처별로 분리되므로 배포 도메인은 영향받지 않는다)
-const _FSA_BLOCKED_KEY = 'save:file-system-access-blocked';
-
-function isSaveLocationBlocked(): boolean {
-  try {
-    return localStorage.getItem(_FSA_BLOCKED_KEY) === '1';
-  } catch {
-    return false; // 스토리지를 못 쓰면 매번 시도한다 — 기능이 막히는 것보다 낫다
-  }
-}
-
-function markSaveLocationBlocked(): void {
-  try {
-    localStorage.setItem(_FSA_BLOCKED_KEY, '1');
-  } catch {
-    /* 스토리지를 못 써도 저장 자체는 폴백으로 진행된다 */
-  }
-}
-
-function getSavePicker(): SaveFilePicker | null {
-  if (typeof window === 'undefined') return null;
-  if (isSaveLocationBlocked()) return null;
-  const picker = (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
-  return typeof picker === 'function' ? picker : null;
-}
-
-/** 이 브라우저가 '다른 이름으로 저장' 대화상자를 지원하는지 (Chrome/Edge 계열만 지원) */
-export function canPickSaveLocation(): boolean {
-  return getSavePicker() !== null;
-}
-
 /**
- * File System Access API로 저장 위치를 고르게 한다. 지원하지 않으면 기본 다운로드로 폴백.
+ * 파일을 저장한다 — 브라우저 기본 다운로드 하나만 쓴다.
  *
- * 반드시 클릭 핸들러 안에서 직접 호출해야 한다 — showSaveFilePicker는 사용자 제스처를
- * 요구해서, 폴링 완료 콜백이나 setTimeout 안에서 부르면 SecurityError로 튕기고
- * 조용히 기본 다운로드로 넘어간다.
+ * 예전에는 File System Access API(showSaveFilePicker)로 위치를 고르게 하고,
+ * 실패하면 기본 다운로드로 폴백했다. 그런데 저장 경로가 둘이면 각자 위치를 물어서
+ * "저장 위치를 두 번 묻는" 상황을 피할 수 없었다:
+ *   showSaveFilePicker 로 한 번 → createWritable 거부 → 폴백 다운로드에서 또 한 번.
+ * (브라우저가 그 출처에 '파일 편집'을 막아두면 createWritable이 거부되는데,
+ *  이건 미리 알 수 없어서 시도해봐야만 드러난다.)
+ *
+ * 경로를 하나로 줄이면 어떤 환경에서도 대화상자는 정확히 한 번만 뜬다.
+ * 위치 선택은 브라우저의 "다운로드 전에 각 파일의 저장 위치 확인" 설정이 대신한다.
  */
-export async function saveFileWithPicker(blob: Blob, defaultName: string): Promise<SaveResult> {
-  const picker = getSavePicker();
-  let handle: FileSystemFileHandle | null = null;
-
-  if (picker) {
-    // 대화상자를 여는 단계와 실제로 쓰는 단계를 분리한다.
-    // 한 try로 묶으면 사용자가 위치를 고른 뒤 쓰기가 실패했을 때도 폴백이 돌아
-    // 다운로드 폴더에 파일이 한 번 더 저장된다 — 저장이 두 번 일어나는 것처럼 보인다.
-    try {
-      // call(window, …) — 함수를 떼어내 부르면 일부 브라우저가 잘못된 this로 거부한다
-      handle = await picker.call(window, {
-        suggestedName: defaultName,
-        types: [
-          {
-            description: 'Excel 파일',
-            accept: {
-              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-            },
-          },
-        ],
-      });
-    } catch (e) {
-      if ((e as Error).name === 'AbortError') return 'cancelled'; // 사용자가 취소
-      // SecurityError(제스처 없음)·NotAllowedError 등 — 대화상자 자체를 못 썼으니 폴백
-    }
-  }
-
-  if (handle) {
-    let writable: FileSystemWritableFileStream;
-    try {
-      writable = await handle.createWritable();
-    } catch (e) {
-      // 여기서 실패하면 아직 아무것도 쓰이지 않았다 — 폴백해도 파일이 두 벌이 되지 않는다.
-      // 브라우저가 이 출처에 '파일 편집'을 막아둔 경우 여기서 NotAllowedError가 난다
-      // (사이트별로 기억되므로 배포 도메인은 되는데 localhost만 막히는 일이 생긴다).
-      // 기록해 두고 다음부터는 대화상자를 건너뛴다 — 안 그러면 매번 위치를 두 번 묻는다.
-      markSaveLocationBlocked();
-      console.warn(
-        '[save] 이 사이트는 저장 위치 지정이 막혀 있어 기본 다운로드로 전환합니다. '
-        + "주소창 왼쪽 아이콘 → '파일 편집'을 허용으로 바꾸면 위치 지정을 쓸 수 있습니다.",
-        e,
-      );
-      downloadBlob(blob, defaultName);
-      return 'downloaded';
-    }
-
-    // 스트림을 연 뒤의 실패는 파일이 일부 쓰였을 수 있다 — 폴백하면 두 벌이 되므로
-    // 예외를 그대로 올려 호출부가 오류를 보여주고 다시 시도하게 한다.
-    await writable.write(blob);
-    await writable.close();
-    return 'saved';
-  }
-
-  downloadBlob(blob, defaultName);
-  return 'downloaded';
+export function saveFile(blob: Blob, filename: string): void {
+  downloadBlob(blob, filename);
 }

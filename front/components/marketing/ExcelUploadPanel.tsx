@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { loadExcelReports, saveExcelData, saveFileWithPicker } from '@/lib/marketingClient';
+import { loadExcelReports, saveExcelData, saveFile } from '@/lib/marketingClient';
 import type { ExcelReport } from '@/types/marketing';
 import ExcelReportView from '@/components/marketing/ExcelReportView';
 import Button from '@/components/ui/Button';
@@ -116,10 +116,11 @@ export default function ExcelUploadPanel({
 
   function handleDownload() {
     if (!file) return;
-    // 클릭 핸들러에서 곧바로 호출 — 사이에 await가 없어야 저장 위치 대화상자가 뜬다
-    saveFileWithPicker(file, file.name).catch(() => {
+    try {
+      saveFile(file, file.name);
+    } catch {
       setError('파일 저장에 실패했습니다.');
-    });
+    }
   }
 
   function handleReset() {
