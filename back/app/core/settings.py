@@ -6,17 +6,19 @@ pydantic-settings로 타입 검증을 하고, 운영(ENVIRONMENT=production)에�
 접속 가능한 비밀번호가 하드코딩돼 있었다.
 """
 
+import codecs
 import logging
 import secrets
 from pathlib import Path
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
 _BACK_DIR = Path(__file__).resolve().parents[2]  # back/
 _DEV_DATABASE_URL = "postgresql+psycopg2://postgres:postgres@localhost:5432/marketing_db"
+_BOM = codecs.BOM_UTF8.decode("utf-8")  # U+FEFF — 소스에 보이지 않는 문자를 직접 넣지 않는다
 
 
 class Settings(BaseSettings):
@@ -103,6 +105,21 @@ class Settings(BaseSettings):
     RATE_LIMIT_AI: str = "30/hour"
     # 프록시(Cloud Run/Vercel) 뒤에 있으면 X-Forwarded-For로 클라이언트 IP를 판별한다.
     TRUST_PROXY_HEADERS: bool = True
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _strip_bom_and_space(cls, value):
+        """모든 문자열 설정값에서 BOM과 앞뒤 공백을 제거한다.
+
+        시크릿을 UTF-8 BOM으로 저장하면 값 맨 앞에 U+FEFF가 붙는다. 그 값이 HTTP 헤더로
+        들어가는 순간 한참 뒤에서 터진다 — 실제로 Supabase Storage 업로드가
+        "'ascii' codec can't encode character '\\ufeff' in position 7" 로 실패했다.
+        ("Bearer "가 7글자라 키의 첫 글자가 position 7이다.)
+        로컬 .env는 BOM이 없어 운영에서만 재현되고, 메시지에 원인이 드러나지 않는다.
+        """
+        if isinstance(value, str):
+            return value.replace(_BOM, "").strip()
+        return value
 
     @property
     def CORS_ORIGINS(self) -> list[str]:
