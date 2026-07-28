@@ -1,5 +1,6 @@
 import logging
 import math
+import re
 from urllib.parse import quote
 
 import pandas as pd
@@ -34,7 +35,7 @@ from app.services.comment_service import CommentService
 from app.services.excel_service import ExcelService
 from app.services.excel_reader_service import ExcelReaderService
 from app.services.llm import build_llm
-from app.services.mail import build_mail_sender
+from app.services.mail import MailSendError, build_mail_sender, mail_config_error
 from app.services.marketing_service import FileEntry, MarketingService
 
 logger = logging.getLogger(__name__)
@@ -153,6 +154,31 @@ def _period_label(year: int, month: int) -> str:
     return f"{year % 100}년 {month}월"
 
 
+def _periods_in_df(df: pd.DataFrame) -> list[tuple[int, int]]:
+    """DataFrame에 실제로 담긴 (연, 월) 목록. 한 파일에 5월·6월이 같이 오면 둘 다 나온다."""
+    dt = pd.to_datetime(df["report_date"])
+    return sorted({(int(y), int(m)) for y, m in zip(dt.dt.year, dt.dt.month)})
+
+
+def _excel_to_df(content: bytes, periods: list[str] | None) -> tuple[pd.DataFrame, list[str]]:
+    """업로드된 엑셀 → DB 저장용 DataFrame + 읽은 기간 목록.
+
+    periods 를 주면 그 기간 시트만, 없으면 파일 안의 모든 기간을 읽는다.
+    """
+    svc = ExcelReaderService()
+    try:
+        reports = svc.read_reports(content, periods=periods or None)
+        df = svc.reports_to_db_dataframe(reports)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    if df.empty:
+        raise HTTPException(status_code=422, detail="저장할 데이터가 없습니다.")
+
+    df["report_date"] = pd.to_datetime(df["report_date"])
+    return df, [r["period"] for r in reports]
+
+
 def _empty_report(period: str) -> ReportResponse:
     empty = MediaSummary(
         label="TOTAL",
@@ -217,14 +243,50 @@ async def _run_analysis(task_id: str, files: list[FileEntry]) -> None:
         db.close()
 
 
-def _send_export_email(to_email: str, period: str, filename: str, download_url: str) -> None:
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_MAX_RECIPIENTS = 10
+
+
+def _clean_recipients(raw: list[str] | None, fallback: str) -> list[str]:
+    """쉼표로 붙여 보내든 반복 파라미터로 보내든 받아 정리한다.
+
+    빈 목록이면 로그인한 사용자 본인에게 보낸다(기존 동작).
+    """
+    parts: list[str] = []
+    for item in raw or []:
+        parts.extend(p.strip() for p in item.split(","))
+
+    seen: list[str] = []
+    for addr in parts:
+        if addr and addr not in seen:
+            seen.append(addr)
+
+    if not seen:
+        if not fallback:
+            raise HTTPException(status_code=400, detail="받는 사람 이메일을 지정해 주세요.")
+        return [fallback]
+
+    invalid = [a for a in seen if not _EMAIL_RE.match(a)]
+    if invalid:
+        raise HTTPException(
+            status_code=400, detail=f"이메일 형식이 올바르지 않습니다: {', '.join(invalid)}"
+        )
+    if len(seen) > _MAX_RECIPIENTS:
+        raise HTTPException(
+            status_code=400, detail=f"받는 사람은 최대 {_MAX_RECIPIENTS}명까지 지정할 수 있습니다."
+        )
+    return seen
+
+
+def _send_export_email(recipients: list[str], period: str, filename: str, download_url: str) -> None:
     html = f"""
     <p>{period} 마케팅 데이터 엑셀 파일이 준비되었습니다.</p>
     <p><a href="{download_url}">{filename} 다운로드</a></p>
-    <p style="color:#888;font-size:12px;">파일 용량이 커서 브라우저 다운로드 대신 이메일로 보내드렸습니다.
-    이 링크는 3일 후 만료됩니다.</p>
+    <p style="color:#888;font-size:12px;">이 링크는 3일 후 만료됩니다.</p>
     """
-    build_mail_sender().send(to=[to_email], subject=f"[마케팅 AI] {period} 엑셀 파일 다운로드", html=html)
+    build_mail_sender().send(
+        to=recipients, subject=f"[마케팅 AI] {period} 엑셀 파일 다운로드", html=html
+    )
 
 
 def _store_export_bytes(task_id: str, year: int, month: int, excel_bytes: bytes) -> dict:
@@ -241,6 +303,16 @@ def _store_export_bytes(task_id: str, year: int, month: int, excel_bytes: bytes)
     return {"storage_path": None}
 
 
+def _prev_month_totals(year: int, month: int) -> dict | None:
+    """엑셀 summary '전월' 행에 채울 직전월 합계 (없으면 None)."""
+    prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
+    db = SessionLocal()
+    try:
+        return MarketingRepository(db).get_period_totals(prev_year, prev_month)
+    finally:
+        db.close()
+
+
 def _run_export_task(
     task_id: str,
     rows: list,
@@ -248,9 +320,16 @@ def _run_export_task(
     year: int,
     month: int,
     deliver_by: str = "download",
-    recipient_email: str | None = None,
+    recipients: list[str] | None = None,
+    prev_totals: dict | None = None,
 ) -> None:
-    """동기 함수 → FastAPI BackgroundTasks가 스레드풀에서 실행"""
+    """동기 함수 → FastAPI BackgroundTasks가 스레드풀에서 실행.
+
+    실패 메시지 앞에 어느 단계에서 깨졌는지를 붙인다 — 예전에는 메일 발송이 실패해도
+    프론트가 'Excel 생성 실패'로만 보여줘서, 엑셀은 멀쩡히 만들어졌는데도 원인을
+    엉뚱한 곳에서 찾게 됐다.
+    """
+    stage = "Excel 생성"
     try:
         if task_store.is_cancelled(task_id):
             task_store.update_task(task_id, status="cancelled")
@@ -262,25 +341,36 @@ def _run_export_task(
             task_store.update_task(task_id, status="cancelled")
             return
         task_store.update_task(task_id, progress=45)
-        excel_bytes = ExcelService().fill_template(media_kpis, period, year, month)
+        excel_bytes = ExcelService().fill_template(media_kpis, period, year, month, prev_totals)
 
         if task_store.is_cancelled(task_id):
             task_store.update_task(task_id, status="cancelled")
             return
         filename = f"마케팅분석_{period.replace(' ', '')}.xlsx"
 
-        if deliver_by == "email" and recipient_email:
-            task_store.update_task(task_id, progress=80)
+        if deliver_by == "email" and recipients:
+            task_store.update_task(task_id, progress=70)
+            stage = "파일 업로드"
             path = storage_service.upload_bytes(f"exports/{year:04d}/{month:02d}/{task_id}.xlsx", excel_bytes)
             download_url = storage_service.create_signed_url(path)
-            _send_export_email(recipient_email, period, filename, download_url)
+
+            task_store.update_task(task_id, progress=85)
+            stage = "메일 발송"
+            _send_export_email(recipients, period, filename, download_url)
             task_store.update_task(
                 task_id,
                 status="done",
                 progress=100,
-                result_patch={"filename": filename, "delivered_by": "email", "storage_path": path},
+                message=f"{', '.join(recipients)} 으로 보냈습니다.",
+                result_patch={
+                    "filename": filename,
+                    "delivered_by": "email",
+                    "storage_path": path,
+                    "recipients": recipients,
+                },
             )
         else:
+            stage = "파일 보관"
             patch = _store_export_bytes(task_id, year, month, excel_bytes)
             task_store.update_task(
                 task_id,
@@ -288,12 +378,37 @@ def _run_export_task(
                 progress=100,
                 result_patch={"filename": filename, "delivered_by": "download", **patch},
             )
+    except MailSendError as exc:
+        # 원인별 안내 문구가 이미 담겨 있으므로 그대로 노출한다
+        logger.warning("export 메일 발송 실패 (task=%s): %s", task_id, exc)
+        task_store.update_task(task_id, status="error", progress=0, error=f"메일 발송 실패: {exc}")
     except Exception as exc:
-        task_store.update_task(task_id, status="error", progress=0, error=str(exc))
+        logger.exception("export 태스크 실패 (task=%s, 단계=%s)", task_id, stage)
+        task_store.update_task(task_id, status="error", progress=0, error=f"{stage} 실패: {exc}")
 
 
-def _run_save_task(task_id: str, df: pd.DataFrame, year: int, month: int, replace: bool) -> None:
+def _delete_periods(periods: list[tuple[int, int]]) -> int:
+    """여러 (연, 월)의 기존 행을 한 트랜잭션으로 삭제하고 삭제 건수를 반환."""
+    db_del = SessionLocal()
+    try:
+        repo = MarketingRepository(db_del)
+        deleted = sum(repo.delete_rows_by_period(y, m) for y, m in periods)
+        db_del.commit()
+        return deleted
+    except Exception:
+        db_del.rollback()
+        raise
+    finally:
+        db_del.close()
+
+
+def _run_save_task(
+    task_id: str, df: pd.DataFrame, periods: list[tuple[int, int]], replace: bool
+) -> None:
     """Excel DataFrame → DB UPSERT 백그라운드 작업.
+
+    periods 는 파일에 담긴 모든 (연, 월) — 5월·6월이 한 파일에 있으면 두 기간 모두
+    덮어쓰기 대상이 된다.
 
     delete_rows_by_period(Session) 와 save_mapped_dataframe(_upsert 내부의 engine.begin())이
     서로 다른 커넥션을 사용하므로, 삭제를 먼저 커밋해 락을 해제한 뒤 저장해야 데드락을 피할 수 있다.
@@ -302,17 +417,7 @@ def _run_save_task(task_id: str, df: pd.DataFrame, year: int, month: int, replac
         task_store.update_task(task_id, status="processing", progress=10)
 
         # ── 1단계: replace 시 기존 행 삭제 (독립 트랜잭션으로 먼저 커밋) ──────────
-        deleted = 0
-        if replace:
-            db_del = SessionLocal()
-            try:
-                deleted = MarketingRepository(db_del).delete_rows_by_period(year, month)
-                db_del.commit()
-            except Exception:
-                db_del.rollback()
-                raise
-            finally:
-                db_del.close()
+        deleted = _delete_periods(periods) if replace else 0
 
         task_store.update_task(task_id, progress=50)
 
@@ -321,10 +426,11 @@ def _run_save_task(task_id: str, df: pd.DataFrame, year: int, month: int, replac
 
         task_store.update_task(task_id, progress=90)
 
+        scope = ", ".join(_period_label(y, m) for y, m in periods)
         if replace:
-            msg = f"기존 {deleted}개 행을 삭제하고 {saved}개 행으로 교체했습니다."
+            msg = f"{scope}: 기존 {deleted}개 행을 삭제하고 {saved}개 행으로 교체했습니다."
         else:
-            msg = f"{saved}개 행을 저장했습니다."
+            msg = f"{scope}: {saved}개 행을 저장했습니다."
 
         task_store.update_task(
             task_id,
@@ -347,27 +453,23 @@ async def start_save_excel_task(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     replace: bool = Query(False),
+    period: list[str] | None = Query(
+        None, description="저장할 기간 시트 (예: period=26년 5월&period=26년 6월). 생략 시 전체"
+    ),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Excel DB 저장을 백그라운드로 시작하고 task_id 반환"""
+    """Excel DB 저장을 백그라운드로 시작하고 task_id 반환.
+
+    period 를 주면 고른 달만, 없으면 파일에 담긴 모든 달을 저장한다.
+    replace=true 이면 저장 대상 달들의 기존 행을 각각 지우고 교체한다.
+    """
     check_content_length(request)
     content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
-    try:
-        svc = ExcelReaderService()
-        report = svc.read_report(content)
-        df = svc.to_db_dataframe(report)
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-
-    if df.empty:
-        raise HTTPException(status_code=422, detail="저장할 데이터가 없습니다.")
-
-    df["report_date"] = pd.to_datetime(df["report_date"])
-    year = int(df["report_date"].dt.year.iloc[0])
-    month = int(df["report_date"].dt.month.iloc[0])
+    df, _ = _excel_to_df(content, period)
+    periods = _periods_in_df(df)
 
     task_id = task_store.create_task(_KIND_SAVE, user_id=current_user.id)
-    background_tasks.add_task(_run_save_task, task_id, df, year, month, replace)
+    background_tasks.add_task(_run_save_task, task_id, df, periods, replace)
 
     return {"task_id": task_id}
 
@@ -391,17 +493,24 @@ async def start_export_db_task(
     year: int = Query(...),
     month: int = Query(...),
     deliver_by: str = Query("download", pattern="^(download|email)$"),
+    recipient: list[str] | None = Query(
+        None, description="받는 사람 이메일. 반복 지정하거나 쉼표로 묶을 수 있고, 생략 시 로그인 계정"
+    ),
     background_tasks: BackgroundTasks = ...,
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """DB 데이터 → Excel 변환을 백그라운드로 시작하고 task_id 반환.
 
     deliver_by="email"이면 완료된 파일을 메모리로 내려주는 대신 Supabase Storage에 올리고
-    로그인한 사용자 이메일로 다운로드 링크를 보낸다 — 파일이 커서 브라우저 다운로드가
-    실패하는 경우(Vercel BFF 응답 크기 제한)를 우회하기 위함.
+    지정한 받는 사람(기본값: 로그인한 사용자)에게 다운로드 링크를 보낸다.
     """
-    if deliver_by == "email" and not settings.MAIL_ENABLED:
-        raise HTTPException(status_code=400, detail="메일 발송 기능이 비활성화되어 있습니다.")
+    recipients: list[str] = []
+    if deliver_by == "email":
+        # 엑셀을 다 만든 뒤에 설정 문제로 실패하면 시간만 버린다 — 시작 전에 걸러낸다
+        config_error = mail_config_error()
+        if config_error:
+            raise HTTPException(status_code=400, detail=config_error)
+        recipients = _clean_recipients(recipient, current_user.email)
 
     db = SessionLocal()
     try:
@@ -417,13 +526,15 @@ async def start_export_db_task(
         _KIND_EXPORT, progress=5, user_id=current_user.id, result={"delivered_by": deliver_by},
     )
     background_tasks.add_task(
-        _run_export_task, task_id, rows, period, year, month, deliver_by, current_user.email,
+        _run_export_task, task_id, rows, period, year, month, deliver_by, recipients,
+        _prev_month_totals(year, month),
     )
 
     return {
         "task_id": task_id,
         "filename": f"마케팅분석_{period.replace(' ', '')}.xlsx",
         "deliver_by": deliver_by,
+        "recipients": recipients,
     }
 
 
@@ -436,8 +547,10 @@ async def get_export_task_status(task_id: str) -> dict:
     return {
         "status": task["status"],
         "progress": task["progress"],
+        "message": task["message"] or None,
         "error": task["error"],
         "delivered_by": task["result"].get("delivered_by"),
+        "recipients": task["result"].get("recipients", []),
     }
 
 
@@ -509,7 +622,9 @@ async def export_db_excel(
     if not media_kpis:
         raise HTTPException(status_code=404, detail="해당 기간의 데이터가 없습니다.")
 
-    excel_bytes = ExcelService().fill_template(media_kpis, period, year, month)
+    excel_bytes = ExcelService().fill_template(
+        media_kpis, period, year, month, _prev_month_totals(year, month)
+    )
     filename = f"마케팅분석_{period.replace(' ', '')}.xlsx"
     return StreamingResponse(
         iter([excel_bytes]),
@@ -652,13 +767,18 @@ async def load_excel(
     request: Request,
     file: UploadFile = File(...),
 ) -> dict:
-    """Excel 파일(.xlsx)을 읽어 전체 리포트 데이터 JSON 반환"""
+    """Excel 파일(.xlsx)을 읽어 기간별 리포트 데이터 JSON 반환.
+
+    한 파일에 5월·6월처럼 여러 달이 들어 있으면 달마다 하나씩 reports 에 담아 준다.
+    """
     check_content_length(request)
     content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
     try:
-        return ExcelReaderService().read_report(content)
+        reports = ExcelReaderService().read_reports(content)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+    return {"periods": [r["period"] for r in reports], "reports": reports}
 
 
 @router.post("/save-excel-data")
@@ -666,48 +786,43 @@ async def save_excel_data(
     request: Request,
     file: UploadFile = File(...),
     replace: bool = Query(False),
+    period: list[str] | None = Query(
+        None, description="저장할 기간 시트 (예: period=26년 5월&period=26년 6월). 생략 시 전체"
+    ),
 ) -> dict:
     """Excel 파일 매체 시트 데이터를 DB에 저장.
-    replace=true 이면 해당 연월 기존 데이터를 먼저 삭제하고 교체.
+
+    period 를 주면 고른 달만, 없으면 파일에 담긴 모든 달을 저장한다.
+    replace=true 이면 저장 대상 달들의 기존 데이터를 각각 먼저 삭제하고 교체.
     """
     check_content_length(request)
     content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
-    try:
-        svc = ExcelReaderService()
-        report = svc.read_report(content)
-        df = svc.to_db_dataframe(report)
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-
-    if df.empty:
-        raise HTTPException(status_code=422, detail="저장할 데이터가 없습니다.")
-
-    df["report_date"] = pd.to_datetime(df["report_date"])
-    year = int(df["report_date"].dt.year.iloc[0])
-    month = int(df["report_date"].dt.month.iloc[0])
+    df, _ = _excel_to_df(content, period)
+    periods = _periods_in_df(df)
 
     deleted = 0
     if replace:
-        db_del = SessionLocal()
         try:
-            deleted = MarketingRepository(db_del).delete_rows_by_period(year, month)
-            db_del.commit()
+            deleted = _delete_periods(periods)
         except Exception as exc:
-            db_del.rollback()
             raise HTTPException(status_code=500, detail=f"기존 데이터 삭제 실패: {exc}")
-        finally:
-            db_del.close()
 
     try:
         saved, _, _undo_id = MarketingRepository(None).save_mapped_dataframe(df)  # type: ignore[arg-type]
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"DB 저장 실패: {exc}")
 
+    scope = ", ".join(_period_label(y, m) for y, m in periods)
     if replace:
-        msg = f"기존 {deleted}개 행을 삭제하고 {saved}개 행으로 교체했습니다."
+        msg = f"{scope}: 기존 {deleted}개 행을 삭제하고 {saved}개 행으로 교체했습니다."
     else:
-        msg = f"{saved}개 행을 저장했습니다."
-    return {"saved_rows": saved, "deleted_rows": deleted if replace else 0, "message": msg}
+        msg = f"{scope}: {saved}개 행을 저장했습니다."
+    return {
+        "saved_rows": saved,
+        "deleted_rows": deleted if replace else 0,
+        "periods": [_period_label(y, m) for y, m in periods],
+        "message": msg,
+    }
 
 
 @router.post("/rows")

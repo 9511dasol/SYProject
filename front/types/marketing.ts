@@ -71,6 +71,12 @@ export interface ExcelReport {
   media: Record<string, MediaSheetData>;
 }
 
+/** /load-excel 응답 — 한 파일에 5월·6월처럼 여러 달이 있으면 달마다 리포트가 하나씩 온다 */
+export interface ExcelReportBundle {
+  periods: string[];
+  reports: ExcelReport[];
+}
+
 export interface MediaDailyRow {
   date: string;
   impressions: number;

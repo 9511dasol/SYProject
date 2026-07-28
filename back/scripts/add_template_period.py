@@ -13,7 +13,7 @@ from pathlib import Path
 import openpyxl
 
 TEMPLATE_PATH = (
-    Path(__file__).resolve().parent.parent / "example" / "report_template.xlsx"
+    Path(__file__).resolve().parent.parent / "app" / "assets" / "report_template.xlsx"
 )
 
 

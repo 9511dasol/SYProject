@@ -421,6 +421,42 @@ class MarketingRepository:
             .all()
         )
 
+    def get_period_totals(self, year: int, month: int) -> dict | None:
+        """해당 연월 전체 합계. 데이터가 없으면 None.
+
+        엑셀 summary 시트의 '전월' 행을 채우는 데 쓴다 — 템플릿에 그 달 시트가 없어
+        다른 달을 복사해 만들 때, 복사본에 남은 옛 전월 숫자를 이걸로 덮어쓴다.
+        """
+        r = (
+            self.db.query(
+                func.sum(MarketingData.impressions).label("impressions"),
+                func.sum(MarketingData.clicks).label("clicks"),
+                func.sum(MarketingData.cost).label("cost"),
+                func.sum(MarketingData.conversions).label("conversions"),
+                func.sum(MarketingData.conversion_revenue).label("revenue"),
+                func.sum(MarketingData.signup).label("signup"),
+                func.sum(MarketingData.purchase).label("purchase"),
+                func.sum(MarketingData.apply).label("apply"),
+            )
+            .filter(
+                extract("year", MarketingData.report_date) == year,
+                extract("month", MarketingData.report_date) == month,
+            )
+            .one()
+        )
+        if r.impressions is None and r.clicks is None and r.cost is None:
+            return None
+        return {
+            "impressions": int(r.impressions or 0),
+            "clicks": int(r.clicks or 0),
+            "cost": float(r.cost or 0),
+            "conversions": int(r.conversions or 0),
+            "revenue": float(r.revenue or 0),
+            "signup": float(r.signup or 0),
+            "purchase": float(r.purchase or 0),
+            "apply": float(r.apply or 0),
+        }
+
     def get_summary_by_period(self, year: int, month: int) -> list[dict]:
         rows = (
             self.db.query(

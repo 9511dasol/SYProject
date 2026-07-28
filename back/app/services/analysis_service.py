@@ -32,14 +32,41 @@ class MediaKPI:
     roas: float = 0.0
 
 
+def _trend(now_chg: float, prev_chg: float) -> str:
+    """2개월치 변화율로 추세를 한 단어로 요약.
+
+    2개월 비교만으로는 '진짜 성장'과 '급락 후 회복'이 똑같이 +30%로 보인다.
+    직전 구간의 변화율을 같이 봐야 방향을 구분할 수 있다.
+    """
+    if now_chg > 0 and prev_chg > 0:
+        return "2개월 연속 증가"
+    if now_chg < 0 and prev_chg < 0:
+        return "2개월 연속 감소"
+    if now_chg > 0 and prev_chg < 0:
+        return "반등"
+    if now_chg < 0 and prev_chg > 0:
+        return "조정"
+    return "보합"
+
+
 @dataclass
 class MediaComparison:
     campaign_type: str
     curr: MediaKPI = field(default_factory=lambda: MediaKPI(""))
     prev: MediaKPI = field(default_factory=lambda: MediaKPI(""))
+    prev2: MediaKPI = field(default_factory=lambda: MediaKPI(""))
     cost_chg: float = 0.0
     conv_chg: float = 0.0
     revenue_chg: float = 0.0
+    # 전전월 → 전월 변화율 (직전 구간)
+    prev_cost_chg: float = 0.0
+    prev_conv_chg: float = 0.0
+    prev_revenue_chg: float = 0.0
+    cost_trend: str = ""
+    conv_trend: str = ""
+    revenue_trend: str = ""
+    # 이 매체가 전전월에는 아예 없었는지 (신규 매체 → 추세 판단 불가)
+    prev2_missing: bool = False
 
 
 @dataclass
@@ -48,17 +75,31 @@ class PeriodComparison:
     curr_month: int
     prev_year: int
     prev_month: int
+    prev2_year: int = 0
+    prev2_month: int = 0
     by_media: list[MediaComparison] = field(default_factory=list)
     # 전체 합계
     curr_cost: float = 0.0
     prev_cost: float = 0.0
+    prev2_cost: float = 0.0
     curr_conversions: int = 0
     prev_conversions: int = 0
+    prev2_conversions: int = 0
     curr_revenue: float = 0.0
     prev_revenue: float = 0.0
+    prev2_revenue: float = 0.0
     cost_chg: float = 0.0
     conv_chg: float = 0.0
     revenue_chg: float = 0.0
+    # 전전월 → 전월 변화율과 그로부터 판정한 추세
+    prev_cost_chg: float = 0.0
+    prev_conv_chg: float = 0.0
+    prev_revenue_chg: float = 0.0
+    cost_trend: str = ""
+    conv_trend: str = ""
+    revenue_trend: str = ""
+    # 전전월 데이터가 DB에 있는지 — 없으면 프롬프트에서 3개월 블록을 통째로 생략한다
+    has_prev2: bool = False
 
 
 def _query_kpis(db: Session, year: int, month: int) -> dict[str, MediaKPI]:
@@ -112,47 +153,99 @@ class AnalysisService:
         curr_month: int,
         prev_year: int,
         prev_month: int,
+        prev2_year: int | None = None,
+        prev2_month: int | None = None,
     ) -> PeriodComparison:
+        """당월·전월·전전월 3개월을 비교한다.
+
+        prev2 를 주지 않으면 전월의 직전 달로 잡는다. 전전월 데이터가 DB에 없으면
+        has_prev2=False 가 되고, 코멘트 프롬프트는 3개월 블록을 생략해 2개월 비교로 돌아간다.
+        """
+        if prev2_year is None or prev2_month is None:
+            prev2_year, prev2_month = (
+                (prev_year - 1, 12) if prev_month == 1 else (prev_year, prev_month - 1)
+            )
+
         curr_map = _query_kpis(self.db, curr_year, curr_month)
         prev_map = _query_kpis(self.db, prev_year, prev_month)
+        prev2_map = _query_kpis(self.db, prev2_year, prev2_month)
 
-        all_types = sorted(set(curr_map) | set(prev_map))
+        all_types = sorted(set(curr_map) | set(prev_map) | set(prev2_map))
         by_media: list[MediaComparison] = []
 
         for ct in all_types:
             curr = curr_map.get(ct, MediaKPI(ct))
             prev = prev_map.get(ct, MediaKPI(ct))
+            prev2 = prev2_map.get(ct, MediaKPI(ct))
+
+            cost_chg = _safe_pct(curr.cost, prev.cost)
+            conv_chg = _safe_pct(curr.conversions, prev.conversions)
+            rev_chg = _safe_pct(curr.revenue, prev.revenue)
+            p_cost_chg = _safe_pct(prev.cost, prev2.cost)
+            p_conv_chg = _safe_pct(prev.conversions, prev2.conversions)
+            p_rev_chg = _safe_pct(prev.revenue, prev2.revenue)
+
             by_media.append(
                 MediaComparison(
                     campaign_type=ct,
                     curr=curr,
                     prev=prev,
-                    cost_chg=_safe_pct(curr.cost, prev.cost),
-                    conv_chg=_safe_pct(curr.conversions, prev.conversions),
-                    revenue_chg=_safe_pct(curr.revenue, prev.revenue),
+                    prev2=prev2,
+                    cost_chg=cost_chg,
+                    conv_chg=conv_chg,
+                    revenue_chg=rev_chg,
+                    prev_cost_chg=p_cost_chg,
+                    prev_conv_chg=p_conv_chg,
+                    prev_revenue_chg=p_rev_chg,
+                    cost_trend=_trend(cost_chg, p_cost_chg),
+                    conv_trend=_trend(conv_chg, p_conv_chg),
+                    revenue_trend=_trend(rev_chg, p_rev_chg),
+                    prev2_missing=ct not in prev2_map,
                 )
             )
 
         curr_cost = sum(k.cost for k in curr_map.values())
         prev_cost = sum(k.cost for k in prev_map.values())
+        prev2_cost = sum(k.cost for k in prev2_map.values())
         curr_conv = sum(k.conversions for k in curr_map.values())
         prev_conv = sum(k.conversions for k in prev_map.values())
+        prev2_conv = sum(k.conversions for k in prev2_map.values())
         curr_rev = sum(k.revenue for k in curr_map.values())
         prev_rev = sum(k.revenue for k in prev_map.values())
+        prev2_rev = sum(k.revenue for k in prev2_map.values())
+
+        cost_chg = _safe_pct(curr_cost, prev_cost)
+        conv_chg = _safe_pct(curr_conv, prev_conv)
+        rev_chg = _safe_pct(curr_rev, prev_rev)
+        p_cost_chg = _safe_pct(prev_cost, prev2_cost)
+        p_conv_chg = _safe_pct(prev_conv, prev2_conv)
+        p_rev_chg = _safe_pct(prev_rev, prev2_rev)
 
         return PeriodComparison(
             curr_year=curr_year,
             curr_month=curr_month,
             prev_year=prev_year,
             prev_month=prev_month,
+            prev2_year=prev2_year,
+            prev2_month=prev2_month,
             by_media=by_media,
             curr_cost=curr_cost,
             prev_cost=prev_cost,
+            prev2_cost=prev2_cost,
             curr_conversions=curr_conv,
             prev_conversions=prev_conv,
+            prev2_conversions=prev2_conv,
             curr_revenue=curr_rev,
             prev_revenue=prev_rev,
-            cost_chg=_safe_pct(curr_cost, prev_cost),
-            conv_chg=_safe_pct(curr_conv, prev_conv),
-            revenue_chg=_safe_pct(curr_rev, prev_rev),
+            prev2_revenue=prev2_rev,
+            cost_chg=cost_chg,
+            conv_chg=conv_chg,
+            revenue_chg=rev_chg,
+            prev_cost_chg=p_cost_chg,
+            prev_conv_chg=p_conv_chg,
+            prev_revenue_chg=p_rev_chg,
+            cost_trend=_trend(cost_chg, p_cost_chg),
+            conv_trend=_trend(conv_chg, p_conv_chg),
+            revenue_trend=_trend(rev_chg, p_rev_chg),
+            has_prev2=bool(prev2_map),
         )

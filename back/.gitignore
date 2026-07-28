@@ -28,7 +28,5 @@ build/
 *.sqlite3
 *.db
 
-./example/*.xlsx
-./example/*.csv
-example
+# 참고용 원본 엑셀·CSV 보관 디렉터리 (앱이 쓰는 리포트 템플릿은 app/assets/ 에 있음)
 example/

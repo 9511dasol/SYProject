@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  canPickSaveLocation,
   cancelDbExportTask,
   getDbExportResult,
   getDbExportStatus,
@@ -14,12 +16,15 @@ import {
 import { queryKeys } from '@/lib/queryKeys';
 import ReportView from '@/components/marketing/ReportView';
 import Button from '@/components/ui/Button';
+import EmailRecipientInput, { isValidEmail } from '@/components/ui/EmailRecipientInput';
 import ToastContainer, { type ToastItem } from '@/components/ui/Toast';
 
-// 서비스 준비중 — Excel 다운로드/이메일 발송 기능을 일시적으로 막아둔다.
-// 기능을 다시 열 때: 이 플래그만 false 로 바꾸면 아래 handleDownload 의 원래 로직이 그대로 동작한다.
+// Excel 다운로드/이메일 발송 기능 잠금 스위치.
+// 원래 막아둔 이유는 출력 파일이 87MB까지 커져 브라우저 다운로드가 실패했기 때문인데,
+// 리포트 템플릿을 최신 한 기간만 담은 버전으로 줄이면서 출력이 1MB 수준이 되어 다시 열었다.
+// 문제가 생기면 이 값만 true 로 되돌리면 즉시 다시 막힌다.
 // (boolean 으로 명시해 아래 코드가 '도달 불가'로 분석되지 않게 한다)
-const DOWNLOAD_UNDER_MAINTENANCE: boolean = true;
+const DOWNLOAD_UNDER_MAINTENANCE: boolean = false;
 
 type Period = { year: number; month: number };
 type DlPhase = 'idle' | 'pending' | 'processing' | 'paused' | 'done' | 'error';
@@ -31,6 +36,8 @@ interface DownloadTask {
   phase: DlPhase;
   error?: string;
   deliverBy: 'download' | 'email';
+  /** 이메일 발송일 때 받는 사람 */
+  recipients?: string[];
 }
 
 interface DbDashboardProps {
@@ -47,9 +54,17 @@ type ExportStatus = Awaited<ReturnType<typeof getDbExportStatus>>;
  */
 function mergeExportStatus(task: DownloadTask, status: ExportStatus | undefined): DownloadTask {
   if (task.phase === 'paused' || !status) return task;
-  if (status.status === 'done') return { ...task, progress: 100, phase: 'done' };
+  if (status.status === 'done') {
+    return {
+      ...task,
+      progress: 100,
+      phase: 'done',
+      recipients: status.recipients?.length ? status.recipients : task.recipients,
+    };
+  }
   if (status.status === 'error') {
-    return { ...task, phase: 'error', error: status.error ?? 'Excel 생성 실패' };
+    // 백엔드가 'Excel 생성 실패 / 메일 발송 실패'처럼 단계를 앞에 붙여 준다
+    return { ...task, phase: 'error', error: status.error ?? '처리 중 오류가 발생했습니다.' };
   }
   return { ...task, progress: status.progress ?? task.progress, phase: 'processing' };
 }
@@ -102,16 +117,99 @@ function NewPeriodPopover({
   );
 }
 
+// ── 받는 사람 지정 팝오버 ──────────────────────────────────────────────────────
+
+const MAX_RECIPIENTS = 10; // 백엔드 _MAX_RECIPIENTS 와 맞춰 둔다
+
+function RecipientPopover({
+  defaultEmail,
+  onSend,
+  onClose,
+}: {
+  defaultEmail: string;
+  onSend: (recipients: string[]) => void;
+  onClose: () => void;
+}) {
+  const [recipients, setRecipients] = useState<string[]>(
+    defaultEmail && isValidEmail(defaultEmail) ? [defaultEmail] : [],
+  );
+  const [draft, setDraft] = useState('');
+
+  // 로그인 계정의 도메인은 동료 주소일 확률이 높아 추천 목록 맨 앞에 둔다
+  const ownDomain = defaultEmail.split('@')[1];
+  const extraDomains = ownDomain ? [ownDomain] : undefined;
+
+  // 아직 칩으로 확정하지 않고 입력창에 남아 있는 주소도 함께 보낸다
+  const pending = draft.trim();
+  const all = pending && isValidEmail(pending) && !recipients.includes(pending)
+    ? [...recipients, pending]
+    : recipients;
+  const draftInvalid = pending.length > 0 && !isValidEmail(pending);
+  const canSend = all.length > 0 && all.length <= MAX_RECIPIENTS && !draftInvalid;
+
+  return (
+    <div className="absolute top-full mt-2 right-0 z-20 w-80 rounded-xl border border-slate-200 dark:border-border bg-white dark:bg-surface shadow-xl p-4 space-y-3">
+      <div>
+        <p className="text-xs font-semibold text-slate-600 dark:text-fg-muted">이메일로 받기</p>
+        <p className="text-[11px] text-slate-400 dark:text-fg-subtle mt-0.5">
+          입력 후 Enter로 추가 · 최대 {MAX_RECIPIENTS}명
+        </p>
+      </div>
+
+      <EmailRecipientInput
+        value={recipients}
+        onChange={setRecipients}
+        draft={draft}
+        onDraftChange={setDraft}
+        extraDomains={extraDomains}
+        max={MAX_RECIPIENTS}
+        autoFocus
+      />
+
+      {draftInvalid && (
+        <p className="text-[11px] text-red-500">형식이 올바르지 않습니다: {pending}</p>
+      )}
+      {!draftInvalid && all.length > 1 && (
+        <p className="text-[11px] text-slate-400 dark:text-fg-subtle">{all.length}명에게 발송</p>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          onClick={onClose}
+          className="flex-1 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-fg-muted hover:bg-slate-100 dark:hover:bg-surface-2 transition-colors"
+        >
+          취소
+        </button>
+        <button
+          onClick={() => { onSend(all); onClose(); }}
+          disabled={!canSend}
+          className="flex-1 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white hover:bg-blue-700
+            disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          보내기
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── 다운로드 진행률 토스트 ────────────────────────────────────────────────────
 
 function DownloadProgressToast({
   task,
+  fileReady,
+  isSaving,
+  onSave,
   onDismiss,
   onPause,
   onResume,
   onCancel,
 }: {
   task: DownloadTask;
+  /** 파일을 서버에서 받아 메모리에 들고 있어 저장만 남은 상태 */
+  fileReady: boolean;
+  isSaving: boolean;
+  onSave: () => void;
   onDismiss: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -121,6 +219,9 @@ function DownloadProgressToast({
   const isError = task.phase === 'error';
   const isPaused = task.phase === 'paused';
   const isActive = !isDone && !isError && !isPaused;
+  // 저장 단계 — 다운로드 방식이면서 생성이 끝난 경우에만 노출
+  const isSaveStep = isDone && task.deliverBy === 'download';
+  const pickerSupported = canPickSaveLocation();
 
   return (
     <div
@@ -139,8 +240,9 @@ function DownloadProgressToast({
           {isDone && <i className="bx bx-check-circle text-xl shrink-0" />}
           {isError && <i className="bx bx-error-circle text-xl shrink-0" />}
           <span className="text-sm font-semibold truncate">
-            {isError ? 'Excel 생성 실패'
-              : isDone ? (task.deliverBy === 'email' ? '이메일로 발송 완료' : 'Excel 준비 완료')
+            {isError ? (task.deliverBy === 'email' ? '이메일 발송 실패' : 'Excel 생성 실패')
+              : isSaveStep ? (fileReady ? 'Excel 준비 완료 — 저장 위치를 선택하세요' : '파일 받아오는 중…')
+              : isDone ? '이메일로 발송 완료'
               : isPaused ? '일시정지됨'
               : task.deliverBy === 'email' ? 'Excel 생성 후 메일 발송 중…' : 'Excel 생성 중…'}
           </span>
@@ -201,9 +303,39 @@ function DownloadProgressToast({
         </div>
       )}
 
-      <div className="px-4 pb-3 text-xs opacity-75 truncate">
-        {isError ? task.error : task.filename}
+      {/* 실패 사유는 조치에 필요한 정보라 줄여 자르지 않는다 */}
+      <div className={`px-4 pb-3 text-xs opacity-75 ${isError ? 'leading-relaxed' : 'truncate'}`}>
+        {isError
+          ? task.error
+          : isDone && task.deliverBy === 'email' && task.recipients?.length
+            ? `${task.recipients.join(', ')} 으로 발송`
+            : task.filename}
       </div>
+
+      {/* 저장 버튼 — showSaveFilePicker는 사용자 제스처가 필요해서, 폴링 완료 시점에
+          자동으로 부르면 대화상자 없이 기본 다운로드로 새어 나간다. 반드시 클릭으로 연다. */}
+      {isSaveStep && (
+        <div className="px-4 pb-4">
+          <button
+            onClick={onSave}
+            disabled={!fileReady || isSaving}
+            className="w-full flex items-center justify-center gap-2 rounded-xl bg-white/15 hover:bg-white/25
+              disabled:opacity-50 disabled:cursor-not-allowed px-3 py-2.5 text-sm font-semibold transition-colors"
+          >
+            {isSaving ? (
+              <span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+            ) : (
+              <i className={`bx ${pickerSupported ? 'bx-save' : 'bx-download'} text-base`} />
+            )}
+            {isSaving ? '저장 중…' : pickerSupported ? '다른 이름으로 저장' : '다운로드'}
+          </button>
+          <p className="text-[11px] opacity-70 mt-1.5 text-center">
+            {pickerSupported
+              ? '저장할 폴더와 파일 이름을 직접 고를 수 있습니다.'
+              : '이 브라우저는 저장 위치 선택을 지원하지 않아 다운로드 폴더에 저장됩니다.'}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -212,14 +344,21 @@ function DownloadProgressToast({
 
 export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   const queryClient = useQueryClient();
+  const { data: session } = useSession();
   // 사용자가 직접 고른 기간. null이면 목록의 첫 기간을 기본값으로 쓴다 (아래 selected 참고).
   const [pickedPeriod, setPickedPeriod] = useState<Period | null>(null);
   const [dlTask, setDlTask] = useState<DownloadTask | null>(null);
   const [newPeriodOpen, setNewPeriodOpen] = useState(false);
   const newPeriodRef = useRef<HTMLDivElement>(null);
+  // 이메일 받는 사람 지정 팝오버
+  const [recipientOpen, setRecipientOpen] = useState(false);
+  const recipientRef = useRef<HTMLDivElement>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  // 서버에서 받아 저장을 기다리는 파일 (사용자가 저장 위치를 고를 때까지 붙들고 있는다)
+  const [readyBlob, setReadyBlob] = useState<Blob | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   // 완료된 export를 두 번 내려받지 않도록 (StrictMode의 이펙트 2회 실행 대비)
-  const downloadedTaskRef = useRef<string | null>(null);
+  const fetchedTaskRef = useRef<string | null>(null);
 
   function pushToast(type: ToastItem['type'], message: string) {
     const id = `${Date.now()}-${Math.random()}`;
@@ -274,22 +413,76 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   // 화면에 보여줄 실제 진행 상태 (사용자 의도 + 서버 응답)
   const dlView = dlTask ? mergeExportStatus(dlTask, exportStatus) : null;
 
-  // 완료된 파일 내려받기 — 브라우저 다운로드는 렌더로 표현할 수 없는 외부 작업이라 이펙트가 맞다.
+  // 완료된 파일을 서버에서 받아 메모리에 들고만 있는다 — 실제 저장은 사용자가 토스트의
+  // '다른 이름으로 저장'을 누를 때 한다. 여기서 바로 showSaveFilePicker를 부르면
+  // 사용자 제스처가 없어 SecurityError로 튕기고 대화상자 없이 기본 다운로드가 돼 버린다.
+  // 서버의 결과 파일은 1회용(내려주고 삭제)이라, 받아온 blob은 저장될 때까지 붙들고 있어야 한다.
   // 이메일 전송 건은 백엔드가 이미 발송했으므로 여기서 받을 파일이 없다.
   useEffect(() => {
     if (!dlView || dlView.phase !== 'done' || dlView.deliverBy !== 'download') return;
-    if (downloadedTaskRef.current === dlView.taskId) return;
+    if (fetchedTaskRef.current === dlView.taskId) return;
 
-    downloadedTaskRef.current = dlView.taskId;
+    fetchedTaskRef.current = dlView.taskId;
     getDbExportResult(dlView.taskId)
-      .then((blob) => saveFileWithPicker(blob, dlView.filename))
-      .catch((err) => pushToast('error', err instanceof Error ? err.message : '파일 다운로드 실패'));
+      .then((blob) => setReadyBlob(blob))
+      .catch((err) => {
+        // 받아오지 못하면 저장할 게 없다 — 토스트를 '받아오는 중'에 붙잡아 두지 않는다
+        pushToast('error', err instanceof Error ? err.message : '파일 다운로드 실패');
+        setDlTask(null);
+      });
   // dlView는 매 렌더마다 새 객체라 원시값만 의존한다
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dlView?.taskId, dlView?.phase, dlView?.deliverBy]);
 
+  // 팝오버 바깥을 누르면 닫는다
+  useEffect(() => {
+    if (!newPeriodOpen && !recipientOpen) return;
+    function onPointerDown(e: PointerEvent) {
+      const target = e.target as Node;
+      if (!newPeriodRef.current?.contains(target)) setNewPeriodOpen(false);
+      if (!recipientRef.current?.contains(target)) setRecipientOpen(false);
+    }
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [newPeriodOpen, recipientOpen]);
+
+  // ── 저장 (사용자 클릭) ────────────────────────────────────────────────────
+  async function handleSaveFile() {
+    if (!readyBlob || !dlTask || isSaving) return;
+    setIsSaving(true);
+    try {
+      const result = await saveFileWithPicker(readyBlob, dlTask.filename);
+      if (result === 'cancelled') return; // 토스트를 남겨 다시 저장할 수 있게 한다
+      pushToast(
+        'success',
+        result === 'saved' ? '선택한 위치에 저장했습니다.' : '다운로드 폴더에 저장했습니다.',
+      );
+      closeDownloadToast();
+    } catch (err) {
+      pushToast('error', err instanceof Error ? err.message : '파일 저장 실패');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function closeDownloadToast() {
+    setReadyBlob(null);
+    setDlTask(null);
+  }
+
+  function handleDismissDownload() {
+    // 결과 파일은 이미 서버에서 지워졌다 — 저장 안 하고 닫으면 다시 만들어야 한다
+    if (readyBlob) {
+      pushToast('info', '저장하지 않고 닫았습니다. 필요하면 다운로드를 다시 실행해 주세요.');
+    }
+    closeDownloadToast();
+  }
+
   // ── 다운로드 시작 ─────────────────────────────────────────────────────────
-  async function handleDownload(deliverBy: 'download' | 'email' = 'download') {
+  async function handleDownload(
+    deliverBy: 'download' | 'email' = 'download',
+    recipients?: string[],
+  ) {
     if (DOWNLOAD_UNDER_MAINTENANCE) {
       const what = deliverBy === 'email' ? '이메일 발송' : '다운로드';
       pushToast('info', `${what} 기능은 현재 서비스 준비중입니다.`);
@@ -297,11 +490,18 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
     }
     if (!selected || !report?.by_media.length || dlTask) return;
     try {
-      const { task_id, filename } = await startDbExportTask(selected.year, selected.month, deliverBy);
-      setDlTask({ taskId: task_id, filename, progress: 5, phase: 'pending', deliverBy });
+      const task = await startDbExportTask(selected.year, selected.month, deliverBy, recipients);
+      setDlTask({
+        taskId: task.task_id,
+        filename: task.filename,
+        progress: 5,
+        phase: 'pending',
+        deliverBy,
+        recipients: task.recipients,
+      });
     } catch (err) {
-      // 에러는 summaryError 처리 흐름과 일관성 있게 콘솔에만
-      console.error(err);
+      // 메일 설정 누락 같은 400은 여기서 즉시 돌아온다 — 사용자에게 그대로 보여준다
+      pushToast('error', err instanceof Error ? err.message : '요청에 실패했습니다.');
     }
   }
 
@@ -317,7 +517,7 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   async function handleCancelDownload() {
     if (!dlTask) return;
     await cancelDbExportTask(dlTask.taskId);
-    setDlTask(null);
+    closeDownloadToast();
   }
 
   // ── 갱신 ─────────────────────────────────────────────────────────────────
@@ -377,7 +577,10 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
       {dlView && (
         <DownloadProgressToast
           task={dlView}
-          onDismiss={() => setDlTask(null)}
+          fileReady={readyBlob !== null}
+          isSaving={isSaving}
+          onSave={handleSaveFile}
+          onDismiss={handleDismissDownload}
           onPause={handlePauseDownload}
           onResume={handleResumeDownload}
           onCancel={handleCancelDownload}
@@ -452,22 +655,32 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
                 : <i className="bx bx-download text-lg" />}
             </Button>
 
-            <Button
-              variant="ghost"
-              className="border border-slate-200 dark:border-border shrink-0"
-              onClick={() => handleDownload('email')}
-              disabled={(!canDownload && !DOWNLOAD_UNDER_MAINTENANCE) || isFetching}
-              title={
-                DOWNLOAD_UNDER_MAINTENANCE ? '서비스 준비중입니다'
-                  : isNewPeriod ? 'DB에 저장 후 이용 가능합니다'
-                  : dlTask ? '처리 중…'
-                  : '이메일로 받기 (파일이 커서 다운로드가 안 될 때)'
-              }
-            >
-              {dlTask && dlTask.deliverBy === 'email'
-                ? <span className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-slate-500 animate-spin" />
-                : <i className="bx bx-envelope text-lg" />}
-            </Button>
+            <div className="relative shrink-0" ref={recipientRef}>
+              <Button
+                variant="ghost"
+                className="border border-slate-200 dark:border-border"
+                onClick={() => setRecipientOpen((v) => !v)}
+                disabled={(!canDownload && !DOWNLOAD_UNDER_MAINTENANCE) || isFetching}
+                title={
+                  DOWNLOAD_UNDER_MAINTENANCE ? '서비스 준비중입니다'
+                    : isNewPeriod ? 'DB에 저장 후 이용 가능합니다'
+                    : dlTask ? '처리 중…'
+                    : '이메일로 받기 — 받는 사람을 지정할 수 있습니다'
+                }
+              >
+                {dlTask && dlTask.deliverBy === 'email'
+                  ? <span className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-slate-500 animate-spin" />
+                  : <i className="bx bx-envelope text-lg" />}
+              </Button>
+
+              {recipientOpen && (
+                <RecipientPopover
+                  defaultEmail={session?.user?.email ?? ''}
+                  onSend={(recipients) => handleDownload('email', recipients)}
+                  onClose={() => setRecipientOpen(false)}
+                />
+              )}
+            </div>
           </div>
         </div>
 

@@ -1,4 +1,4 @@
-from app.services.mail.base import AbstractMailSender
+from app.services.mail.base import AbstractMailSender, MailSendError
 
 
 class ResendSender(AbstractMailSender):
@@ -15,11 +15,14 @@ class ResendSender(AbstractMailSender):
     def send(self, to: list[str], subject: str, html: str) -> None:
         import resend
 
-        resend.Emails.send(
-            {
-                "from": self._from,
-                "to": to,
-                "subject": subject,
-                "html": html,
-            }
-        )
+        try:
+            resend.Emails.send(
+                {
+                    "from": self._from,
+                    "to": to,
+                    "subject": subject,
+                    "html": html,
+                }
+            )
+        except Exception as exc:
+            raise MailSendError(f"Resend 발송에 실패했습니다: {exc}") from exc

@@ -55,46 +55,85 @@ class ExcelReaderService:
         "파워컨텐츠": "네이버PSA",  # 기존 템플릿 시트명 → 새 DB 레이블
     }
 
-    def read_report(self, excel_bytes: bytes) -> dict:
-        # read_only=True: 스트리밍 파싱으로 메모리 절약 (시트 100개 이상 대용량 파일 대응)
-        # data_only=True: 수식 셀을 마지막 계산된 캐시 값으로 읽음
-        #   → 날짜 수식(='summary_...'!B70)도 datetime으로 정상 반환되어 row[0] 필터를 통과함
-        wb = openpyxl.load_workbook(
-            io.BytesIO(excel_bytes), read_only=True, data_only=True
-        )
+    def read_report(self, excel_bytes: bytes, period: str | None = None) -> dict:
+        """단일 기간 리포트를 반환한다.
+
+        period 를 주지 않으면 파일에 담긴 마지막 기간을 읽는다(기존 동작 유지).
+        여러 달이 한 파일에 들어 있는 경우는 read_reports() 를 쓴다.
+        """
+        wb = self._open(excel_bytes)
         try:
-            period = self._detect_period(wb)
-            sname = f"summary_{period}"
-            ws = wb[sname] if sname in wb.sheetnames else None
-            if ws is None:
-                raise ValueError(f"'{sname}' 시트를 찾을 수 없습니다.")
+            target = period or self._detect_periods(wb)[-1]
+            return self._read_one(wb, target)
+        finally:
+            wb.close()
 
-            media = {}
-            for sheet_prefix, db_label in self.SHEET_TO_LABEL.items():
-                ms = f"{sheet_prefix}_{period}"
-                if ms in wb.sheetnames and db_label not in media:
-                    media[db_label] = self._parse_media_sheet(wb[ms])
+    def read_reports(self, excel_bytes: bytes, periods: list[str] | None = None) -> list[dict]:
+        """파일에 들어 있는 모든 기간(summary_* 시트)을 각각 리포트로 파싱한다.
 
-            return {
-                "period": period,
-                "period_info": self._parse_period_info(ws),
-                "sa_total": self._parse_sa_total(ws),
-                "budget_table": self._parse_budget_table(ws),
-                "comment": self._parse_comment(ws),
-                "daily_total": self._parse_daily_total(ws),
-                "media": media,
-            }
+        5월·6월처럼 여러 달이 한 파일에 담겨 오면 달마다 하나씩, 시트 순서대로 반환한다.
+        periods 를 주면 그 기간만 골라 읽는다.
+        """
+        wb = self._open(excel_bytes)
+        try:
+            found = self._detect_periods(wb)
+            if periods:
+                unknown = [p for p in periods if p not in found]
+                if unknown:
+                    raise ValueError(f"'{', '.join(unknown)}' 기간 시트를 찾을 수 없습니다.")
+                found = [p for p in found if p in periods]
+            return [self._read_one(wb, p) for p in found]
+        finally:
+            wb.close()
+
+    def list_periods(self, excel_bytes: bytes) -> list[str]:
+        wb = self._open(excel_bytes)
+        try:
+            return self._detect_periods(wb)
         finally:
             wb.close()
 
     # ── 내부 헬퍼 ─────────────────────────────────────────────────────────────
 
-    def _detect_period(self, wb) -> str:
-        for prefix in ("summary_26년", "summary_25년", "summary_"):
-            candidates = [s for s in wb.sheetnames if s.startswith(prefix)]
-            if candidates:
-                return candidates[-1].replace("summary_", "")
-        raise ValueError("summary 시트를 찾을 수 없습니다.")
+    @staticmethod
+    def _open(excel_bytes: bytes):
+        # read_only=True: 스트리밍 파싱으로 메모리 절약 (시트 100개 이상 대용량 파일 대응)
+        # data_only=True: 수식 셀을 마지막 계산된 캐시 값으로 읽음
+        #   → 날짜 수식(='summary_...'!B70)도 datetime으로 정상 반환되어 row[0] 필터를 통과함
+        return openpyxl.load_workbook(io.BytesIO(excel_bytes), read_only=True, data_only=True)
+
+    def _read_one(self, wb, period: str) -> dict:
+        sname = f"summary_{period}"
+        if sname not in wb.sheetnames:
+            raise ValueError(f"'{sname}' 시트를 찾을 수 없습니다.")
+        ws = wb[sname]
+
+        media = {}
+        for sheet_prefix, db_label in self.SHEET_TO_LABEL.items():
+            ms = f"{sheet_prefix}_{period}"
+            if ms in wb.sheetnames and db_label not in media:
+                media[db_label] = self._parse_media_sheet(wb[ms])
+
+        return {
+            "period": period,
+            "period_info": self._parse_period_info(ws),
+            "sa_total": self._parse_sa_total(ws),
+            "budget_table": self._parse_budget_table(ws),
+            "comment": self._parse_comment(ws),
+            "daily_total": self._parse_daily_total(ws),
+            "media": media,
+        }
+
+    def _detect_periods(self, wb) -> list[str]:
+        """summary_* 시트에서 기간 문자열을 시트 순서대로 뽑는다."""
+        periods = [
+            s.replace("summary_", "", 1)
+            for s in wb.sheetnames
+            if s.startswith("summary_")
+        ]
+        if not periods:
+            raise ValueError("summary 시트를 찾을 수 없습니다.")
+        return periods
 
     def _parse_period_info(self, ws) -> dict:
         return {
@@ -247,3 +286,12 @@ class ExcelReaderService:
                     "apply": _get(row, col_apply),
                 })
         return pd.DataFrame(records)
+
+    def reports_to_db_dataframe(self, reports: list[dict]):
+        """여러 기간 리포트를 하나의 DB 저장용 DataFrame으로 합친다."""
+        import pandas as pd
+        frames = [self.to_db_dataframe(r) for r in reports]
+        frames = [f for f in frames if not f.empty]
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, ignore_index=True)

@@ -7,10 +7,6 @@ __pycache__
 .pytest_cache
 *.log
 
-# example/ 안에는 앱 구동에 필요한 보고서 템플릿(xlsx)이 있으므로
-# 디렉토리 전체는 제외하지 않고 불필요한 파일만 개별 제외
-example/1/
-example/(HM)스메그_DA_META협력광고_29cmFOCUS 운영성과_260420.xlsx
-example/HM_스메그_29cm-협력광고-보고서 (1).xlsx
-example/test_output.xlsx
-example/키워드 비교 이번주저번주.xlsx
+# 보고서 템플릿은 app/assets/report_template.xlsx 로 옮겼으므로
+# example/ 은 통째로 제외한다 (여기 있던 예전 템플릿이 86MB라 이미지가 그만큼 커졌었다)
+example/

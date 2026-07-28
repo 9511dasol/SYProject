@@ -1,28 +1,60 @@
 당신은 퍼포먼스 마케팅 전문 애널리스트입니다.
+{% if c.has_prev2 %}
+아래의 최근 3개월({{ c.prev2_year }}년 {{ c.prev2_month }}월 → {{ c.prev_year }}년 {{ c.prev_month }}월 → {{ c.curr_year }}년 {{ c.curr_month }}월) 광고 성과 데이터를 바탕으로
+{% else %}
 아래의 {{ c.curr_year }}년 {{ c.curr_month }}월 vs {{ c.prev_year }}년 {{ c.prev_month }}월 광고 성과 비교 데이터를 바탕으로
+{% endif %}
 경영진이 바로 읽을 수 있는 월간 성과 요약 코멘트를 작성해 주세요.
 
+{% if c.has_prev2 %}
+## 전체 합산 (최근 3개월 추이)
+| 지표 | {{ c.prev2_month }}월 | {{ c.prev_month }}월 | {{ c.curr_month }}월 | 전월 대비 | 직전 구간 | 추세 |
+|------|------|------|------|------|------|------|
+| 총 광고비 | {{ "{:,.0f}".format(c.prev2_cost) }}원 | {{ "{:,.0f}".format(c.prev_cost) }}원 | {{ "{:,.0f}".format(c.curr_cost) }}원 | {{ c.cost_chg }}% | {{ c.prev_cost_chg }}% | {{ c.cost_trend }} |
+| 총 전환수 | {{ c.prev2_conversions }}건 | {{ c.prev_conversions }}건 | {{ c.curr_conversions }}건 | {{ c.conv_chg }}% | {{ c.prev_conv_chg }}% | {{ c.conv_trend }} |
+| 총 전환매출 | {{ "{:,.0f}".format(c.prev2_revenue) }}원 | {{ "{:,.0f}".format(c.prev_revenue) }}원 | {{ "{:,.0f}".format(c.curr_revenue) }}원 | {{ c.revenue_chg }}% | {{ c.prev_revenue_chg }}% | {{ c.revenue_trend }} |
+
+`전월 대비`는 {{ c.prev_month }}월 → {{ c.curr_month }}월, `직전 구간`은 {{ c.prev2_month }}월 → {{ c.prev_month }}월 변화율입니다.
+{% else %}
 ## 전체 합산 (당월 vs 전월)
 | 지표 | 전월 | 당월 | 변화율 |
 |------|------|------|--------|
 | 총 광고비 | {{ "{:,.0f}".format(c.prev_cost) }}원 | {{ "{:,.0f}".format(c.curr_cost) }}원 | {{ c.cost_chg }}% |
 | 총 전환수 | {{ c.prev_conversions }}건 | {{ c.curr_conversions }}건 | {{ c.conv_chg }}% |
 | 총 전환매출 | {{ "{:,.0f}".format(c.prev_revenue) }}원 | {{ "{:,.0f}".format(c.curr_revenue) }}원 | {{ c.revenue_chg }}% |
+{% endif %}
 
 ## 매체별 상세
 {% for m in c.by_media %}
-### {{ m.campaign_type }}
+### {{ m.campaign_type }}{% if c.has_prev2 and m.prev2_missing %} (신규 — {{ c.prev2_month }}월 데이터 없음){% endif %}
+
+{% if c.has_prev2 and not m.prev2_missing %}
+- 광고비: {{ "{:,.0f}".format(m.prev2.cost) }}원 → {{ "{:,.0f}".format(m.prev.cost) }}원 → {{ "{:,.0f}".format(m.curr.cost) }}원 (전월 대비 {{ m.cost_chg }}%, 직전 구간 {{ m.prev_cost_chg }}%, {{ m.cost_trend }})
+- 전환수: {{ m.prev2.conversions }}건 → {{ m.prev.conversions }}건 → {{ m.curr.conversions }}건 (전월 대비 {{ m.conv_chg }}%, 직전 구간 {{ m.prev_conv_chg }}%, {{ m.conv_trend }})
+- 전환매출: {{ "{:,.0f}".format(m.prev2.revenue) }}원 → {{ "{:,.0f}".format(m.prev.revenue) }}원 → {{ "{:,.0f}".format(m.curr.revenue) }}원 (전월 대비 {{ m.revenue_chg }}%, {{ m.revenue_trend }})
+{% else %}
 - 광고비: {{ "{:,.0f}".format(m.prev.cost) }}원 → {{ "{:,.0f}".format(m.curr.cost) }}원 ({{ m.cost_chg }}%)
-- 클릭수: {{ m.prev.clicks }}회 → {{ m.curr.clicks }}회
 - 전환수: {{ m.prev.conversions }}건 → {{ m.curr.conversions }}건 ({{ m.conv_chg }}%)
 - 전환매출: {{ "{:,.0f}".format(m.prev.revenue) }}원 → {{ "{:,.0f}".format(m.curr.revenue) }}원 ({{ m.revenue_chg }}%)
+{% endif %}
+- 클릭수: {{ m.prev.clicks }}회 → {{ m.curr.clicks }}회
 - CPC: {{ "{:,.0f}".format(m.prev.cpc) }}원 → {{ "{:,.0f}".format(m.curr.cpc) }}원
 - ROAS: {{ "{:.2f}".format(m.prev.roas) }} → {{ "{:.2f}".format(m.curr.roas) }}
 {% endfor %}
 
 ## 작성 지침
 1. **핵심 성과 요약** (3문장 이내): 이번 달 전반적인 성과 평가
+{% if c.has_prev2 %}
+2. **추세 해석**: 전월 대비 수치만 보지 말고 3개월 흐름으로 판단하세요.
+   - `2개월 연속 증가/감소`는 구조적 변화 — 원인을 짚고 대응이 필요합니다.
+   - `반등`은 전월 부진에서 회복한 것이므로 "성장"으로 단정하지 말고, 전전월 수준을 회복했는지까지 비교하세요.
+   - `조정`은 전월 급등의 되돌림일 수 있으니 과잉 반응하지 마세요.
+3. **주목할 매체**: 추세가 뚜렷한 매체와 원인 가설. 신규 매체는 추세 판단 대신 초기 성과만 언급하세요.
+4. **다음 달 제언**: 예산 조정 또는 운영 방향 2~3가지
+{% else %}
 2. **주목할 매체**: 전월 대비 유의미하게 개선/악화된 매체와 원인 가설
 3. **다음 달 제언**: 예산 조정 또는 운영 방향 2~3가지
-4. 수치는 원문 그대로 활용하고 한국어로 작성하세요.
-5. 마크다운 헤딩(##)을 사용해 구조화하고, 총 400자 내외로 작성하세요.
+{% endif %}
+
+공통 규칙: 수치는 원문 그대로 활용하고 한국어로 작성하세요. 주어진 데이터에 없는 수치는 만들지 마세요.
+마크다운 헤딩(##)을 사용해 구조화하고, 총 400자 내외로 작성하세요.

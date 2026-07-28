@@ -1,6 +1,13 @@
 import { isAxiosError } from 'axios';
 import { browserApi as api } from '@/lib/api/browserApi';
-import type { ExcelReport, ReportData, RowFormData, TaskStatusResponse, UploadTaskResponse } from '@/types/marketing';
+import type {
+  ExcelReport,
+  ExcelReportBundle,
+  ReportData,
+  RowFormData,
+  TaskStatusResponse,
+  UploadTaskResponse,
+} from '@/types/marketing';
 
 // BFF Route Handler(/api/marketing/*)를 거쳐 FastAPI로 전달된다.
 // 같은 오리진이라 baseURL이 필요 없고, 인증은 Route Handler가 세션으로 처리한다.
@@ -9,6 +16,17 @@ function toFormData(files: File[]): FormData {
   const formData = new FormData();
   files.forEach((f) => formData.append('files', f));
   return formData;
+}
+
+/**
+ * 저장 엔드포인트용 쿼리스트링.
+ * 기간은 `period=26년 5월&period=26년 6월` 처럼 같은 키를 반복해야 FastAPI가 list로 받는다
+ * (axios 기본 직렬화는 `period[]=` 로 나가서 서버가 못 읽는다).
+ */
+function saveQuery(replace: boolean, periods?: string[]): string {
+  const qs = new URLSearchParams({ replace: String(replace) });
+  periods?.forEach((p) => qs.append('period', p));
+  return qs.toString();
 }
 
 function extractError(err: unknown, fallback: string): string {
@@ -59,26 +77,40 @@ export async function previewReport(files: File[]): Promise<ReportData> {
   }
 }
 
-export async function loadExcelReport(file: File): Promise<ExcelReport> {
+/**
+ * 엑셀 파일 안의 모든 기간(달)을 각각 리포트로 받아온다.
+ *
+ * 예전 백엔드는 리포트 객체 하나를 그대로 돌려줬다. 배포가 프론트 먼저 나가는 순간
+ * data.reports가 undefined가 되어 화면이 깨지므로, 두 응답 형태를 모두 받아 준다.
+ */
+export async function loadExcelReports(file: File): Promise<ExcelReport[]> {
   try {
     const formData = new FormData();
     formData.append('file', file);
-    const { data } = await api.post<ExcelReport>('/api/marketing/load-excel', formData);
-    return data;
+    const { data } = await api.post<ExcelReportBundle | ExcelReport>(
+      '/api/marketing/load-excel',
+      formData,
+    );
+    if (data && Array.isArray((data as ExcelReportBundle).reports)) {
+      return (data as ExcelReportBundle).reports;
+    }
+    return (data as ExcelReport)?.period ? [data as ExcelReport] : [];
   } catch (err) {
     throw new Error(extractError(err, `Excel 불러오기 실패: ${(err as Error).message}`));
   }
 }
 
+/** periods 를 주면 고른 달만, 없으면 파일 안의 모든 달을 저장한다. */
 export async function saveExcelData(
   file: File,
   replace = false,
-): Promise<{ saved_rows: number; deleted_rows: number; message: string }> {
+  periods?: string[],
+): Promise<{ saved_rows: number; deleted_rows: number; periods: string[]; message: string }> {
   try {
     const formData = new FormData();
     formData.append('file', file);
     const { data } = await api.post(
-      `/api/marketing/save-excel-data?replace=${replace}`,
+      `/api/marketing/save-excel-data?${saveQuery(replace, periods)}`,
       formData,
     );
     return data;
@@ -147,28 +179,49 @@ export function downloadBlob(blob: Blob, filename: string): void {
  * 다운로드 링크를 보낸다 — 파일이 커서(운영 환경 Vercel BFF 응답 크기 제한) 직접
  * 다운로드가 실패하는 경우를 위한 대안 경로.
  */
+export interface DbExportTask {
+  task_id: string;
+  filename: string;
+  deliver_by: 'download' | 'email';
+  recipients: string[];
+}
+
+/** recipients 를 주면 그 주소들로, 생략하면 로그인한 계정으로 보낸다. */
 export async function startDbExportTask(
   year: number,
   month: number,
   deliverBy: 'download' | 'email' = 'download',
-): Promise<{ task_id: string; filename: string; deliver_by: 'download' | 'email' }> {
+  recipients?: string[],
+): Promise<DbExportTask> {
   try {
-    const { data } = await api.post('/api/marketing/export-db-task', null, {
-      params: { year, month, deliver_by: deliverBy },
+    // 받는 사람은 같은 키를 반복해야 FastAPI가 list로 받는다 (axios 기본 직렬화는 recipient[]=)
+    const qs = new URLSearchParams({
+      year: String(year),
+      month: String(month),
+      deliver_by: deliverBy,
     });
-    return data as { task_id: string; filename: string; deliver_by: 'download' | 'email' };
+    recipients?.forEach((r) => qs.append('recipient', r));
+    const { data } = await api.post(`/api/marketing/export-db-task?${qs.toString()}`);
+    return data as DbExportTask;
   } catch (err) {
     throw new Error(extractError(err, 'Excel 변환 시작 실패'));
   }
 }
 
+export interface DbExportStatus {
+  status: string;
+  progress: number;
+  message?: string;
+  error?: string;
+  delivered_by?: 'download' | 'email';
+  recipients?: string[];
+}
+
 /** export 태스크 진행률 조회 */
-export async function getDbExportStatus(
-  taskId: string,
-): Promise<{ status: string; progress: number; error?: string; delivered_by?: 'download' | 'email' }> {
+export async function getDbExportStatus(taskId: string): Promise<DbExportStatus> {
   try {
     const { data } = await api.get(`/api/marketing/export-db-task/${taskId}`);
-    return data as { status: string; progress: number; error?: string; delivered_by?: 'download' | 'email' };
+    return data as DbExportStatus;
   } catch (err) {
     throw new Error(extractError(err, '진행률 조회 실패'));
   }
@@ -195,14 +248,19 @@ export async function getDbExportResult(taskId: string): Promise<Blob> {
   }
 }
 
+/** periods 를 주면 고른 달만, 없으면 파일 안의 모든 달을 저장한다. */
 export async function startSaveExcelTask(
   file: File,
   replace = false,
+  periods?: string[],
 ): Promise<{ task_id: string }> {
   try {
     const formData = new FormData();
     formData.append('file', file);
-    const { data } = await api.post(`/api/marketing/save-excel-task?replace=${replace}`, formData);
+    const { data } = await api.post(
+      `/api/marketing/save-excel-task?${saveQuery(replace, periods)}`,
+      formData,
+    );
     return data as { task_id: string };
   } catch (err) {
     throw new Error(extractError(err, 'DB 저장 시작 실패'));
@@ -260,16 +318,38 @@ export async function undoUpload(undoId: string): Promise<{ message: string }> {
   }
 }
 
+/** saveFileWithPicker 결과 — 호출부가 안내 문구를 다르게 낼 수 있도록 구분한다. */
+export type SaveResult =
+  | 'saved'       // 사용자가 고른 위치에 저장 완료
+  | 'cancelled'   // 사용자가 저장 대화상자를 닫음 (blob은 그대로라 다시 시도 가능)
+  | 'downloaded'; // picker를 못 써서 브라우저 기본 다운로드로 처리
+
+type SaveFilePicker = (opts: unknown) => Promise<FileSystemFileHandle>;
+
+function getSavePicker(): SaveFilePicker | null {
+  if (typeof window === 'undefined') return null;
+  const picker = (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
+  return typeof picker === 'function' ? picker : null;
+}
+
+/** 이 브라우저가 '다른 이름으로 저장' 대화상자를 지원하는지 (Chrome/Edge 계열만 지원) */
+export function canPickSaveLocation(): boolean {
+  return getSavePicker() !== null;
+}
+
 /**
- * 브라우저 File System Access API로 저장 위치 선택.
- * 지원 안 되면 자동으로 downloadBlob 폴백.
+ * File System Access API로 저장 위치를 고르게 한다. 지원하지 않으면 기본 다운로드로 폴백.
+ *
+ * 반드시 클릭 핸들러 안에서 직접 호출해야 한다 — showSaveFilePicker는 사용자 제스처를
+ * 요구해서, 폴링 완료 콜백이나 setTimeout 안에서 부르면 SecurityError로 튕기고
+ * 조용히 기본 다운로드로 넘어간다.
  */
-export async function saveFileWithPicker(blob: Blob, defaultName: string): Promise<void> {
-  if ('showSaveFilePicker' in window) {
+export async function saveFileWithPicker(blob: Blob, defaultName: string): Promise<SaveResult> {
+  const picker = getSavePicker();
+  if (picker) {
     try {
-      const handle = await (
-        window as Window & { showSaveFilePicker: (opts: unknown) => Promise<FileSystemFileHandle> }
-      ).showSaveFilePicker({
+      // call(window, …) — 함수를 떼어내 부르면 일부 브라우저가 잘못된 this로 거부한다
+      const handle = await picker.call(window, {
         suggestedName: defaultName,
         types: [
           {
@@ -283,11 +363,12 @@ export async function saveFileWithPicker(blob: Blob, defaultName: string): Promi
       const writable = await handle.createWritable();
       await writable.write(blob);
       await writable.close();
-      return;
+      return 'saved';
     } catch (e) {
-      if ((e as Error).name === 'AbortError') return; // 사용자가 취소
-      // 지원 오류 등은 폴백으로
+      if ((e as Error).name === 'AbortError') return 'cancelled'; // 사용자가 취소
+      // SecurityError(제스처 없음)·NotAllowedError 등은 기본 다운로드로 폴백
     }
   }
   downloadBlob(blob, defaultName);
+  return 'downloaded';
 }

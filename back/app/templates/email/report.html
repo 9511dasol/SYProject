@@ -20,6 +20,7 @@
   .kpi-card .label { font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
   .kpi-card .value { font-size: 18px; font-weight: 700; margin-top: 4px; color: #0f172a; }
   .kpi-card .change { font-size: 12px; font-weight: 600; margin-top: 4px; }
+  .kpi-card .trend { font-size: 11px; color: #64748b; margin-top: 2px; }
   .up   { color: #16a34a; }
   .down { color: #dc2626; }
   .flat { color: #64748b; }
@@ -43,7 +44,11 @@
   <!-- 헤더 -->
   <div class="header">
     <h1>📊 {{ c.curr_year }}년 {{ c.curr_month }}월 마케팅 성과 리포트</h1>
+    {% if c.has_prev2 %}
+    <p>비교 기간: {{ c.prev2_year }}년 {{ c.prev2_month }}월 → {{ c.prev_year }}년 {{ c.prev_month }}월 → {{ c.curr_year }}년 {{ c.curr_month }}월</p>
+    {% else %}
     <p>비교 기간: {{ c.prev_year }}년 {{ c.prev_month }}월 → {{ c.curr_year }}년 {{ c.curr_month }}월</p>
+    {% endif %}
   </div>
 
   <!-- 전체 합산 KPI -->
@@ -61,6 +66,7 @@
           {% if c.cost_chg > 0 %}▲{% elif c.cost_chg < 0 %}▼{% endif %}
           {{ c.cost_chg | abs }}%
         </div>
+        {% if c.has_prev2 %}<div class="trend">{{ c.cost_trend }}</div>{% endif %}
       </div>
       <div class="kpi-card">
         <div class="label">전환수</div>
@@ -69,6 +75,7 @@
           {% if c.conv_chg > 0 %}▲{% elif c.conv_chg < 0 %}▼{% endif %}
           {{ c.conv_chg | abs }}%
         </div>
+        {% if c.has_prev2 %}<div class="trend">{{ c.conv_trend }}</div>{% endif %}
       </div>
       <div class="kpi-card">
         <div class="label">전환매출</div>
@@ -77,6 +84,7 @@
           {% if c.revenue_chg > 0 %}▲{% elif c.revenue_chg < 0 %}▼{% endif %}
           {{ c.revenue_chg | abs }}%
         </div>
+        {% if c.has_prev2 %}<div class="trend">{{ c.revenue_trend }}</div>{% endif %}
       </div>
     </div>
   </div>
@@ -92,6 +100,7 @@
           <th class="num">전환수</th>
           <th class="num">ROAS</th>
           <th class="num">전월 대비</th>
+          {% if c.has_prev2 %}<th class="num">추세</th>{% endif %}
         </tr>
       </thead>
       <tbody>
@@ -110,6 +119,11 @@
               <span class="flat">-</span>
             {% endif %}
           </td>
+          {% if c.has_prev2 %}
+          <td class="num">
+            <span class="flat">{% if m.prev2_missing %}신규{% else %}{{ m.conv_trend }}{% endif %}</span>
+          </td>
+          {% endif %}
         </tr>
         {% endfor %}
       </tbody>

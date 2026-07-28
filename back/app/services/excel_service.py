@@ -20,11 +20,12 @@ from pathlib import Path
 import openpyxl
 import pandas as pd
 
-TEMPLATE_PATH = (
-    Path(__file__).resolve().parent.parent.parent
-    / "example"
-    / "report_template.xlsx"
-)
+# 템플릿은 app/assets 에 두고 git으로 함께 배포한다.
+# 예전에는 back/example/ (gitignore 대상) 에 두고 배포 때 GCS에서 내려받았는데,
+# 그 파일이 과거 기간 시트를 전부 안고 있어 86MB까지 불어났다 —
+# 출력물도 87MB가 되어 브라우저 다운로드가 막히고 생성에 1분이 걸렸다.
+# 지금 템플릿은 최신 한 기간(시트 6개)만 담고, 다른 기간은 아래 fallback 복사로 만든다.
+TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "report_template.xlsx"
 
 SHEET_PREFIX: dict[str, str] = {
     "네이버SA":  "네이버SA",
@@ -35,6 +36,12 @@ SHEET_PREFIX: dict[str, str] = {
 }
 
 DATA_ROW = 23  # row 23 = 해당 월 1일 (고정 오프셋)
+
+# summary 시트에서 '전월' 비교 행. 컬럼은 헤더(row 6)와 같은 순서다.
+# 이 행은 수식이 아니라 템플릿을 만들 당시의 고정 숫자라, 템플릿에 없는 기간을
+# 시트 복사로 만들면 남의 달 실적이 그대로 따라온다 → DB 값으로 덮어쓴다.
+PREV_MONTH_ROW = 8
+_PREV_COL_MARKUP = 8  # 광고비(vat, markup) — DB에 markup 정보가 없어 비워 둔다
 
 
 # (kpi_field, col_number) — RAW 값 컬럼만 포함, 수식 컬럼 제외
@@ -139,6 +146,50 @@ def _template_bytes() -> bytes:
     return _TEMPLATE_BYTES
 
 
+def _div(num: float, den: float) -> float:
+    return num / den if den else 0.0
+
+
+def _prev_month_cells(totals: dict) -> dict[int, float | None]:
+    """DB 전월 합계 → summary '전월' 행의 {열 번호: 값}.
+
+    markup 광고비(8열)는 DB에 없어 None(빈칸)으로 둔다 — 옛 숫자를 남겨 두면
+    MOM 비교가 조용히 틀리므로, 모르는 값은 비우는 편이 낫다.
+    """
+    imp = totals["impressions"]
+    clk = totals["clicks"]
+    cost = totals["cost"]
+    conv = totals["conversions"]
+    rev = totals["revenue"]
+    signup = totals["signup"]
+    purchase = totals["purchase"]
+    apply_ = totals["apply"]
+    conv_ex = conv - apply_  # '신청제외' 전환 = 총전환 - 설명회신청
+
+    return {
+        3: imp,                      # 노출
+        4: clk,                      # 클릭
+        5: _div(clk, imp),           # CTR
+        6: _div(cost, clk),          # CPC
+        7: cost,                     # 광고비(vat+)
+        _PREV_COL_MARKUP: None,      # 광고비(vat, markup)
+        9: conv,                     # 총전환수
+        10: _div(conv, clk),         # 전환율
+        11: _div(cost, conv),        # 전환단가
+        12: conv_ex,                 # 총전환수(신청제외)
+        13: _div(conv_ex, clk),      # 전환율(신청제외)
+        14: _div(cost, conv_ex),     # 전환단가(신청제외)
+        15: signup,                  # 회원가입
+        16: _div(signup, clk),       # 회원가입률
+        17: purchase,                # 구매완료
+        18: _div(purchase, clk),     # 결제완료율
+        19: rev,                     # 구매매출
+        20: _div(rev, cost),         # 구매수익률(ROAS)
+        21: _div(rev, purchase),     # 구매단가
+        22: apply_,                  # 설명회신청
+    }
+
+
 def _copy_sheet_with_formula_update(wb, src_name: str, dst_name: str, old_period: str, new_period: str) -> None:
     """시트를 복사하고 수식 안의 기간 문자열을 교체한다."""
     ws = wb.copy_worksheet(wb[src_name])
@@ -160,9 +211,15 @@ class ExcelService:
         media_kpis: dict[str, pd.DataFrame],
         period: str,
         year: int | None = None,
-        month: int | None = None,  # 현재는 미사용, 향후 확장용으로 보존
+        month: int | None = None,
+        prev_totals: dict | None = None,
     ) -> bytes:
-        """템플릿을 복사해 각 매체 시트에 일별 원시 지표를 채운 뒤 bytes 반환"""
+        """템플릿을 복사해 각 매체 시트에 일별 원시 지표를 채운 뒤 bytes 반환.
+
+        prev_totals 를 주면 summary 시트의 '전월' 행을 그 값으로 덮어쓴다
+        (MarketingRepository.get_period_totals 형태). 템플릿에 없는 기간은 다른 달
+        시트를 복사해 만드는데, 그 복사본에 남은 옛 전월 숫자를 바로잡기 위함이다.
+        """
         wb = openpyxl.load_workbook(
             io.BytesIO(_template_bytes()),
             keep_links=True,   # False로 하면 수식 참조가 끊겨 Excel이 손상 경고를 표시함
@@ -185,6 +242,15 @@ class ExcelService:
             ws_sum = wb[summary_name]
             ws_sum["B1"] = datetime(year, month, 1)
             ws_sum["D3"] = calendar.monthrange(year, month)[1]
+
+            # 값 대입은 .value 로 한다 — ws.cell(r, c, None) 은 openpyxl이 무시해서
+            # 빈칸 처리가 안 되고 템플릿에 있던 옛 숫자가 그대로 남는다.
+            prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
+            ws_sum.cell(PREV_MONTH_ROW, 2).value = datetime(prev_year, prev_month, 1)
+            # 전월 데이터가 없으면 남의 달 숫자를 남기느니 비운다 (MOM은 IFERROR로 공백 처리됨)
+            cells = _prev_month_cells(prev_totals) if prev_totals else {}
+            for col in range(3, 23):
+                ws_sum.cell(PREV_MONTH_ROW, col).value = cells.get(col)
 
         filled = 0
         for media_label, df in media_kpis.items():

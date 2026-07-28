@@ -7,7 +7,7 @@ import ReportDashboard, { type ImportedReport, type PendingLoad } from '@/compon
 import Modal from '@/components/ui/Modal';
 import ToastContainer, { type ToastItem } from '@/components/ui/Toast';
 import BottomTaskBar, { type TaskProgress } from '@/components/ui/BottomTaskBar';
-import { loadExcelReport, startSaveExcelTask, getSaveExcelTaskStatus, undoUpload } from '@/lib/marketingClient';
+import { loadExcelReports, startSaveExcelTask, getSaveExcelTaskStatus, undoUpload } from '@/lib/marketingClient';
 import { queryKeys } from '@/lib/queryKeys';
 import {
   deletePersistedReport,
@@ -203,28 +203,44 @@ export default function HomeClient() {
 
   // ── Excel 리포트 불러오기 ─────────────────────────────────────────────────────
 
+  // 한 파일에 5월·6월처럼 여러 달이 들어 있으면 달마다 탭을 하나씩 만든다.
   const handleRequestLoad = useCallback(
     (file: File, fileName: string) => {
-      const id = `report-${Date.now()}`;
+      const pendingId = `report-${Date.now()}`;
       const label = fileName.replace(/\.xlsx?$/i, '');
 
-      setPendingLoads((prev) => [...prev, { id, label }]);
+      setPendingLoads((prev) => [...prev, { id: pendingId, label }]);
       setUploadOpen(false);
 
-      loadExcelReport(file)
-        .then((data) => {
-          const newReport: ImportedReport = { id, label, data, file };
-          setImportedReports((prev) => [...prev, newReport]);
-          setActiveDashTab(id);
-          saveActiveTab(id);
-          persistReport(newReport).catch(() => {});
-          addToast('success', `"${label}" 리포트를 불러왔습니다.`);
+      loadExcelReports(file)
+        .then((reports) => {
+          if (reports.length === 0) {
+            addToast('error', `"${label}"에서 읽을 수 있는 기간을 찾지 못했습니다.`);
+            return;
+          }
+          const newReports: ImportedReport[] = reports.map((data, i) => ({
+            id: `${pendingId}-${i}`,
+            label: reports.length > 1 ? `${label} · ${data.period}` : label,
+            period: data.period,
+            data,
+            file,
+          }));
+          setImportedReports((prev) => [...prev, ...newReports]);
+          setActiveDashTab(newReports[0].id);
+          saveActiveTab(newReports[0].id);
+          newReports.forEach((r) => persistReport(r).catch(() => {}));
+          addToast(
+            'success',
+            reports.length > 1
+              ? `"${label}" — ${reports.map((r) => r.period).join(', ')} ${reports.length}개 기간을 불러왔습니다.`
+              : `"${label}" 리포트를 불러왔습니다.`,
+          );
         })
         .catch((err) => {
           addToast('error', `"${label}" 불러오기 실패: ${err instanceof Error ? err.message : '오류'}`);
         })
         .finally(() => {
-          setPendingLoads((prev) => prev.filter((p) => p.id !== id));
+          setPendingLoads((prev) => prev.filter((p) => p.id !== pendingId));
         });
     },
     [addToast],
@@ -253,7 +269,8 @@ export default function HomeClient() {
       setSaveTaskEntries((prev) => [...prev, { id: localId, label, remoteId: null }]);
 
       try {
-        const { task_id } = await startSaveExcelTask(report.file, replace);
+        // period를 함께 보내 이 탭의 달만 저장/덮어쓰기한다 — 같은 파일의 다른 달은 건드리지 않는다.
+        const { task_id } = await startSaveExcelTask(report.file, replace, [report.data.period]);
         setSaveTaskEntries((prev) =>
           prev.map((t) => (t.id === localId ? { ...t, remoteId: task_id } : t)),
         );

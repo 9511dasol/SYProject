@@ -9,6 +9,8 @@ const TAB_KEY = 'marketing_active_tab';
 interface StoredReport {
   id: string;
   label: string;
+  /** 예전 버전에서 저장된 항목에는 없다 — 복원 시 data.period로 폴백한다 */
+  period?: string;
   fileName: string;
   fileType: string;
   data: ExcelReport;
@@ -51,6 +53,7 @@ export async function persistReport(report: ImportedReport): Promise<void> {
   const stored: StoredReport = {
     id: report.id,
     label: report.label,
+    period: report.period ?? report.data.period,
     fileName: report.file.name,
     fileType: report.file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     data: report.data,
@@ -71,6 +74,7 @@ export async function loadPersistedReports(): Promise<ImportedReport[]> {
     .map((s) => ({
       id: s.id,
       label: s.label,
+      period: s.period ?? s.data.period,
       data: s.data,
       file: new File([s.fileBuffer], s.fileName, { type: s.fileType }),
     }));

@@ -1,13 +1,6 @@
 steps:
-  # report_template.xlsx는 용량이 커서 git에는 포함하지 않고 GCS에 별도 보관
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        mkdir -p back/example
-        gsutil cp gs://syproject-20260612-cloudbuild-assets/report_template.xlsx back/example/report_template.xlsx
-
+  # report_template.xlsx는 back/app/assets/ 에 있고 git으로 함께 배포된다.
+  # (예전에는 86MB짜리를 GCS에서 내려받았지만, 최신 한 기간만 담은 673KB로 줄여 저장소에 넣었다)
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - build

@@ -149,3 +149,59 @@ class TestReadReport:
         xlsx = make_report_xlsx(period="x", cells={"관계없는시트": {(1, 1): "x"}})
         with pytest.raises(ValueError):
             ExcelReaderService().read_report(xlsx)
+
+
+class TestMultiPeriod:
+    """한 파일에 여러 달(5월·6월)이 담긴 템플릿."""
+
+    def _cells(self, month: int):
+        return {
+            f"summary_26년 {month}월": {
+                (3, 2): 1, (3, 3): 2, (3, 4): 3,
+                (32, 2): f"{month}월 코멘트",
+                (70, 2): datetime(2026, month, 1), (70, 3): 100 * month, (70, 4): 10 * month,
+            },
+            f"네이버SA_26년 {month}월": {
+                (21, 2): "날짜", (21, 3): "노출수", (21, 4): "클릭수",
+                (21, 5): "광고비(VAT)", (21, 6): "총전환수",
+                (23, 2): f"2026-0{month}-01", (23, 3): 100 * month, (23, 4): 10 * month,
+                (23, 5): 5000 * month, (23, 6): month,
+            },
+        }
+
+    @pytest.fixture
+    def two_month_xlsx(self, make_report_xlsx):
+        return make_report_xlsx(period="", cells={**self._cells(5), **self._cells(6)})
+
+    def test_list_periods_in_sheet_order(self, two_month_xlsx):
+        assert ExcelReaderService().list_periods(two_month_xlsx) == ["26년 5월", "26년 6월"]
+
+    def test_read_reports_returns_one_per_period(self, two_month_xlsx):
+        reports = ExcelReaderService().read_reports(two_month_xlsx)
+
+        assert [r["period"] for r in reports] == ["26년 5월", "26년 6월"]
+        assert reports[0]["comment"] == "5월 코멘트"
+        assert reports[1]["comment"] == "6월 코멘트"
+        # 각 리포트는 자기 달의 매체 시트만 읽는다
+        assert reports[0]["daily_total"][0]["date"] == "2026-05-01"
+        assert reports[1]["daily_total"][0]["date"] == "2026-06-01"
+
+    def test_read_reports_filtered_by_period(self, two_month_xlsx):
+        reports = ExcelReaderService().read_reports(two_month_xlsx, periods=["26년 6월"])
+        assert [r["period"] for r in reports] == ["26년 6월"]
+
+    def test_read_reports_unknown_period_raises(self, two_month_xlsx):
+        with pytest.raises(ValueError, match="26년 7월"):
+            ExcelReaderService().read_reports(two_month_xlsx, periods=["26년 7월"])
+
+    def test_reports_to_db_dataframe_keeps_both_months(self, two_month_xlsx):
+        svc = ExcelReaderService()
+        df = svc.reports_to_db_dataframe(svc.read_reports(two_month_xlsx))
+
+        assert sorted(df["report_date"]) == ["2026-05-01", "2026-06-01"]
+        assert set(df["campaign_type"]) == {"네이버SA"}
+
+    def test_read_report_defaults_to_last_period(self, two_month_xlsx):
+        # 단일 리포트 API는 기존 동작(마지막 기간)을 유지한다
+        assert ExcelReaderService().read_report(two_month_xlsx)["period"] == "26년 6월"
+        assert ExcelReaderService().read_report(two_month_xlsx, "26년 5월")["period"] == "26년 5월"

@@ -8,6 +8,8 @@ import type { ExcelReport } from '@/types/marketing';
 export interface ImportedReport {
   id: string;
   label: string;
+  /** 이 탭이 담당하는 기간 (예: '26년 5월') — 한 파일에 여러 달이 있으면 탭이 달마다 생긴다 */
+  period?: string;
   data: ExcelReport;
   file: File;
 }
@@ -68,7 +70,7 @@ export default function ReportDashboard({
             저장된 리포트
           </button>
 
-          {/* 가져온 리포트 탭들 */}
+          {/* 가져온 리포트 탭들 — 파일에 5월·6월이 같이 있으면 달마다 탭이 하나씩 */}
           {importedReports.map((r, idx) => (
             <div
               key={r.id}
@@ -83,7 +85,9 @@ export default function ReportDashboard({
                 className="flex items-center gap-1.5 pl-3 pr-1.5 py-2"
               >
                 <i className="bx bx-file text-sm" />
-                <span className="max-w-27.5 truncate">가져온 리포트 {idx + 1}</span>
+                <span className="max-w-27.5 truncate">
+                  {r.period ?? r.data.period ?? `가져온 리포트 ${idx + 1}`}
+                </span>
               </button>
               <button
                 onClick={(e) => {
