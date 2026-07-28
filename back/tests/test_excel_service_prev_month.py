@@ -6,6 +6,7 @@
 """
 
 import io
+import re
 
 import openpyxl
 import pandas as pd
@@ -114,3 +115,63 @@ class TestFillTemplatePrevMonthRow:
         raw = ExcelService().fill_template(kpis, "26년 8월", 2026, 8, PREV_TOTALS)
         # 예전 86MB 템플릿은 출력물이 87MB였다 — 슬림 템플릿 회귀 방지선
         assert len(raw) < 5 * 1024 * 1024
+
+
+_ALL_MEDIA = ("네이버SA", "네이버BS", "카카오SA", "구글SA", "네이버PSA")
+
+
+def _export(period: str, year: int, month: int, days: int):
+    kpis = {label: _kpi_frame(year, month, days) for label in _ALL_MEDIA}
+    raw = ExcelService().fill_template(kpis, period, year, month, None)
+    return openpyxl.load_workbook(io.BytesIO(raw))
+
+
+def _template_period() -> str:
+    """템플릿이 담고 있는 기간 — 템플릿이 갱신돼도 테스트가 따라가게 파일에서 읽는다."""
+    wb = openpyxl.load_workbook(TEMPLATE_PATH, read_only=True)
+    try:
+        return next(n[len("summary_"):] for n in wb.sheetnames if n.startswith("summary_"))
+    finally:
+        wb.close()
+
+
+@pytest.mark.skipif(not TEMPLATE_PATH.exists(), reason="report_template.xlsx 없음")
+class TestExportContainsOnlyRequestedPeriod:
+    """템플릿은 최신 한 기간만 갖고 있고, 다른 기간은 그 시트를 복사해 만든다.
+
+    복사 원본을 남겨두면 5월 파일에도 템플릿의 기간 시트가 함께 담겨서,
+    받는 사람이 파일을 열면 '전부 그 달'로 보인다.
+    """
+
+    def test_other_period_sheets_are_removed(self):
+        wb = _export("26년 8월", 2026, 8, 31)
+
+        assert all(name.endswith("26년 8월") for name in wb.sheetnames), wb.sheetnames
+        assert len(wb.sheetnames) == len(_ALL_MEDIA) + 1  # 매체 5개 + summary
+
+    def test_summary_is_the_sheet_excel_opens(self):
+        assert _export("26년 8월", 2026, 8, 31).active.title == "summary_26년 8월"
+
+    def test_no_formula_references_a_removed_sheet(self):
+        """지운 시트를 가리키는 수식이 남으면 Excel에서 #REF! 가 된다."""
+        wb = _export("26년 8월", 2026, 8, 31)
+        names = set(wb.sheetnames)
+
+        dangling = [
+            (sheet, cell.coordinate, ref)
+            for sheet in wb.sheetnames
+            for row in wb[sheet].iter_rows()
+            for cell in row
+            if isinstance(cell.value, str) and cell.value.startswith("=")
+            for ref in re.findall(r"'([^']+)'!", cell.value)
+            if ref not in names
+        ]
+        assert dangling == []
+
+    def test_template_period_export_keeps_its_sheets(self):
+        """템플릿과 같은 기간이면 복사가 일어나지 않는다 — 지울 것도 없어야 한다."""
+        period = _template_period()
+        wb = _export(period, 2026, 7, 31)
+
+        assert [n for n in wb.sheetnames if n.endswith(period)] == wb.sheetnames
+        assert f"summary_{period}" in wb.sheetnames

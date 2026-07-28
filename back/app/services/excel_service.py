@@ -35,6 +35,10 @@ SHEET_PREFIX: dict[str, str] = {
     "네이버PSA": "파워컨텐츠",  # DB 레이블 → 템플릿 시트 접두어 (기존 템플릿 호환)
 }
 
+# 기간별로 존재하는 시트의 접두어 — "{접두어}_{기간}" 형태.
+# 다른 기간 시트를 지울 때 이 목록에 있는 것만 대상으로 한다.
+_PERIOD_SHEET_PREFIXES: frozenset[str] = frozenset({"summary", *SHEET_PREFIX.values()})
+
 DATA_ROW = 23  # row 23 = 해당 월 1일 (고정 오프셋)
 
 # summary 시트에서 '전월' 비교 행. 컬럼은 헤더(row 6)와 같은 순서다.
@@ -190,6 +194,29 @@ def _prev_month_cells(totals: dict) -> dict[int, float | None]:
     }
 
 
+def _drop_other_period_sheets(wb, period: str) -> None:
+    """요청한 기간이 아닌 기간 시트를 지운다.
+
+    템플릿은 최신 한 기간(시트 6개)만 갖고 있고 다른 기간은 그걸 복사해 만든다.
+    복사만 하고 원본을 두면 5월 파일에도 템플릿의 7월 시트가 그대로 남아,
+    받는 사람 눈에는 파일을 열자마자 '전부 7월'로 보인다.
+
+    접두어를 아는 시트만 지운다 — 나중에 조회용·안내용 시트가 템플릿에 추가돼도
+    같이 지워지지 않게.
+    """
+    keep_suffix = f"_{period}"
+    if not any(name.endswith(keep_suffix) for name in wb.sheetnames):
+        return  # 남길 시트가 하나도 없으면 손대지 않는다 (빈 워크북 방지)
+
+    for name in list(wb.sheetnames):
+        if name.endswith(keep_suffix):
+            continue
+        if name.rsplit("_", 1)[0] in _PERIOD_SHEET_PREFIXES:
+            del wb[name]
+
+    wb.active = 0  # 삭제로 활성 시트 인덱스가 어긋날 수 있다 — summary를 먼저 보여준다
+
+
 def _copy_sheet_with_formula_update(wb, src_name: str, dst_name: str, old_period: str, new_period: str) -> None:
     """시트를 복사하고 수식 안의 기간 문자열을 교체한다."""
     ws = wb.copy_worksheet(wb[src_name])
@@ -279,6 +306,10 @@ class ExcelService:
                 f"템플릿에 '{period}' 기간에 맞는 시트가 없고 복사할 시트도 없습니다. "
                 "report_template.xlsx를 업데이트해 주세요."
             )
+
+        # 템플릿에서 복사해 온 원본(다른 기간) 시트를 정리한다 — 채우기가 끝난 뒤에 해야
+        # fallback 복사가 원본을 찾을 수 있다.
+        _drop_other_period_sheets(wb, period)
 
         wb.calculation.forceFullCalc = True  # 열 때 Excel이 수식 전체 재계산
         buf = io.BytesIO()
