@@ -8,6 +8,7 @@
 import io
 import re
 import zipfile
+from datetime import datetime
 
 import openpyxl
 import pandas as pd
@@ -15,6 +16,8 @@ import pytest
 
 from app.services.excel_service import (
     PREV_MONTH_ROW,
+    SUMMARY_DAILY_ROW,
+    SUMMARY_DAILY_SLOTS,
     YOY_ROW,
     TEMPLATE_PATH,
     ExcelService,
@@ -241,3 +244,43 @@ class TestYearAgoRow:
         with zipfile.ZipFile(io.BytesIO(raw)) as z:
             assert [n for n in z.namelist() if "externalLink" in n] == []
             assert "externalReferences" not in z.read("xl/workbook.xml").decode("utf-8")
+
+
+@pytest.mark.skipif(not TEMPLATE_PATH.exists(), reason="report_template.xlsx 없음")
+class TestSummaryDates:
+    """summary 시트 ■ SA TOTAL 구간과 일별 구간의 날짜.
+
+    템플릿에서 시트를 복사해 오면 템플릿 기간(현재 26년 7월)의 날짜가 그대로 남는다.
+    데이터 수식은 새 기간 시트를 정확히 가리키므로 숫자는 맞고 '언제 것인지'만 틀리는,
+    읽는 사람이 알아차리기 어려운 형태가 된다.
+    """
+
+    def test_sa_total_rows_show_year_ago_prev_and_current(self):
+        ws = _export("26년 6월", 2026, 6, 30)["summary_26년 6월"]
+
+        assert ws.cell(YOY_ROW - 1, 2).value == datetime(2025, 6, 1)   # 전년동월
+        assert ws.cell(PREV_MONTH_ROW, 2).value == datetime(2026, 5, 1)  # 전월
+        assert ws.cell(YOY_ROW + 1, 2).value == datetime(2026, 6, 1)   # 당월
+
+    def test_january_rolls_back_to_previous_year(self):
+        ws = _export("26년 1월", 2026, 1, 31)["summary_26년 1월"]
+
+        assert ws.cell(YOY_ROW - 1, 2).value == datetime(2025, 1, 1)
+        assert ws.cell(PREV_MONTH_ROW, 2).value == datetime(2025, 12, 1)
+        assert ws.cell(YOY_ROW + 1, 2).value == datetime(2026, 1, 1)
+
+    def test_daily_rows_cover_the_month(self):
+        ws = _export("26년 6월", 2026, 6, 30)["summary_26년 6월"]
+
+        assert ws.cell(SUMMARY_DAILY_ROW, 2).value == datetime(2026, 6, 1)
+        assert ws.cell(SUMMARY_DAILY_ROW + 29, 2).value == datetime(2026, 6, 30)
+
+    def test_unused_daily_slots_are_blank_in_short_months(self):
+        """31칸 고정이라 30일 이하인 달은 남는 칸을 비워야 한다 — 안 비우면 옛 날짜가 남는다."""
+        ws = _export("26년 2월", 2026, 2, 28)["summary_26년 2월"]
+
+        leftover = [
+            ws.cell(SUMMARY_DAILY_ROW + i, 2).value
+            for i in range(28, SUMMARY_DAILY_SLOTS)
+        ]
+        assert leftover == [None, None, None]

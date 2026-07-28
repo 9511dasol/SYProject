@@ -144,6 +144,14 @@ _YOY_COLS: dict[str, list[tuple[str, int]]] = {
 
 YOY_ROW = 8  # 전년동월 행 (7=헤더, 9=전월, 10=당월)
 
+# summary 시트의 날짜 셀 — 템플릿에서 복사해 오면 템플릿 기간(예: 7월)의 날짜가 그대로 남는다.
+# 데이터 수식은 새 기간 시트를 정확히 가리키는데 날짜 라벨만 옛 달이라, 숫자는 맞고
+# "언제 것인지"만 틀리는 형태가 된다. 그래서 기간이 정해지면 전부 다시 쓴다.
+SUMMARY_YOY_DATE_ROW = 7    # 전년동월
+SUMMARY_CURR_DATE_ROW = 9   # 당월
+SUMMARY_DAILY_ROW = 70      # 일별 구간 첫 행 (= 그 달 1일)
+SUMMARY_DAILY_SLOTS = 31    # 70~100행. 짧은 달은 남는 칸을 비운다
+
 
 def _yoy_value(totals: dict | None, field: str) -> float:
     """전년동월 셀 값. 데이터가 없으면 0 — 외부 참조를 남겨 빈칸이 되는 것보다 낫다.
@@ -155,6 +163,24 @@ def _yoy_value(totals: dict | None, field: str) -> float:
     if field == "conversions_ex_apply":
         return (totals.get("conversions") or 0) - (totals.get("apply") or 0)
     return totals.get(field) or 0
+
+
+def _fill_summary_dates(ws_sum, year: int, month: int) -> None:
+    """summary 시트의 날짜 셀을 요청한 기간에 맞춰 다시 쓴다.
+
+    ■ SA TOTAL 구간은 전년동월 / 전월 / 당월 3행이고, 아래 일별 구간은 그 달의 날짜다.
+    전월(8행)은 _prev_month_cells 쪽에서 이미 채우므로 여기서는 나머지를 맡는다.
+    """
+    ws_sum.cell(SUMMARY_YOY_DATE_ROW, 2).value = datetime(year - 1, month, 1)
+    ws_sum.cell(SUMMARY_CURR_DATE_ROW, 2).value = datetime(year, month, 1)
+
+    days = calendar.monthrange(year, month)[1]
+    for offset in range(SUMMARY_DAILY_SLOTS):
+        # 30일 이하인 달은 남는 칸을 비운다 — 안 비우면 다음 달 1일이 그대로 남는다.
+        # (매체 시트의 마지막 날짜 칸이 이 셀을 참조하므로 거기까지 함께 정리된다)
+        ws_sum.cell(SUMMARY_DAILY_ROW + offset, 2).value = (
+            datetime(year, month, offset + 1) if offset < days else None
+        )
 
 
 def _fill_yoy_row(ws, media_label: str, totals: dict | None) -> None:
@@ -328,6 +354,9 @@ class ExcelService:
             ws_sum = wb[summary_name]
             ws_sum["B1"] = datetime(year, month, 1)
             ws_sum["D3"] = calendar.monthrange(year, month)[1]
+
+            # 전년동월·당월·일별 날짜 — 템플릿 기간의 날짜가 그대로 남지 않게 다시 쓴다
+            _fill_summary_dates(ws_sum, year, month)
 
             # 값 대입은 .value 로 한다 — ws.cell(r, c, None) 은 openpyxl이 무시해서
             # 빈칸 처리가 안 되고 템플릿에 있던 옛 숫자가 그대로 남는다.
