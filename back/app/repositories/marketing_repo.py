@@ -1,3 +1,4 @@
+import logging
 import uuid as _uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -12,6 +13,8 @@ from app.core.database import SessionLocal, engine
 from app.models.marketing_model import MarketingData, MarketingPeriodMeta
 from app.repositories.undo_snapshot_repo import UndoSnapshotRepository
 from app.services import storage_service
+
+logger = logging.getLogger(__name__)
 
 # Supabase 풀러의 트랜잭션/메시지 크기 제한에 걸리지 않도록 청크 단위로 INSERT
 _INSERT_CHUNK_SIZE = 500
@@ -318,6 +321,83 @@ class MarketingRepository:
                     excel_path=excel_path,
                 )
             )
+
+    def list_period_overview(self) -> list[dict]:
+        """관리자 화면용 연월별 요약 — 행 수, 데이터 기간, 코멘트/엑셀 보유 여부.
+
+        데이터 행은 지웠지만 코멘트만 남은 연월도 목록에 나와야 정리할 수 있으므로,
+        marketing_data 집계와 marketing_period_meta 를 합집합으로 만든다.
+        """
+        year_col = extract("year", MarketingData.report_date)
+        month_col = extract("month", MarketingData.report_date)
+
+        rows = (
+            self.db.query(
+                year_col.label("year"),
+                month_col.label("month"),
+                func.count(MarketingData.id).label("row_count"),
+                func.min(MarketingData.report_date).label("first_date"),
+                func.max(MarketingData.report_date).label("last_date"),
+            )
+            .group_by(year_col, month_col)
+            .all()
+        )
+        overview: dict[tuple[int, int], dict] = {
+            (int(r.year), int(r.month)): {
+                "year": int(r.year),
+                "month": int(r.month),
+                "row_count": int(r.row_count),
+                "first_date": r.first_date.isoformat() if r.first_date else None,
+                "last_date": r.last_date.isoformat() if r.last_date else None,
+                "has_comment": False,
+                "comment_updated_at": None,
+                "has_excel": False,
+            }
+            for r in rows
+        }
+
+        for meta in self.db.query(MarketingPeriodMeta).all():
+            key = (meta.year, meta.month)
+            entry = overview.setdefault(key, {
+                "year": meta.year,
+                "month": meta.month,
+                "row_count": 0,
+                "first_date": None,
+                "last_date": None,
+                "has_comment": False,
+                "comment_updated_at": None,
+                "has_excel": False,
+            })
+            entry["has_comment"] = bool(meta.comment)
+            entry["comment_updated_at"] = meta.comment_updated_at
+            entry["has_excel"] = bool(meta.excel_path)
+
+        return sorted(overview.values(), key=lambda e: (e["year"], e["month"]), reverse=True)
+
+    def delete_period(self, year: int, month: int) -> dict:
+        """연월 데이터를 통째로 삭제한다 — 행 + 메타(코멘트) + Storage 엑셀 원본.
+
+        Storage 삭제가 실패해도 DB 정리는 진행한다. 남은 객체는 고아가 되지만,
+        여기서 멈추면 화면에서 지울 방법이 사라지기 때문이다.
+        """
+        deleted_rows = self.delete_rows_by_period(year, month)
+
+        meta = self._get_period_meta(year, month)
+        excel_deleted = False
+        if meta is not None:
+            if meta.excel_path:
+                try:
+                    storage_service.delete_object(meta.excel_path)
+                    excel_deleted = True
+                except Exception:
+                    logger.exception("엑셀 원본 삭제 실패 (메타는 삭제 진행): %s", meta.excel_path)
+            self.db.delete(meta)
+
+        return {
+            "deleted_rows": deleted_rows,
+            "deleted_meta": meta is not None,
+            "deleted_excel": excel_deleted,
+        }
 
     def delete_rows_by_period(self, year: int, month: int) -> int:
         deleted = (

@@ -26,12 +26,14 @@ from app.models.user_model import User as _User  # noqa: F401
 from app.repositories.system_setting_repo import SystemSettingRepository
 from app.routers import (
     admin_ai_usage_log_router,
+    admin_period_router,
+    admin_report_log_router,
     ai_status_router,
     auth_router,
+    health_router,
     heading_router,
     image_filter_router,
     image_resize_router,
-    health_router,
     keyword_compare_router,
     marketing_router,
     system_setting_router,
@@ -203,6 +205,10 @@ app.include_router(system_setting_router.router)
 app.include_router(user_admin_router.router)
 app.include_router(ai_status_router.router)
 app.include_router(admin_ai_usage_log_router.router)
+# 발송 이력 조회는 MAIL_ENABLED와 무관하게 열어 둔다 — 메일을 꺼도 과거 기록은 봐야 한다.
+# (재발송만 라우터 안에서 MAIL_ENABLED를 확인한다)
+app.include_router(admin_report_log_router.router)
+app.include_router(admin_period_router.router)
 
 if settings.MAIL_ENABLED:
     from app.routers import report_mail_router

@@ -83,6 +83,22 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         href: '/admin/ai-usage-logs',
         description: '이미지 정제 · 리사이저 AI 업스케일 · 헤딩 문구 추천 사용 이력',
       },
+      {
+        id: 'admin-report-logs',
+        label: '리포트 발송 로그',
+        icon: 'bx-mail-send',
+        href: '/admin/report-logs',
+        badge: 'NEW',
+        description: '리포트 메일 발송 결과 확인 및 실패 건 재발송',
+      },
+      {
+        id: 'admin-periods',
+        label: '업로드 데이터 관리',
+        icon: 'bx-data',
+        href: '/admin/periods',
+        badge: 'NEW',
+        description: '연월별 저장 데이터 현황 조회 및 삭제',
+      },
     ],
   },
 ] as const;
