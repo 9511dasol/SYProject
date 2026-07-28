@@ -40,7 +40,7 @@ from app.routers import (
     user_admin_router,
 )
 from app.services import task_store
-from app.services.excel_service import _template_bytes
+from app.services.report_factory import build_orchestrator
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
@@ -97,8 +97,7 @@ def _auto_send_report() -> None:
 
     db = SessionLocal()
     try:
-        from app.routers.report_mail_router import _build_orchestrator  # noqa: PLC0415
-        orchestrator = _build_orchestrator(db)
+        orchestrator = build_orchestrator(db)
         orchestrator.run(
             curr_year=curr_year,
             curr_month=curr_month,
@@ -123,7 +122,10 @@ def _purge_expired_tasks() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     _init_db()
-    _template_bytes()  # 대용량 템플릿 선로드
+    # 리포트 템플릿(약 87MB)은 여기서 선로드하지 않는다.
+    # 선로드하면 export를 한 번도 쓰지 않는 인스턴스까지 그 메모리를 상시 점유한다.
+    # excel_service._template_bytes()가 첫 호출 때 읽고 mtime 기준으로 캐시하므로,
+    # 첫 export만 파일 읽기만큼 느려지고 이후는 동일하다.
     _purge_expired_tasks()  # 재시작 시 남아 있던 만료 행 먼저 정리
 
     # 작업 상태를 DB에 두면서 생긴 정리 책임 — 인스턴스가 살아 있는 동안 주기적으로 비운다.

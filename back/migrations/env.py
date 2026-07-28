@@ -8,7 +8,7 @@
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 from app.core.database import Base
 from app.core.settings import settings
@@ -39,6 +39,22 @@ config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 target_metadata = Base.metadata
 
+# 앱은 기동할 때마다 `alembic upgrade head` 를 실행한다. Cloud Run 처럼 인스턴스가
+# 0개까지 줄었다가 트래픽이 몰려 여러 개가 동시에 콜드스타트하면, 같은 마이그레이션을
+# 여러 프로세스가 동시에 실행하려 들어 교착하거나 한쪽이 실패해 기동이 깨질 수 있다.
+#
+# 트랜잭션 스코프 advisory lock 을 잡으면 두 번째 인스턴스는 경쟁하는 대신 기다렸다가,
+# 자기 차례에 "이미 head" 임을 확인하고 no-op 으로 넘어간다.
+# xact 스코프라 커밋/롤백 시 자동 해제되므로, 마이그레이션이 도중에 실패해도
+# 락이 남아 다음 배포를 막는 일이 없다.
+_MIGRATION_LOCK_KEY = 8_210_001
+
+
+def _lock_migrations(connection) -> None:
+    """마이그레이션 직렬화용 advisory lock (PostgreSQL 전용, 그 외 백엔드는 무시)."""
+    if connection.dialect.name == "postgresql":
+        connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _MIGRATION_LOCK_KEY})
+
 
 def run_migrations_offline() -> None:
     """--sql 모드: 실제 접속 없이 SQL 만 생성."""
@@ -67,6 +83,9 @@ def run_migrations_online() -> None:
             compare_type=True,
         )
         with context.begin_transaction():
+            # 락은 현재 리비전을 읽기 전에 잡아야 한다 — 그 뒤에 잡으면 두 인스턴스가
+            # 모두 "아직 0003" 을 읽고 같은 업그레이드를 시도할 수 있다.
+            _lock_migrations(connection)
             context.run_migrations()
 
 
