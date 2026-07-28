@@ -55,6 +55,13 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         badge: 'NEW',
         description: 'Claude가 이미지를 분석해 매체별 헤딩 문구 10개를 제안',
       },
+      {
+        id: 'heading-history',
+        label: '헤딩 문구 기록',
+        icon: 'bx-history',
+        href: '/heading-history',
+        description: '생성한 문구를 모아 보고 검색 · 복사 · 삭제',
+      },
     ],
   },
   {

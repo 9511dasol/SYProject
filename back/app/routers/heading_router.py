@@ -86,13 +86,16 @@ async def suggest_headings(
 @router.get("/history", response_model=HeadingHistoryResponse)
 def heading_history(
     limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> HeadingHistoryResponse:
     """로그인한 사용자가 과거에 생성한 문구 기록을 최신순으로 반환한다."""
-    records = HeadingSuggestionRepository(db).list_for_user(current_user.id, limit=limit)
+    repo = HeadingSuggestionRepository(db)
+    records = repo.list_for_user(current_user.id, limit=limit, offset=offset)
     return HeadingHistoryResponse(
-        items=[HeadingSuggestionRecord.model_validate(r) for r in records]
+        items=[HeadingSuggestionRecord.model_validate(r) for r in records],
+        total=repo.count_for_user(current_user.id),
     )
 
 

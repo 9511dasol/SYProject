@@ -23,6 +23,8 @@ export interface HeadingSuggestionRecord {
 
 export interface HeadingHistoryResponse {
   items: HeadingSuggestionRecord[];
+  /** limit/offset 과 무관한 사용자별 전체 기록 수 */
+  total: number;
 }
 
 export type HeadingLoadingState = 'idle' | 'compressing' | 'analyzing';
