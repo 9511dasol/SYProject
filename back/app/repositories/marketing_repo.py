@@ -457,6 +457,45 @@ class MarketingRepository:
             "apply": float(r.apply or 0),
         }
 
+    def get_media_totals(self, year: int, month: int) -> dict[str, dict]:
+        """해당 연월의 매체별 합계 {campaign_type: get_period_totals 형태}. 없으면 빈 dict.
+
+        엑셀 매체 시트의 '전년동월' 행을 채우는 데 쓴다 — 템플릿은 그 행을 외부
+        통합문서에서 끌어오는데, 받는 사람에게 그 파일이 없어 빈칸이 되기 때문이다.
+        """
+        rows = (
+            self.db.query(
+                MarketingData.campaign_type,
+                func.sum(MarketingData.impressions).label("impressions"),
+                func.sum(MarketingData.clicks).label("clicks"),
+                func.sum(MarketingData.cost).label("cost"),
+                func.sum(MarketingData.conversions).label("conversions"),
+                func.sum(MarketingData.conversion_revenue).label("revenue"),
+                func.sum(MarketingData.signup).label("signup"),
+                func.sum(MarketingData.purchase).label("purchase"),
+                func.sum(MarketingData.apply).label("apply"),
+            )
+            .filter(
+                extract("year", MarketingData.report_date) == year,
+                extract("month", MarketingData.report_date) == month,
+            )
+            .group_by(MarketingData.campaign_type)
+            .all()
+        )
+        return {
+            r.campaign_type: {
+                "impressions": int(r.impressions or 0),
+                "clicks": int(r.clicks or 0),
+                "cost": float(r.cost or 0),
+                "conversions": int(r.conversions or 0),
+                "revenue": float(r.revenue or 0),
+                "signup": float(r.signup or 0),
+                "purchase": float(r.purchase or 0),
+                "apply": float(r.apply or 0),
+            }
+            for r in rows
+        }
+
     def get_summary_by_period(self, year: int, month: int) -> list[dict]:
         rows = (
             self.db.query(

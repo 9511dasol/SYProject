@@ -313,6 +313,18 @@ def _prev_month_totals(year: int, month: int) -> dict | None:
         db.close()
 
 
+def _year_ago_media_totals(year: int, month: int) -> dict[str, dict]:
+    """엑셀 매체 시트 '전년동월' 행에 채울 1년 전 같은 달의 매체별 합계.
+
+    데이터가 없으면 빈 dict — 엑셀 쪽에서 0으로 채운다.
+    """
+    db = SessionLocal()
+    try:
+        return MarketingRepository(db).get_media_totals(year - 1, month)
+    finally:
+        db.close()
+
+
 def _run_export_task(
     task_id: str,
     rows: list,
@@ -322,6 +334,7 @@ def _run_export_task(
     deliver_by: str = "download",
     recipients: list[str] | None = None,
     prev_totals: dict | None = None,
+    yoy_media_totals: dict[str, dict] | None = None,
 ) -> None:
     """동기 함수 → FastAPI BackgroundTasks가 스레드풀에서 실행.
 
@@ -341,7 +354,9 @@ def _run_export_task(
             task_store.update_task(task_id, status="cancelled")
             return
         task_store.update_task(task_id, progress=45)
-        excel_bytes = ExcelService().fill_template(media_kpis, period, year, month, prev_totals)
+        excel_bytes = ExcelService().fill_template(
+            media_kpis, period, year, month, prev_totals, yoy_media_totals
+        )
 
         if task_store.is_cancelled(task_id):
             task_store.update_task(task_id, status="cancelled")
@@ -528,6 +543,7 @@ async def start_export_db_task(
     background_tasks.add_task(
         _run_export_task, task_id, rows, period, year, month, deliver_by, recipients,
         _prev_month_totals(year, month),
+        _year_ago_media_totals(year, month),
     )
 
     return {
@@ -623,7 +639,12 @@ async def export_db_excel(
         raise HTTPException(status_code=404, detail="해당 기간의 데이터가 없습니다.")
 
     excel_bytes = ExcelService().fill_template(
-        media_kpis, period, year, month, _prev_month_totals(year, month)
+        media_kpis,
+        period,
+        year,
+        month,
+        _prev_month_totals(year, month),
+        _year_ago_media_totals(year, month),
     )
     filename = f"마케팅분석_{period.replace(' ', '')}.xlsx"
     return StreamingResponse(

@@ -7,6 +7,7 @@
 
 import io
 import re
+import zipfile
 
 import openpyxl
 import pandas as pd
@@ -14,6 +15,7 @@ import pytest
 
 from app.services.excel_service import (
     PREV_MONTH_ROW,
+    YOY_ROW,
     TEMPLATE_PATH,
     ExcelService,
     _prev_month_cells,
@@ -120,9 +122,9 @@ class TestFillTemplatePrevMonthRow:
 _ALL_MEDIA = ("네이버SA", "네이버BS", "카카오SA", "구글SA", "네이버PSA")
 
 
-def _export(period: str, year: int, month: int, days: int):
+def _export(period: str, year: int, month: int, days: int, yoy: dict | None = None):
     kpis = {label: _kpi_frame(year, month, days) for label in _ALL_MEDIA}
-    raw = ExcelService().fill_template(kpis, period, year, month, None)
+    raw = ExcelService().fill_template(kpis, period, year, month, None, yoy)
     return openpyxl.load_workbook(io.BytesIO(raw))
 
 
@@ -175,3 +177,67 @@ class TestExportContainsOnlyRequestedPeriod:
 
         assert [n for n in wb.sheetnames if n.endswith(period)] == wb.sheetnames
         assert f"summary_{period}" in wb.sheetnames
+
+
+_YOY_SAMPLE = {
+    "impressions": 111, "clicks": 22, "cost": 3300.0, "conversions": 44,
+    "revenue": 5.0, "signup": 6.0, "purchase": 7.0, "apply": 8.0,
+}
+
+
+@pytest.mark.skipif(not TEMPLATE_PATH.exists(), reason="report_template.xlsx 없음")
+class TestYearAgoRow:
+    """매체 시트 8행(전년동월).
+
+    템플릿은 이 행을 외부 통합문서(=[1]네이버SA_7월!C22)에서 끌어온다. 받는 사람에게는
+    그 파일이 없어 빈칸이 되고, 이 행을 합산하는 summary 7행과 YOY 행까지 함께 비었다.
+    """
+
+    def test_no_external_workbook_reference_survives(self):
+        wb = _export("26년 8월", 2026, 8, 31)
+        leftover = [
+            (name, cell.coordinate)
+            for name in wb.sheetnames
+            for row in wb[name].iter_rows()
+            for cell in row
+            if isinstance(cell.value, str) and "[1]" in cell.value
+        ]
+        assert leftover == []
+
+    def test_values_are_written_when_data_exists(self):
+        wb = _export("26년 8월", 2026, 8, 31, {"네이버SA": _YOY_SAMPLE})
+        ws = wb["네이버SA_26년 8월"]
+
+        assert ws.cell(YOY_ROW, 3).value == 111    # 노출
+        assert ws.cell(YOY_ROW, 4).value == 22     # 클릭
+        assert ws.cell(YOY_ROW, 7).value == 3300   # 광고비
+        assert ws.cell(YOY_ROW, 8).value == 44     # 총전환수
+        assert ws.cell(YOY_ROW, 11).value == 36    # 총전환수(신청제외) = 44 - 8
+
+    def test_missing_media_is_filled_with_zero(self):
+        # 1년 전 데이터가 아예 없는 매체 — 빈칸으로 두면 YOY가 조용히 비어버린다
+        wb = _export("26년 8월", 2026, 8, 31, {"네이버SA": _YOY_SAMPLE})
+        ws = wb["카카오SA_26년 8월"]
+
+        assert [ws.cell(YOY_ROW, c).value for c in (3, 4, 7, 8, 11, 13)] == [0, 0, 0, 0, 0, 0]
+
+    def test_formulas_are_left_alone(self):
+        """값 셀만 바꾸고 계산 로직은 템플릿 그대로 둔다."""
+        wb = _export("26년 8월", 2026, 8, 31, {"네이버SA": _YOY_SAMPLE})
+
+        ws = wb["네이버SA_26년 8월"]
+        assert ws.cell(YOY_ROW, 5).value == "=IFERROR(D8/C8,)"   # CTR
+        assert ws.cell(YOY_ROW, 6).value == "=IFERROR(G8/D8,)"   # CPC
+
+        summary = wb["summary_26년 8월"]
+        assert summary.cell(7, 3).value.startswith("=SUM(")       # 전년동월 합계
+        assert summary.cell(10, 3).value == "=IFERROR(C9/C7-1,)"  # YOY
+
+    def test_external_link_definition_is_dropped(self):
+        """참조를 다 없앴으므로 링크 정의도 남기지 않는다 — Excel의 '링크 업데이트' 질문 방지."""
+        kpis = {label: _kpi_frame(2026, 8, 31) for label in _ALL_MEDIA}
+        raw = ExcelService().fill_template(kpis, "26년 8월", 2026, 8, None, None)
+
+        with zipfile.ZipFile(io.BytesIO(raw)) as z:
+            assert [n for n in z.namelist() if "externalLink" in n] == []
+            assert "externalReferences" not in z.read("xl/workbook.xml").decode("utf-8")

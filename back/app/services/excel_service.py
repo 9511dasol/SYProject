@@ -110,6 +110,59 @@ _SHEET_COLS: dict[str, list[tuple[str, int]]] = {
 }
 
 
+# 전년동월(8행) 컬럼 — (kpi_field, col_number).
+#
+# 템플릿의 8행은 원래 외부 통합문서("[🔸SA] 매체별 데이터 & 경쟁사 모니터링_2026.xlsx")를
+# =[1]네이버SA_7월!C22 형태로 참조한다. 받는 사람에게 그 파일이 없으므로 Excel에서는
+# 빈칸이 되고, 이 행을 합산하는 summary 7행과 그걸 쓰는 YOY 행까지 함께 비어버린다.
+# 그래서 여기서 DB 값(없으면 0)으로 대체한다 — 수식은 건드리지 않고 이 셀들만 값으로 바꾼다.
+#
+# 컬럼 배치가 22행(TOTAL)과 같고 매체마다 달라, 일별 컬럼맵과 별도로 둔다.
+# conversions_ex_apply = 총전환수 − 설명회신청 (템플릿의 '총전환수(신청제외)')
+_YOY_COLS: dict[str, list[tuple[str, int]]] = {
+    "네이버SA": [
+        ("impressions", 3), ("clicks", 4), ("cost", 7), ("conversions", 8),
+        ("conversions_ex_apply", 11), ("signup", 14), ("purchase", 16), ("apply", 21),
+    ],
+    "네이버BS": [
+        ("impressions", 3), ("clicks", 4), ("cost", 7), ("conversions", 8),
+        ("conversions_ex_apply", 11), ("signup", 14), ("purchase", 16), ("apply", 21),
+    ],
+    "카카오SA": [
+        ("impressions", 3), ("clicks", 4), ("cost", 7), ("conversions", 8),
+        ("signup", 11), ("purchase", 13),
+    ],
+    "구글SA": [
+        ("impressions", 3), ("clicks", 4), ("cost", 7), ("cost_markup", 8),
+        ("conversions", 9), ("conversions_ex_apply", 12), ("signup", 15),
+        ("purchase", 17), ("apply", 22),
+    ],
+    "네이버PSA": [
+        ("impressions", 3), ("clicks", 4), ("cost", 7), ("conversions", 9),
+    ],
+}
+
+YOY_ROW = 8  # 전년동월 행 (7=헤더, 9=전월, 10=당월)
+
+
+def _yoy_value(totals: dict | None, field: str) -> float:
+    """전년동월 셀 값. 데이터가 없으면 0 — 외부 참조를 남겨 빈칸이 되는 것보다 낫다.
+
+    cost_markup(광고비 vat·마크업)은 DB에 없어 항상 0이다.
+    """
+    if not totals or field == "cost_markup":
+        return 0
+    if field == "conversions_ex_apply":
+        return (totals.get("conversions") or 0) - (totals.get("apply") or 0)
+    return totals.get(field) or 0
+
+
+def _fill_yoy_row(ws, media_label: str, totals: dict | None) -> None:
+    """매체 시트 8행(전년동월)의 외부 통합문서 참조를 DB 값으로 바꾼다."""
+    for field, col in _YOY_COLS.get(media_label, []):
+        ws.cell(YOY_ROW, col).value = _yoy_value(totals, field)
+
+
 def _to_date(raw_date) -> date:
     """date / datetime / 'YYYY-MM-DD' 문자열을 Python date 객체로 변환"""
     if isinstance(raw_date, datetime):
@@ -240,12 +293,18 @@ class ExcelService:
         year: int | None = None,
         month: int | None = None,
         prev_totals: dict | None = None,
+        yoy_media_totals: dict[str, dict] | None = None,
     ) -> bytes:
         """템플릿을 복사해 각 매체 시트에 일별 원시 지표를 채운 뒤 bytes 반환.
 
         prev_totals 를 주면 summary 시트의 '전월' 행을 그 값으로 덮어쓴다
         (MarketingRepository.get_period_totals 형태). 템플릿에 없는 기간은 다른 달
         시트를 복사해 만드는데, 그 복사본에 남은 옛 전월 숫자를 바로잡기 위함이다.
+
+        yoy_media_totals 는 1년 전 같은 달의 매체별 합계
+        ({매체: get_period_totals 형태}). 매체 시트 8행(전년동월)이 원래 외부 통합문서를
+        참조해 받는 사람에게는 빈칸이 되므로, 이 값으로 대체한다. 데이터가 없는 매체는
+        0으로 채운다 — 수식은 그대로 두고 값 셀만 바꾸므로 YOY 계산은 템플릿 그대로 돈다.
         """
         wb = openpyxl.load_workbook(
             io.BytesIO(_template_bytes()),
@@ -299,6 +358,8 @@ class ExcelService:
             ws = wb[sheet_name]
             col_map = _SHEET_COLS.get(media_label, _NAVER_SA_COLS)
             self._fill_sheet(ws, df, col_map)
+            # 전년동월 행은 외부 통합문서 참조라 그대로 두면 빈칸이 된다 — 항상 값으로 바꾼다
+            _fill_yoy_row(ws, media_label, (yoy_media_totals or {}).get(media_label))
             filled += 1
 
         if filled == 0:
@@ -310,6 +371,10 @@ class ExcelService:
         # 템플릿에서 복사해 온 원본(다른 기간) 시트를 정리한다 — 채우기가 끝난 뒤에 해야
         # fallback 복사가 원본을 찾을 수 있다.
         _drop_other_period_sheets(wb, period)
+
+        # 외부 통합문서 참조는 위에서 전부 값으로 바꿨다 — 링크 정의만 남으면
+        # Excel이 열 때마다 "연결된 데이터를 업데이트할까요?"를 묻는다. 같이 지운다.
+        wb._external_links = []
 
         wb.calculation.forceFullCalc = True  # 열 때 Excel이 수식 전체 재계산
         buf = io.BytesIO()
