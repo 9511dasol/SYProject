@@ -17,6 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # back/ 를 import 경로에 추가
 
+from app.core.database import engine  # noqa: E402
 from app.core.migrations import schema_state, upgrade_to_head  # noqa: E402
 
 logger = logging.getLogger("migrate")
@@ -50,6 +51,11 @@ def _check() -> int:
 
 def main(argv: list[str]) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    # 개발 설정에서는 engine(echo=True)이 켜져 쿼리가 전부 찍힌다 — 배포 로그에는
+    # 마이그레이션 진행 상황만 남는 편이 낫다.
+    # 로거 레벨로는 못 막는다: SQLAlchemy의 echo는 InstanceLogger가 레벨 판정을
+    # 가로채므로 엔진의 echo 자체를 꺼야 한다.
+    engine.echo = False
 
     action = argv[1] if len(argv) > 1 else "upgrade"
     if action not in {"upgrade", "check"}:

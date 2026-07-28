@@ -31,7 +31,12 @@ from app.models import (  # noqa: F401
 config = context.config
 
 # alembic.ini 의 로깅 설정 적용 (ini 없이 프로그램적으로 호출될 때는 건너뜀)
-if config.config_file_name is not None:
+# alembic CLI로 직접 실행할 때만 ini의 로깅 설정을 적용한다.
+# 앱이나 scripts/migrate.py 가 프로그램적으로 호출할 때 이걸 돌리면
+# ini의 [logger_root] level=WARN 이 루트 로거에 덮여 마이그레이션 이후의
+# INFO 로그(기동 단계 로그 등)가 통째로 사라진다.
+# 호출부는 alembic_config() 에서 configure_logger=False 를 넣어 끈다.
+if config.config_file_name is not None and config.attributes.get("configure_logger", True):
     fileConfig(config.config_file_name)
 
 # .env 의 DATABASE_URL 을 최우선으로 사용한다.

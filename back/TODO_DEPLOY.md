@@ -10,25 +10,39 @@
 
 - 개발에서는 기본으로 자동 적용된다. `RUN_MIGRATIONS_ON_STARTUP`로 환경과 무관하게 강제 지정 가능.
 
-### 배포 순서
+### 배포 순서 — Cloud Build 파이프라인에 포함돼 있다
 
-1. **마이그레이션 먼저 적용** (실패하면 여기서 멈추고 새 리비전을 내보내지 않는다)
-   ```powershell
-   gcloud run jobs deploy back-api-migrate `
-     --source=. --region=asia-northeast3 --project=syproject-20260612 `
-     --command=python --args=scripts/migrate.py,upgrade `
-     --set-secrets="DATABASE_URL=DATABASE_URL:latest" `
-     --set-env-vars="ENVIRONMENT=production" `
-     --max-retries=0 --task-timeout=10m
+push하면 Cloud Build 트리거가 `back/cloudbuild.yaml`을 실행한다. 순서는:
 
-   gcloud run jobs execute back-api-migrate --region=asia-northeast3 --project=syproject-20260612 --wait
-   ```
-2. **서비스 배포**
-   ```powershell
-   gcloud run deploy back-api --source=. --region=asia-northeast3 --project=syproject-20260612
-   ```
+```
+1) 이미지 빌드  →  2) 푸시  →  3) 마이그레이션  →  4) Cloud Run 배포
+```
 
-Job은 한 번 만들어두면 이후에는 `--source=.`로 다시 배포해 최신 코드로 갱신하면 된다.
+3단계는 **방금 빌드한 그 이미지**를 그대로 실행한다(`python scripts/migrate.py upgrade`).
+코드와 마이그레이션 버전이 항상 같이 움직이고, 실패하면 빌드가 그 자리에서 멈춰
+4단계가 실행되지 않는다 → 깨진 스키마로 새 리비전이 나가는 일이 없다.
+
+수동으로 따로 실행할 일은 없다. 별도 Cloud Run Job도 필요 없다.
+
+**최초 1회만 필요한 권한** — Cloud Build 서비스 계정이 DATABASE_URL 시크릿을 읽어야 한다.
+이걸 안 하면 3단계에서 빌드가 실패한다:
+
+```powershell
+$PROJECT_NUMBER = gcloud projects describe syproject-20260612 --format="value(projectNumber)"
+gcloud secrets add-iam-policy-binding DATABASE_URL `
+  --member="serviceAccount:$PROJECT_NUMBER@cloudbuild.gserviceaccount.com" `
+  --role="roles/secretmanager.secretAccessor" `
+  --project=syproject-20260612
+```
+
+(트리거가 기본 Cloud Build 서비스 계정이 아니라 별도 계정을 쓰도록 설정돼 있다면
+그 계정에 부여할 것 — `gcloud builds triggers describe <트리거명>` 으로 확인.)
+
+### 로컬에서 수동 실행이 필요할 때
+
+```powershell
+python scripts/migrate.py upgrade
+```
 
 ### 상태 확인
 

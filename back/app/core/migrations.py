@@ -41,6 +41,10 @@ def alembic_config() -> Config:
     """
     cfg = Config(str(_BACK_DIR / "alembic.ini"))
     cfg.set_main_option("script_location", str(_BACK_DIR / "migrations"))
+    # env.py 가 ini의 로깅 설정을 적용하지 않게 한다 — 적용하면 [logger_root] level=WARN 이
+    # 루트 로거를 덮어써서 마이그레이션 이후의 INFO 로그가 전부 사라진다.
+    # 로깅은 호출부(app.core.logging_config / scripts.migrate)가 책임진다.
+    cfg.attributes["configure_logger"] = False
     return cfg
 
 
