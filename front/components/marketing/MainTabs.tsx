@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import UploadForm from '@/components/marketing/UploadForm';
 import ExcelUploadPanel from '@/components/marketing/ExcelUploadPanel';
-import type { ExcelReport } from '@/types/marketing';
 
 const TABS = [
   { id: 'csv', label: 'CSV 분석', icon: 'bx-upload' },

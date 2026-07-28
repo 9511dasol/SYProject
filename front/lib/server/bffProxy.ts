@@ -79,6 +79,20 @@ export async function proxyToBackend(
   }
 
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
-  return NextResponse.json(data, { status: response.status });
+  if (!text) return NextResponse.json(null, { status: response.status });
+
+  // 백엔드가 JSON이 아닌 응답(로드밸런서의 502 HTML, 프록시 타임아웃 페이지 등)을 주면
+  // JSON.parse가 던지면서 이 Route Handler 자체가 500이 된다 — 원래 상태 코드와 본문을
+  // 잃지 않도록 파싱 실패를 그대로 감싸서 돌려준다.
+  try {
+    return NextResponse.json(JSON.parse(text), { status: response.status });
+  } catch {
+    return NextResponse.json(
+      {
+        message: '백엔드가 올바르지 않은 형식으로 응답했습니다.',
+        detail: text.slice(0, 500),
+      },
+      { status: response.status >= 400 ? response.status : 502 },
+    );
+  }
 }

@@ -6,22 +6,31 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.core.database import SessionLocal
+from app.core.rate_limit import limiter
 from app.core.settings import settings
 from app.models.ai_tool_usage_log_model import AIToolUsageLog as _ATUL  # noqa: F401
 from app.models.ai_usage_budget_model import AIUsageBudget as _AUB  # noqa: F401
+from app.models.background_task_model import BackgroundTask as _BT  # noqa: F401
 from app.models.marketing_model import MarketingData as _MD, MarketingPeriodMeta as _MPM  # noqa: F401
 from app.models.report_log_model import ReportLog as _RL  # noqa: F401,W0611
 from app.models.system_setting_model import SystemSetting as _SS  # noqa: F401
+from app.models.undo_snapshot_model import UndoSnapshot as _US  # noqa: F401
 from app.models.user_model import User as _User  # noqa: F401
 from app.repositories.system_setting_repo import SystemSettingRepository
 from app.routers import (
     admin_ai_usage_log_router,
+    admin_period_router,
+    admin_report_log_router,
     ai_status_router,
     auth_router,
+    health_router,
     heading_router,
     image_filter_router,
     image_resize_router,
@@ -30,6 +39,7 @@ from app.routers import (
     system_setting_router,
     user_admin_router,
 )
+from app.services import task_store
 from app.services.excel_service import _template_bytes
 
 logger = logging.getLogger(__name__)
@@ -103,10 +113,27 @@ def _auto_send_report() -> None:
         db.close()
 
 
+def _purge_expired_tasks() -> None:
+    """만료된 background_tasks / undo_snapshots 행을 정리한다."""
+    tasks, undos = task_store.purge_expired()
+    if tasks or undos:
+        logger.info("만료 정리 — 작업 %d건, 되돌리기 스냅샷 %d건 삭제", tasks, undos)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     _init_db()
     _template_bytes()  # 대용량 템플릿 선로드
+    _purge_expired_tasks()  # 재시작 시 남아 있던 만료 행 먼저 정리
+
+    # 작업 상태를 DB에 두면서 생긴 정리 책임 — 인스턴스가 살아 있는 동안 주기적으로 비운다.
+    scheduler.add_job(
+        _purge_expired_tasks,
+        trigger="interval",
+        hours=1,
+        id="purge_expired_tasks",
+        replace_existing=True,
+    )
 
     if settings.MAIL_ENABLED:
         # APScheduler: 매월 1일 오전 9시 자동 리포트 (환경변수로 재설정 가능)
@@ -118,19 +145,45 @@ async def lifespan(_: FastAPI):
             id="monthly_report",
             replace_existing=True,
         )
-        scheduler.start()
-        logger.info("APScheduler started — monthly report cron active")
+        logger.info("monthly report cron active")
     else:
         logger.info("MAIL_ENABLED=false — 메일 발송 기능 비활성화")
 
+    scheduler.start()
+    logger.info("APScheduler started")
+
     yield
 
-    if settings.MAIL_ENABLED:
-        scheduler.shutdown(wait=False)
-        logger.info("APScheduler stopped")
+    scheduler.shutdown(wait=False)
+    logger.info("APScheduler stopped")
 
 
 app = FastAPI(title="Marketing AI Pipeline API", version="1.0.0", lifespan=lifespan)
+
+# slowapi: 데코레이터가 app.state.limiter를 찾고, 초과 시 429를 응답한다.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+_MAX_REQUEST_BYTES = settings.MAX_REQUEST_MB * 1_024 * 1_024
+
+
+@app.middleware("http")
+async def limit_request_size(request: Request, call_next):
+    """본문이 지나치게 큰 요청을 라우터에 닿기 전에 거른다.
+
+    엔드포인트별 검증은 각자의 상한을 따로 두지만, 그 코드가 실행되려면
+    Starlette이 본문을 먼저 버퍼링해야 한다. 여기서 Content-Length만 보고
+    미리 끊으면 그 비용 자체를 피할 수 있다.
+    (Content-Length는 없거나 거짓일 수 있으므로 엔드포인트 검증을 대체하지 않는다.)
+    """
+    raw = request.headers.get("content-length")
+    if raw and raw.isdigit() and int(raw) > _MAX_REQUEST_BYTES:
+        return JSONResponse(
+            {"detail": f"요청 본문이 너무 큽니다 (최대 {settings.MAX_REQUEST_MB}MB)."},
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        )
+    return await call_next(request)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -141,6 +194,7 @@ app.add_middleware(
     expose_headers=["Content-Disposition", "X-AI-Provider", "X-AI-Upscale-Used"],
 )
 
+app.include_router(health_router.router)
 app.include_router(auth_router.router)
 app.include_router(marketing_router.router)
 app.include_router(keyword_compare_router.router)
@@ -151,6 +205,10 @@ app.include_router(system_setting_router.router)
 app.include_router(user_admin_router.router)
 app.include_router(ai_status_router.router)
 app.include_router(admin_ai_usage_log_router.router)
+# 발송 이력 조회는 MAIL_ENABLED와 무관하게 열어 둔다 — 메일을 꺼도 과거 기록은 봐야 한다.
+# (재발송만 라우터 안에서 MAIL_ENABLED를 확인한다)
+app.include_router(admin_report_log_router.router)
+app.include_router(admin_period_router.router)
 
 if settings.MAIL_ENABLED:
     from app.routers import report_mail_router

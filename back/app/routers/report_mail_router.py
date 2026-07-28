@@ -8,40 +8,22 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.core.feature_flags import require_feature_flag
+from app.core.security import get_current_user, get_db
 from app.models.report_log_model import ReportLog
-from app.services.analysis_service import AnalysisService
-from app.services.comment_service import CommentService
-from app.services.llm import build_llm
-from app.services.mail import build_mail_sender
-from app.services.report_builder_service import ReportBuilderService
-from app.services.report_orchestrator import ReportOrchestrator
+from app.services.report_factory import build_orchestrator
 
 logger = logging.getLogger(__name__)
+
+# 다른 라우터와 달리 인증 의존성이 빠져 있어서, 이 엔드포인트만 로그인 없이
+# 호출할 수 있었다 — 아무나 리포트 메일 발송을 트리거할 수 있는 상태였다.
 router = APIRouter(
     prefix="/api/report-mail",
     tags=["report-mail"],
-    dependencies=[Depends(require_feature_flag("is_report_email_enabled"))],
+    dependencies=[
+        Depends(require_feature_flag("is_report_email_enabled")),
+        Depends(get_current_user),
+    ],
 )
-
-
-# ── 의존성 ────────────────────────────────────────────────────────────────────
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def _build_orchestrator(db: Session) -> ReportOrchestrator:
-    return ReportOrchestrator(
-        analysis_svc=AnalysisService(db),
-        comment_svc=CommentService(llm=build_llm()),
-        builder_svc=ReportBuilderService(),
-        mail_sender=build_mail_sender(),
-        db=db,
-    )
 
 
 # ── 스키마 ────────────────────────────────────────────────────────────────────
@@ -90,7 +72,7 @@ def send_report(
     def _task() -> None:
         task_db = SessionLocal()
         try:
-            orchestrator = _build_orchestrator(task_db)
+            orchestrator = build_orchestrator(task_db)
             orchestrator.run(
                 curr_year=body.curr_year,
                 curr_month=body.curr_month,
@@ -122,7 +104,7 @@ def send_report_sync(
     to = [r.strip() for r in recipients.split(",") if r.strip()]
     if not to:
         raise HTTPException(status_code=400, detail="수신자를 입력하세요.")
-    orchestrator = _build_orchestrator(db)
+    orchestrator = build_orchestrator(db)
     result = orchestrator.run(
         curr_year=curr_year,
         curr_month=curr_month,

@@ -12,7 +12,6 @@ import {
   startDbExportTask,
 } from '@/lib/marketingClient';
 import { queryKeys } from '@/lib/queryKeys';
-import type { ReportData } from '@/types/marketing';
 import ReportView from '@/components/marketing/ReportView';
 import Button from '@/components/ui/Button';
 import ToastContainer, { type ToastItem } from '@/components/ui/Toast';
@@ -36,6 +35,23 @@ interface DownloadTask {
 
 interface DbDashboardProps {
   onOpenUpload?: () => void;
+}
+
+type ExportStatus = Awaited<ReturnType<typeof getDbExportStatus>>;
+
+/**
+ * 사용자 의도(dlTask)에 서버 진행 상태(exportStatus)를 렌더 중에 합쳐 표시용 값을 만든다.
+ * 예전에는 이펙트 안에서 setDlTask로 같은 일을 했는데, 서버 응답 하나마다 렌더가
+ * 한 번 더 도는 데다 두 상태가 어긋날 여지가 있었다.
+ * 'paused'는 사용자가 폴링을 멈춘 상태라 서버 값으로 덮어쓰지 않는다.
+ */
+function mergeExportStatus(task: DownloadTask, status: ExportStatus | undefined): DownloadTask {
+  if (task.phase === 'paused' || !status) return task;
+  if (status.status === 'done') return { ...task, progress: 100, phase: 'done' };
+  if (status.status === 'error') {
+    return { ...task, phase: 'error', error: status.error ?? 'Excel 생성 실패' };
+  }
+  return { ...task, progress: status.progress ?? task.progress, phase: 'processing' };
 }
 
 // ── 새 기간 선택 팝오버 ────────────────────────────────────────────────────────
@@ -196,11 +212,14 @@ function DownloadProgressToast({
 
 export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<Period | null>(null);
+  // 사용자가 직접 고른 기간. null이면 목록의 첫 기간을 기본값으로 쓴다 (아래 selected 참고).
+  const [pickedPeriod, setPickedPeriod] = useState<Period | null>(null);
   const [dlTask, setDlTask] = useState<DownloadTask | null>(null);
   const [newPeriodOpen, setNewPeriodOpen] = useState(false);
   const newPeriodRef = useRef<HTMLDivElement>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  // 완료된 export를 두 번 내려받지 않도록 (StrictMode의 이펙트 2회 실행 대비)
+  const downloadedTaskRef = useRef<string | null>(null);
 
   function pushToast(type: ToastItem['type'], message: string) {
     const id = `${Date.now()}-${Math.random()}`;
@@ -217,12 +236,9 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
     queryFn: getPeriods,
   });
 
-  // 기간 목록이 로드되면 첫 번째 항목을 초기 선택
-  useEffect(() => {
-    if (!selected && periods.length > 0) {
-      setSelected(periods[0]);
-    }
-  }, [periods, selected]);
+  // 아직 아무것도 고르지 않았으면 목록의 첫 기간을 선택으로 삼는다.
+  // (이펙트 + setState로 초기 선택을 넣으면 목록이 도착할 때마다 렌더가 한 번 더 돈다)
+  const selected: Period | null = pickedPeriod ?? periods[0] ?? null;
 
   // 현재 선택이 DB 목록에 없는 새 기간인지
   const isNewPeriod =
@@ -244,7 +260,8 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   const { data: exportStatus } = useQuery({
     queryKey: queryKeys.exportTask(dlTask?.taskId ?? ''),
     queryFn: () => getDbExportStatus(dlTask!.taskId),
-    enabled: !!dlTask?.taskId && dlTask.phase !== 'done' && dlTask.phase !== 'error' && dlTask.phase !== 'paused',
+    // 완료/실패 시에는 refetchInterval이 false를 돌려주며 폴링이 멈춘다.
+    enabled: !!dlTask?.taskId && dlTask.phase !== 'paused',
     refetchInterval: (query) => {
       const s = query.state.data?.status;
       return s === 'done' || s === 'error' ? false : 600;
@@ -254,25 +271,22 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
     staleTime: 0,
   });
 
-  // exportStatus 변경 시 dlTask 상태 갱신 (select 안에서 setState 하면 렌더 중 setState → 무한루프)
+  // 화면에 보여줄 실제 진행 상태 (사용자 의도 + 서버 응답)
+  const dlView = dlTask ? mergeExportStatus(dlTask, exportStatus) : null;
+
+  // 완료된 파일 내려받기 — 브라우저 다운로드는 렌더로 표현할 수 없는 외부 작업이라 이펙트가 맞다.
+  // 이메일 전송 건은 백엔드가 이미 발송했으므로 여기서 받을 파일이 없다.
   useEffect(() => {
-    if (!exportStatus || !dlTask) return;
-    if (exportStatus.status === 'done') {
-      setDlTask((t) => t ? { ...t, progress: 100, phase: 'done' } : null);
-      // 이메일 전송은 백엔드가 이미 완료했으므로 브라우저에서 추가로 받을 파일이 없다.
-      if (dlTask.deliverBy === 'download') {
-        getDbExportResult(dlTask.taskId).then((blob) =>
-          saveFileWithPicker(blob, dlTask.filename),
-        );
-      }
-    } else if (exportStatus.status === 'error') {
-      setDlTask((t) => t ? { ...t, phase: 'error', error: exportStatus.error ?? 'Excel 생성 실패' } : null);
-    } else {
-      setDlTask((t) => t ? { ...t, progress: exportStatus.progress ?? t.progress, phase: 'processing' } : null);
-    }
-  // dlTask.taskId/filename은 변경되지 않으므로 exportStatus만 의존
+    if (!dlView || dlView.phase !== 'done' || dlView.deliverBy !== 'download') return;
+    if (downloadedTaskRef.current === dlView.taskId) return;
+
+    downloadedTaskRef.current = dlView.taskId;
+    getDbExportResult(dlView.taskId)
+      .then((blob) => saveFileWithPicker(blob, dlView.filename))
+      .catch((err) => pushToast('error', err instanceof Error ? err.message : '파일 다운로드 실패'));
+  // dlView는 매 렌더마다 새 객체라 원시값만 의존한다
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exportStatus]);
+  }, [dlView?.taskId, dlView?.phase, dlView?.deliverBy]);
 
   // ── 다운로드 시작 ─────────────────────────────────────────────────────────
   async function handleDownload(deliverBy: 'download' | 'email' = 'download') {
@@ -292,7 +306,8 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   }
 
   function handlePauseDownload() {
-    setDlTask((t) => t ? { ...t, phase: 'paused' } : null);
+    // 폴링이 멈추면 서버 진행률이 더는 안 오므로, 지금까지 확인된 진행률을 고정해 둔다.
+    setDlTask((t) => (t ? { ...mergeExportStatus(t, exportStatus), phase: 'paused' } : null));
   }
 
   function handleResumeDownload() {
@@ -359,9 +374,9 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
         onRemove={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
       />
 
-      {dlTask && (
+      {dlView && (
         <DownloadProgressToast
-          task={dlTask}
+          task={dlView}
           onDismiss={() => setDlTask(null)}
           onPause={handlePauseDownload}
           onResume={handleResumeDownload}
@@ -387,7 +402,7 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
                 return (
                   <button
                     key={label}
-                    onClick={() => setSelected(p)}
+                    onClick={() => setPickedPeriod(p)}
                     className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors
                       ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-surface-3 text-slate-500 dark:text-fg-muted hover:bg-slate-200 dark:hover:bg-surface-3/70'}`}
                   >
@@ -414,7 +429,7 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
               </button>
               {newPeriodOpen && (
                 <NewPeriodPopover
-                  onSelect={(y, m) => setSelected({ year: y, month: m })}
+                  onSelect={(y, m) => setPickedPeriod({ year: y, month: m })}
                   onClose={() => setNewPeriodOpen(false)}
                 />
               )}

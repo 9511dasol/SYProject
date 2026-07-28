@@ -1,16 +1,23 @@
+import logging
 import math
-import uuid
 from urllib.parse import quote
 
 import pandas as pd
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.core.database import SessionLocal
 from app.core.security import get_current_user
 from app.core.settings import settings
+from app.core.uploads import (
+    CSV_EXTENSIONS,
+    EXCEL_EXTENSIONS,
+    check_content_length,
+    read_data_upload,
+    read_data_uploads,
+)
 from app.models.user_model import User
-from app.repositories.marketing_repo import MarketingRepository, undo_store
+from app.repositories.marketing_repo import MarketingRepository
 from app.schemas.marketing_schema import (
     MediaDailyRow,
     MediaSummary,
@@ -21,7 +28,7 @@ from app.schemas.marketing_schema import (
     TaskStatusResponse,
     UploadTaskResponse,
 )
-from app.services import storage_service
+from app.services import storage_service, task_store
 from app.services.analysis_service import AnalysisService
 from app.services.comment_service import CommentService
 from app.services.excel_service import ExcelService
@@ -30,15 +37,20 @@ from app.services.llm import build_llm
 from app.services.mail import build_mail_sender
 from app.services.marketing_service import FileEntry, MarketingService
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/api/marketing",
     tags=["Marketing"],
     dependencies=[Depends(get_current_user)],
 )
 
-task_store: dict[str, dict] = {}
-export_store: dict[str, dict] = {}  # {task_id: {status, progress, data?, filename, error?}}
-save_task_store: dict[str, dict] = {}  # {task_id: {status, saved_rows?, deleted_rows?, undo_id?, message?, error?}}
+# 백그라운드 작업 상태는 app.services.task_store를 통해 DB에 저장한다 (kind로 구분).
+# 예전에는 모듈 전역 dict였는데, Cloud Run에서 인스턴스가 늘거나 재시작하면
+# 폴링이 404를 받거나 진행 중이던 작업이 사라졌다.
+_KIND_UPLOAD = "marketing_upload"
+_KIND_EXPORT = "marketing_export"
+_KIND_SAVE = "marketing_save"
 
 
 def _safe(v) -> float:
@@ -186,20 +198,21 @@ def _build_report(
 async def _run_analysis(task_id: str, files: list[FileEntry]) -> None:
     db = SessionLocal()
     try:
-        task_store[task_id]["status"] = TaskStatus.PROCESSING
+        task_store.update_task(task_id, status=TaskStatus.PROCESSING.value)
         svc = MarketingService(MarketingRepository(db))
         conv_files, media_files = svc._classify(files)
         result = await svc.process_and_analyze(conv_files, media_files)
-        task_store[task_id].update({
-            "status": TaskStatus.COMPLETED,
-            "processed_rows": result["processed_rows"],
-            "ai_comment": result["ai_comment"],
-        })
+        task_store.update_task(
+            task_id,
+            status=TaskStatus.COMPLETED.value,
+            progress=100,
+            result_patch={
+                "processed_rows": result["processed_rows"],
+                "ai_comment": result["ai_comment"],
+            },
+        )
     except Exception as exc:
-        task_store[task_id].update({
-            "status": TaskStatus.FAILED,
-            "error": str(exc),
-        })
+        task_store.update_task(task_id, status=TaskStatus.FAILED.value, error=str(exc))
     finally:
         db.close()
 
@@ -214,6 +227,20 @@ def _send_export_email(to_email: str, period: str, filename: str, download_url: 
     build_mail_sender().send(to=[to_email], subject=f"[마케팅 AI] {period} 엑셀 파일 다운로드", html=html)
 
 
+def _store_export_bytes(task_id: str, year: int, month: int, excel_bytes: bytes) -> dict:
+    """완성된 엑셀을 보관하고 result에 넣을 패치를 반환한다.
+
+    Supabase Storage가 설정돼 있으면 그쪽에 올리고 경로만 DB에 남긴다(인스턴스가 바뀌어도
+    다운로드 가능). 스토리지가 없는 로컬 개발 환경에서는 작업 행의 바이너리 컬럼에 담는다.
+    """
+    if settings.SUPABASE_URL:
+        path = storage_service.upload_bytes(f"exports/{year:04d}/{month:02d}/{task_id}.xlsx", excel_bytes)
+        return {"storage_path": path}
+
+    task_store.set_result_blob(task_id, excel_bytes)
+    return {"storage_path": None}
+
+
 def _run_export_task(
     task_id: str,
     rows: list,
@@ -224,52 +251,45 @@ def _run_export_task(
     recipient_email: str | None = None,
 ) -> None:
     """동기 함수 → FastAPI BackgroundTasks가 스레드풀에서 실행"""
-    def is_cancelled() -> bool:
-        return export_store.get(task_id, {}).get("cancelled", False)
-
     try:
-        if is_cancelled():
-            export_store[task_id]["status"] = "cancelled"
+        if task_store.is_cancelled(task_id):
+            task_store.update_task(task_id, status="cancelled")
             return
-        export_store[task_id]["progress"] = 15
+        task_store.update_task(task_id, status="processing", progress=15)
         media_kpis = _db_rows_to_media_kpis(rows)
 
-        if is_cancelled():
-            export_store[task_id]["status"] = "cancelled"
+        if task_store.is_cancelled(task_id):
+            task_store.update_task(task_id, status="cancelled")
             return
-        export_store[task_id]["progress"] = 45
+        task_store.update_task(task_id, progress=45)
         excel_bytes = ExcelService().fill_template(media_kpis, period, year, month)
 
-        if is_cancelled():
-            export_store[task_id]["status"] = "cancelled"
+        if task_store.is_cancelled(task_id):
+            task_store.update_task(task_id, status="cancelled")
             return
         filename = f"마케팅분석_{period.replace(' ', '')}.xlsx"
 
         if deliver_by == "email" and recipient_email:
-            export_store[task_id]["progress"] = 80
+            task_store.update_task(task_id, progress=80)
             path = storage_service.upload_bytes(f"exports/{year:04d}/{month:02d}/{task_id}.xlsx", excel_bytes)
             download_url = storage_service.create_signed_url(path)
             _send_export_email(recipient_email, period, filename, download_url)
-            export_store[task_id].update({
-                "status": "done",
-                "progress": 100,
-                "filename": filename,
-                "delivered_by": "email",
-            })
+            task_store.update_task(
+                task_id,
+                status="done",
+                progress=100,
+                result_patch={"filename": filename, "delivered_by": "email", "storage_path": path},
+            )
         else:
-            export_store[task_id].update({
-                "status": "done",
-                "progress": 100,
-                "data": excel_bytes,
-                "filename": filename,
-                "delivered_by": "download",
-            })
+            patch = _store_export_bytes(task_id, year, month, excel_bytes)
+            task_store.update_task(
+                task_id,
+                status="done",
+                progress=100,
+                result_patch={"filename": filename, "delivered_by": "download", **patch},
+            )
     except Exception as exc:
-        export_store[task_id].update({
-            "status": "error",
-            "progress": 0,
-            "error": str(exc),
-        })
+        task_store.update_task(task_id, status="error", progress=0, error=str(exc))
 
 
 def _run_save_task(task_id: str, df: pd.DataFrame, year: int, month: int, replace: bool) -> None:
@@ -279,7 +299,7 @@ def _run_save_task(task_id: str, df: pd.DataFrame, year: int, month: int, replac
     서로 다른 커넥션을 사용하므로, 삭제를 먼저 커밋해 락을 해제한 뒤 저장해야 데드락을 피할 수 있다.
     """
     try:
-        save_task_store[task_id].update({"status": "processing", "progress": 10})
+        task_store.update_task(task_id, status="processing", progress=10)
 
         # ── 1단계: replace 시 기존 행 삭제 (독립 트랜잭션으로 먼저 커밋) ──────────
         deleted = 0
@@ -294,38 +314,44 @@ def _run_save_task(task_id: str, df: pd.DataFrame, year: int, month: int, replac
             finally:
                 db_del.close()
 
-        save_task_store[task_id]["progress"] = 50
+        task_store.update_task(task_id, progress=50)
 
         # ── 2단계: 새 데이터 저장 (_upsert 내부에서 engine.begin() 사용) ─────────
         saved, _, undo_id = MarketingRepository(None).save_mapped_dataframe(df)  # type: ignore[arg-type]
 
-        save_task_store[task_id]["progress"] = 90
+        task_store.update_task(task_id, progress=90)
 
         if replace:
             msg = f"기존 {deleted}개 행을 삭제하고 {saved}개 행으로 교체했습니다."
         else:
             msg = f"{saved}개 행을 저장했습니다."
 
-        save_task_store[task_id].update({
-            "status": "done",
-            "progress": 100,
-            "saved_rows": saved,
-            "deleted_rows": deleted if replace else 0,
-            "undo_id": undo_id,
-            "message": msg,
-        })
+        task_store.update_task(
+            task_id,
+            status="done",
+            progress=100,
+            message=msg,
+            result_patch={
+                "saved_rows": saved,
+                "deleted_rows": deleted if replace else 0,
+                "undo_id": undo_id,
+            },
+        )
     except Exception as exc:
-        save_task_store[task_id].update({"status": "error", "progress": 0, "error": str(exc)})
+        task_store.update_task(task_id, status="error", progress=0, error=str(exc))
 
 
 @router.post("/save-excel-task")
 async def start_save_excel_task(
+    request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     replace: bool = Query(False),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
     """Excel DB 저장을 백그라운드로 시작하고 task_id 반환"""
-    content = await file.read()
+    check_content_length(request)
+    content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
     try:
         svc = ExcelReaderService()
         report = svc.read_report(content)
@@ -340,8 +366,7 @@ async def start_save_excel_task(
     year = int(df["report_date"].dt.year.iloc[0])
     month = int(df["report_date"].dt.month.iloc[0])
 
-    task_id = str(uuid.uuid4())
-    save_task_store[task_id] = {"status": "pending"}
+    task_id = task_store.create_task(_KIND_SAVE, user_id=current_user.id)
     background_tasks.add_task(_run_save_task, task_id, df, year, month, replace)
 
     return {"task_id": task_id}
@@ -349,10 +374,16 @@ async def start_save_excel_task(
 
 @router.get("/save-excel-task/{task_id}")
 async def get_save_excel_task_status(task_id: str) -> dict:
-    task = save_task_store.get(task_id)
+    task = task_store.get_task(task_id, kind=_KIND_SAVE)
     if task is None:
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
-    return task
+    return {
+        "status": task["status"],
+        "progress": task["progress"],
+        "message": task["message"] or None,
+        "error": task["error"],
+        **task["result"],
+    }
 
 
 @router.post("/export-db-task")
@@ -381,9 +412,10 @@ async def start_export_db_task(
     if not rows:
         raise HTTPException(status_code=404, detail="해당 기간의 데이터가 없습니다.")
 
-    task_id = str(uuid.uuid4())
     period = _period_label(year, month)
-    export_store[task_id] = {"status": "pending", "progress": 5, "cancelled": False}
+    task_id = task_store.create_task(
+        _KIND_EXPORT, progress=5, user_id=current_user.id, result={"delivered_by": deliver_by},
+    )
     background_tasks.add_task(
         _run_export_task, task_id, rows, period, year, month, deliver_by, current_user.email,
     )
@@ -398,39 +430,58 @@ async def start_export_db_task(
 @router.get("/export-db-task/{task_id}")
 async def get_export_task_status(task_id: str) -> dict:
     """백그라운드 export 진행률 조회"""
-    task = export_store.get(task_id)
+    task = task_store.get_task(task_id, kind=_KIND_EXPORT)
     if task is None:
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
     return {
         "status": task["status"],
-        "progress": task.get("progress", 0),
-        "error": task.get("error"),
-        "delivered_by": task.get("delivered_by"),
+        "progress": task["progress"],
+        "error": task["error"],
+        "delivered_by": task["result"].get("delivered_by"),
     }
 
 
 @router.delete("/export-db-task/{task_id}")
 async def cancel_export_task(task_id: str) -> dict:
-    """진행 중인 export 태스크를 취소 요청"""
-    task = export_store.get(task_id)
-    if task is None:
+    """진행 중인 export 태스크를 취소 요청.
+
+    작업 행은 지우지 않고 취소 플래그만 세운다 — 워커가 단계마다 이 플래그를 읽어
+    스스로 멈춰야 하기 때문이다. 행 자체는 TTL 정리 잡이 나중에 삭제한다.
+    """
+    if not task_store.cancel_task(task_id):
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
-    task["cancelled"] = True
-    if task["status"] not in ("done", "error"):
-        task["status"] = "cancelled"
-    export_store.pop(task_id, None)
     return {"message": "취소되었습니다."}
 
 
 @router.get("/export-db-result/{task_id}")
 async def get_export_task_result(task_id: str) -> StreamingResponse:
-    """완료된 export 파일 다운로드 (1회용 — 다운로드 후 메모리에서 제거)"""
-    task = export_store.get(task_id)
-    if task is None or task.get("status") != "done" or "data" not in task:
+    """완료된 export 파일 다운로드 (1회용 — 내려준 뒤 보관본을 제거)"""
+    task = task_store.get_task(task_id, kind=_KIND_EXPORT)
+    if task is None or task["status"] != "done":
         raise HTTPException(status_code=404, detail="아직 완료되지 않았거나 작업을 찾을 수 없습니다.")
 
-    excel_bytes: bytes = task.pop("data")
-    filename = task.get("filename", "마케팅분석.xlsx")
+    result = task["result"]
+    if result.get("delivered_by") != "download":
+        # 이메일 전달 건은 3일짜리 서명 URL로 이미 발송됐다. 여기서 내려주면서 파일을
+        # 지워버리면 메일 안의 링크가 죽으므로 다운로드 경로로는 서비스하지 않는다.
+        raise HTTPException(status_code=404, detail="다운로드용 작업이 아닙니다.")
+
+    storage_path = result.get("storage_path")
+    if storage_path:
+        excel_bytes = storage_service.download_bytes(storage_path)
+        if excel_bytes is not None:
+            try:
+                storage_service.delete_object(storage_path)
+            except Exception:
+                logger.exception("export 임시 파일 삭제 실패: %s", storage_path)
+    else:
+        excel_bytes = task_store.pop_result_blob(task_id)
+
+    if excel_bytes is None:
+        raise HTTPException(status_code=404, detail="이미 내려받았거나 파일이 만료되었습니다.")
+
+    task_store.delete_task(task_id)
+    filename = result.get("filename", "마케팅분석.xlsx")
 
     return StreamingResponse(
         iter([excel_bytes]),
@@ -525,15 +576,17 @@ async def update_comment(
 
 @router.post("/upload", response_model=UploadTaskResponse)
 async def upload_files(
+    request: Request,
     background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
 ) -> UploadTaskResponse:
-    file_data: list[FileEntry] = [
-        (await f.read(), f.filename or "") for f in files
-    ]
+    check_content_length(request)
+    file_data: list[FileEntry] = await read_data_uploads(files, allowed_extensions=CSV_EXTENSIONS)
 
-    task_id = str(uuid.uuid4())
-    task_store[task_id] = {"status": TaskStatus.PENDING}
+    task_id = task_store.create_task(
+        _KIND_UPLOAD, status=TaskStatus.PENDING.value, user_id=current_user.id,
+    )
     background_tasks.add_task(_run_analysis, task_id, file_data)
 
     return UploadTaskResponse(
@@ -545,20 +598,26 @@ async def upload_files(
 
 @router.get("/status/{task_id}", response_model=TaskStatusResponse)
 async def get_task_status(task_id: str) -> TaskStatusResponse:
-    task = task_store.get(task_id)
+    task = task_store.get_task(task_id, kind=_KIND_UPLOAD)
     if task is None:
         raise HTTPException(status_code=404, detail="태스크를 찾을 수 없습니다.")
-    return TaskStatusResponse(task_id=task_id, **task)
+    return TaskStatusResponse(
+        task_id=task_id,
+        status=TaskStatus(task["status"]),
+        processed_rows=task["result"].get("processed_rows"),
+        ai_comment=task["result"].get("ai_comment"),
+        error=task["error"],
+    )
 
 
 @router.post("/preview", response_model=ReportResponse)
 async def preview_report(
+    request: Request,
     files: list[UploadFile] = File(...),
 ) -> ReportResponse:
     """CSV → DB 저장 + KPI 계산 후 JSON 리포트 반환"""
-    file_data: list[FileEntry] = [
-        (await f.read(), f.filename or "") for f in files
-    ]
+    check_content_length(request)
+    file_data: list[FileEntry] = await read_data_uploads(files, allowed_extensions=CSV_EXTENSIONS)
 
     db = SessionLocal()
     try:
@@ -590,10 +649,12 @@ async def undo_upload(undo_id: str) -> dict:
 
 @router.post("/load-excel")
 async def load_excel(
+    request: Request,
     file: UploadFile = File(...),
 ) -> dict:
     """Excel 파일(.xlsx)을 읽어 전체 리포트 데이터 JSON 반환"""
-    content = await file.read()
+    check_content_length(request)
+    content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
     try:
         return ExcelReaderService().read_report(content)
     except Exception as exc:
@@ -602,13 +663,15 @@ async def load_excel(
 
 @router.post("/save-excel-data")
 async def save_excel_data(
+    request: Request,
     file: UploadFile = File(...),
     replace: bool = Query(False),
 ) -> dict:
     """Excel 파일 매체 시트 데이터를 DB에 저장.
     replace=true 이면 해당 연월 기존 데이터를 먼저 삭제하고 교체.
     """
-    content = await file.read()
+    check_content_length(request)
+    content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
     try:
         svc = ExcelReaderService()
         report = svc.read_report(content)
@@ -698,12 +761,12 @@ async def delete_row(
 
 @router.post("/export")
 async def export_excel(
+    request: Request,
     files: list[UploadFile] = File(...),
 ) -> StreamingResponse:
     """CSV → Excel 템플릿 채운 뒤 다운로드"""
-    file_data: list[FileEntry] = [
-        (await f.read(), f.filename or "") for f in files
-    ]
+    check_content_length(request)
+    file_data: list[FileEntry] = await read_data_uploads(files, allowed_extensions=CSV_EXTENSIONS)
 
     db = SessionLocal()
     try:

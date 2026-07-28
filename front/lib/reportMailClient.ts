@@ -1,8 +1,10 @@
-import axios, { isAxiosError } from 'axios';
+import { isAxiosError } from 'axios';
+import { browserApi as api } from '@/lib/api/browserApi';
 
-const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000',
-});
+// BFF Route Handler(/api/report-mail/*)를 거쳐 FastAPI로 전달된다.
+// 예전에는 브라우저가 FastAPI를 직접 호출했는데, 그러면 Authorization 헤더를 실을
+// 수단이 없어 백엔드 쪽 엔드포인트를 인증 없이 열어둬야만 동작했다.
+// 같은 오리진으로 바꾸면 Route Handler가 세션으로 인증을 대신 처리한다.
 
 function extractError(err: unknown, fallback: string): string {
   if (isAxiosError(err)) {

@@ -42,12 +42,24 @@ export async function fetchHeadings(
 
 /** 로그인한 사용자의 과거 문구 생성 기록을 최신순으로 가져옵니다. */
 export async function fetchHeadingHistory(limit = 20): Promise<HeadingSuggestionRecord[]> {
-  const res = await authFetch(`/api/heading/history?limit=${limit}`, { method: 'GET' });
+  return (await fetchHeadingHistoryPage(limit, 0)).items;
+}
+
+/**
+ * 히스토리를 페이지 단위로 가져옵니다 (전체 건수 포함).
+ * 생성 페이지의 썸네일 스트립은 최근 몇 건만 필요하지만, 히스토리 페이지는
+ * 오래된 기록까지 이어서 볼 수 있어야 하므로 offset/total 이 필요합니다.
+ */
+export async function fetchHeadingHistoryPage(
+  limit: number,
+  offset: number,
+): Promise<HeadingHistoryResponse> {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  const res = await authFetch(`/api/heading/history?${params.toString()}`, { method: 'GET' });
   if (!res.ok) {
     throw new Error(await readError(res, `기록을 불러오지 못했습니다 (${res.status})`));
   }
-  const data = (await res.json()) as HeadingHistoryResponse;
-  return data.items;
+  return (await res.json()) as HeadingHistoryResponse;
 }
 
 /** 문구 생성 기록 한 건을 삭제합니다. */

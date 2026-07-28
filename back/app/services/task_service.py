@@ -1,34 +1,46 @@
-"""백그라운드 태스크 상태를 관리하는 인메모리 스토어.
+"""단계별 진행률이 있는 범용 백그라운드 태스크 헬퍼.
 
-실제 프로덕션에서는 Redis 등 외부 스토어로 교체하세요.
+상태는 app.services.task_store를 통해 DB(background_tasks)에 저장되므로
+인스턴스가 여러 개거나 재시작돼도 진행률 폴링이 끊기지 않는다.
+
 각 기능 서비스(image_filter_service 등)에서 create_task()로 task_id를 생성하고,
 처리 단계마다 update_task()로 진행 상황을 갱신합니다.
 """
 
-import uuid
 from typing import Literal
 
 from app.schemas.task_schema import TaskStatusResponse
+from app.services import task_store
 
-_store: dict[str, TaskStatusResponse] = {}
+_KIND = "generic"
+
+
+def _to_response(task: dict) -> TaskStatusResponse:
+    result = task.get("result") or {}
+    return TaskStatusResponse(
+        task_id=task["id"],
+        status=task["status"],  # type: ignore[arg-type]
+        progress=task["progress"],
+        message=task["message"],
+        step=result.get("step"),
+        total_steps=result.get("total_steps"),
+    )
 
 
 def create_task(total_steps: int = 3) -> str:
     """새 태스크를 생성하고 task_id를 반환합니다."""
-    task_id = str(uuid.uuid4())
-    _store[task_id] = TaskStatusResponse(
-        task_id=task_id,
+    return task_store.create_task(
+        _KIND,
         status="processing",
         progress=0,
         message="작업을 준비하는 중...",
-        step=0,
-        total_steps=total_steps,
+        result={"step": 0, "total_steps": total_steps},
     )
-    return task_id
 
 
 def get_task(task_id: str) -> TaskStatusResponse | None:
-    return _store.get(task_id)
+    task = task_store.get_task(task_id, kind=_KIND)
+    return _to_response(task) if task else None
 
 
 def update_task(
@@ -40,18 +52,20 @@ def update_task(
     step: int | None = None,
     total_steps: int | None = None,
 ) -> None:
-    existing = _store.get(task_id)
-    if existing is None:
-        return
-    _store[task_id] = TaskStatusResponse(
-        task_id=task_id,
+    patch: dict = {}
+    if step is not None:
+        patch["step"] = step
+    if total_steps is not None:
+        patch["total_steps"] = total_steps
+
+    task_store.update_task(
+        task_id,
         status=status,
         progress=progress,
         message=message,
-        step=step if step is not None else existing.step,
-        total_steps=total_steps if total_steps is not None else existing.total_steps,
+        result_patch=patch or None,
     )
 
 
 def delete_task(task_id: str) -> None:
-    _store.pop(task_id, None)
+    task_store.delete_task(task_id)

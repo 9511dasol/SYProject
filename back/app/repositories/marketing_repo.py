@@ -1,6 +1,7 @@
-import time
+import logging
 import uuid as _uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import func, extract, text
 from sqlalchemy.exc import OperationalError
@@ -8,23 +9,58 @@ from sqlalchemy.orm import Session
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 import pandas as pd
 
-from app.core.database import engine
+from app.core.database import SessionLocal, engine
 from app.models.marketing_model import MarketingData, MarketingPeriodMeta
+from app.repositories.undo_snapshot_repo import UndoSnapshotRepository
 from app.services import storage_service
 
-# 되돌리기용 임시 저장소 — {undo_id: {"created_at": float, "rows": [dict, ...]}}
-undo_store: dict[str, dict] = {}
-_UNDO_TTL = 1800  # 30분
+logger = logging.getLogger(__name__)
 
 # Supabase 풀러의 트랜잭션/메시지 크기 제한에 걸리지 않도록 청크 단위로 INSERT
 _INSERT_CHUNK_SIZE = 500
 
 
-def _purge_expired() -> None:
-    now = time.time()
-    expired = [k for k, v in undo_store.items() if now - v["created_at"] > _UNDO_TTL]
-    for k in expired:
-        del undo_store[k]
+def _json_safe(value):
+    """JSONB 컬럼에 넣을 수 있는 형태로 변환 (date/Decimal 등)."""
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
+
+
+def _save_undo_snapshot(undo_id: str, rows: list[dict]) -> None:
+    """되돌리기 스냅샷을 DB에 저장한다.
+
+    이 클래스는 self.db가 None인 채로도 쓰이므로(save_mapped_dataframe 경로)
+    스냅샷 저장은 항상 자체 세션으로 처리한다.
+    """
+    db = SessionLocal()
+    try:
+        UndoSnapshotRepository(db).create(undo_id, rows)
+        db.commit()
+    finally:
+        db.close()
+
+
+def _pop_undo_snapshot(undo_id: str) -> list[dict] | None:
+    """스냅샷을 꺼내고 삭제한다. 없거나 만료됐으면 None."""
+    from app.services.task_store import UNDO_TTL_SECONDS  # 순환 임포트 방지용 지연 임포트
+
+    db = SessionLocal()
+    try:
+        repo = UndoSnapshotRepository(db)
+        snapshot = repo.get(undo_id)
+        if snapshot is None:
+            return None
+
+        age = (datetime.now(timezone.utc) - snapshot.created_at).total_seconds()
+        rows = list(snapshot.rows or [])
+        repo.delete(undo_id)
+        db.commit()
+        return None if age > UNDO_TTL_SECONDS else rows
+    finally:
+        db.close()
 
 
 @retry(
@@ -123,14 +159,13 @@ class MarketingRepository:
 
     def _upsert(self, db_df: pd.DataFrame) -> tuple[int, dict, str]:
         """(report_date, campaign_type) 기준 UPSERT.
-        삭제된 행을 undo_store에 보관, (삽입 수, diff, undo_id) 반환.
+        삭제된 행을 undo_snapshots 테이블에 보관, (삽입 수, diff, undo_id) 반환.
 
         db_df에 _has_media/_has_conv 컬럼이 있으면(save_from_kpis 경유), 이번 업로드가
         해당 그룹(노출/클릭/비용 또는 전환)의 데이터를 실제로 갖고 있지 않은 행은
         기존 DB 값을 그대로 유지한다 — 파일을 하나씩 나눠 올릴 때 이전에 저장된
         값이 0으로 덮어써지는 것을 방지.
         """
-        _purge_expired()
         has_authority_cols = "_has_media" in db_df.columns and "_has_conv" in db_df.columns
         combos = db_df[["report_date", "campaign_type"]].drop_duplicates()
         diff: dict[str, dict[str, list[str]]] = {}
@@ -158,7 +193,7 @@ class MarketingRepository:
 
                 if existing:
                     for r in existing:
-                        undo_rows.append(dict(r._mapping))
+                        undo_rows.append({k: _json_safe(v) for k, v in r._mapping.items()})
 
                     if has_authority_cols:
                         existing_row = dict(existing[0]._mapping)
@@ -184,19 +219,15 @@ class MarketingRepository:
 
         _insert_in_chunks(db_df)
 
-        undo_store[undo_id] = {"created_at": time.time(), "rows": undo_rows}
+        _save_undo_snapshot(undo_id, undo_rows)
         return len(db_df), diff, undo_id
 
     # ── 되돌리기 ──────────────────────────────────────────────────────────────
 
     def restore_undo(self, undo_id: str) -> tuple[bool, str]:
-        _purge_expired()
-        entry = undo_store.get(undo_id)
-        if not entry:
+        saved_rows = _pop_undo_snapshot(undo_id)
+        if saved_rows is None:
             return False, "되돌릴 수 없습니다. 시간이 초과되었거나 이미 되돌렸습니다."
-
-        del undo_store[undo_id]
-        saved_rows: list[dict] = entry["rows"]
 
         if not saved_rows:
             return True, "이전 상태로 되돌렸습니다. (저장된 항목이 없었으므로 해당 데이터를 삭제합니다.)"
@@ -290,6 +321,83 @@ class MarketingRepository:
                     excel_path=excel_path,
                 )
             )
+
+    def list_period_overview(self) -> list[dict]:
+        """관리자 화면용 연월별 요약 — 행 수, 데이터 기간, 코멘트/엑셀 보유 여부.
+
+        데이터 행은 지웠지만 코멘트만 남은 연월도 목록에 나와야 정리할 수 있으므로,
+        marketing_data 집계와 marketing_period_meta 를 합집합으로 만든다.
+        """
+        year_col = extract("year", MarketingData.report_date)
+        month_col = extract("month", MarketingData.report_date)
+
+        rows = (
+            self.db.query(
+                year_col.label("year"),
+                month_col.label("month"),
+                func.count(MarketingData.id).label("row_count"),
+                func.min(MarketingData.report_date).label("first_date"),
+                func.max(MarketingData.report_date).label("last_date"),
+            )
+            .group_by(year_col, month_col)
+            .all()
+        )
+        overview: dict[tuple[int, int], dict] = {
+            (int(r.year), int(r.month)): {
+                "year": int(r.year),
+                "month": int(r.month),
+                "row_count": int(r.row_count),
+                "first_date": r.first_date.isoformat() if r.first_date else None,
+                "last_date": r.last_date.isoformat() if r.last_date else None,
+                "has_comment": False,
+                "comment_updated_at": None,
+                "has_excel": False,
+            }
+            for r in rows
+        }
+
+        for meta in self.db.query(MarketingPeriodMeta).all():
+            key = (meta.year, meta.month)
+            entry = overview.setdefault(key, {
+                "year": meta.year,
+                "month": meta.month,
+                "row_count": 0,
+                "first_date": None,
+                "last_date": None,
+                "has_comment": False,
+                "comment_updated_at": None,
+                "has_excel": False,
+            })
+            entry["has_comment"] = bool(meta.comment)
+            entry["comment_updated_at"] = meta.comment_updated_at
+            entry["has_excel"] = bool(meta.excel_path)
+
+        return sorted(overview.values(), key=lambda e: (e["year"], e["month"]), reverse=True)
+
+    def delete_period(self, year: int, month: int) -> dict:
+        """연월 데이터를 통째로 삭제한다 — 행 + 메타(코멘트) + Storage 엑셀 원본.
+
+        Storage 삭제가 실패해도 DB 정리는 진행한다. 남은 객체는 고아가 되지만,
+        여기서 멈추면 화면에서 지울 방법이 사라지기 때문이다.
+        """
+        deleted_rows = self.delete_rows_by_period(year, month)
+
+        meta = self._get_period_meta(year, month)
+        excel_deleted = False
+        if meta is not None:
+            if meta.excel_path:
+                try:
+                    storage_service.delete_object(meta.excel_path)
+                    excel_deleted = True
+                except Exception:
+                    logger.exception("엑셀 원본 삭제 실패 (메타는 삭제 진행): %s", meta.excel_path)
+            self.db.delete(meta)
+
+        return {
+            "deleted_rows": deleted_rows,
+            "deleted_meta": meta is not None,
+            "deleted_excel": excel_deleted,
+        }
 
     def delete_rows_by_period(self, year: int, month: int) -> int:
         deleted = (

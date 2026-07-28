@@ -2,12 +2,15 @@
 
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.core.ai_budget import require_ai_budget
 from app.core.feature_flags import require_feature_flag
+from app.core.rate_limit import limiter
 from app.core.security import get_current_user, get_db
+from app.core.settings import settings
 from app.models.user_model import User
 from app.repositories.ai_tool_usage_log_repo import AIToolUsageLogRepository
 from app.schemas.image_filter_schema import EditInput, get_edit_input
@@ -16,12 +19,17 @@ from app.services.image_filter_service import ImageEditError, edit_and_resize
 router = APIRouter(
     prefix="/api/image-filter",
     tags=["image-filter"],
-    dependencies=[Depends(require_feature_flag("is_image_filter_enabled"))],
+    dependencies=[
+        Depends(require_feature_flag("is_image_filter_enabled")),
+        Depends(require_ai_budget),
+    ],
 )
 
 
 @router.post("/edit")
+@limiter.limit(settings.RATE_LIMIT_AI)
 async def edit_endpoint(
+    request: Request,
     inp: EditInput = Depends(get_edit_input),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

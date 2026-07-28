@@ -53,6 +53,8 @@ class HeadingSuggestionRecord(BaseModel):
 
 class HeadingHistoryResponse(BaseModel):
     items: list[HeadingSuggestionRecord]
+    # 페이지네이션용 전체 건수 (limit/offset 과 무관한 사용자별 총 기록 수)
+    total: int = 0
 
 
 # ── FastAPI Dependency ────────────────────────────────────────────────────────

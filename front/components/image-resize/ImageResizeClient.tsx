@@ -115,7 +115,7 @@ export default function ImageResizeClient() {
       const compressed = await compressImageIfNeeded(file);
 
       setProcessing('resizing');
-      const { aiUpscaleUsed } = await resizeImage(compressed, w, h, form.outputFormat, form.useAiUpscale);
+      const { aiUpscaleUsed } = await resizeImage(compressed, w, h, form.outputFormat, useAiUpscale);
 
       setSuccessMsg(
         aiUpscaleUsed
@@ -134,12 +134,10 @@ export default function ImageResizeClient() {
     Number(form.targetWidth) * Number(form.targetHeight) >
       originalDimensions.width * originalDimensions.height;
 
-  /* ── 축소/동일 비율로 바뀌면 AI 업스케일 옵션 자동 해제 ────────── */
-  useEffect(() => {
-    if (!isUpscaling && form.useAiUpscale) {
-      setForm((prev) => ({ ...prev, useAiUpscale: false }));
-    }
-  }, [isUpscaling, form.useAiUpscale]);
+  /* ── 축소/동일 비율에서는 AI 업스케일이 의미가 없으므로 꺼진 것으로 취급한다 ──
+     이펙트로 form을 되돌리면 렌더가 한 번 더 도는 데다, 사용자가 크기를 다시
+     확대 비율로 바꿨을 때 켜뒀던 선택이 사라진다. 파생값으로 두면 둘 다 해결된다. */
+  const useAiUpscale = isUpscaling && form.useAiUpscale;
 
   /* ── 언마운트 시 URL 해제 ───────────────────────────────────── */
   useEffect(() => {
@@ -156,7 +154,7 @@ export default function ImageResizeClient() {
     processing === 'compressing'
       ? '압축 중...'
       : processing === 'resizing'
-      ? form.useAiUpscale
+      ? useAiUpscale
         ? 'AI 업스케일 중...'
         : '리사이징 중...'
       : '리사이즈 & 다운로드';
@@ -241,7 +239,7 @@ export default function ImageResizeClient() {
                     <label className="mt-3 flex items-start gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-4 py-3.5 cursor-pointer has-disabled:cursor-not-allowed has-disabled:opacity-50">
                       <input
                         type="checkbox"
-                        checked={form.useAiUpscale}
+                        checked={useAiUpscale}
                         onChange={(e) => setForm((prev) => ({ ...prev, useAiUpscale: e.target.checked }))}
                         disabled={isProcessing}
                         className="mt-0.5 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"

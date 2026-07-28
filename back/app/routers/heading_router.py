@@ -3,11 +3,14 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
+from app.core.ai_budget import require_ai_budget
 from app.core.feature_flags import require_feature_flag
+from app.core.rate_limit import limiter
 from app.core.security import get_current_user, get_db
+from app.core.settings import settings
 from app.models.user_model import User
 from app.repositories.ai_tool_usage_log_repo import AIToolUsageLogRepository
 from app.repositories.heading_suggestion_repo import HeadingSuggestionRepository
@@ -43,8 +46,11 @@ router = APIRouter(
 )
 
 
-@router.post("/suggest", response_model=HeadingSuggestionRecord)
+# 예산 게이트/빈도 제한은 실제로 AI를 호출하는 /suggest 에만 건다 — 히스토리 조회·삭제는 무관하다.
+@router.post("/suggest", response_model=HeadingSuggestionRecord, dependencies=[Depends(require_ai_budget)])
+@limiter.limit(settings.RATE_LIMIT_AI)
 async def suggest_headings(
+    request: Request,
     inp: HeadingInput = Depends(get_heading_input),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -80,13 +86,16 @@ async def suggest_headings(
 @router.get("/history", response_model=HeadingHistoryResponse)
 def heading_history(
     limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> HeadingHistoryResponse:
     """로그인한 사용자가 과거에 생성한 문구 기록을 최신순으로 반환한다."""
-    records = HeadingSuggestionRepository(db).list_for_user(current_user.id, limit=limit)
+    repo = HeadingSuggestionRepository(db)
+    records = repo.list_for_user(current_user.id, limit=limit, offset=offset)
     return HeadingHistoryResponse(
-        items=[HeadingSuggestionRecord.model_validate(r) for r in records]
+        items=[HeadingSuggestionRecord.model_validate(r) for r in records],
+        total=repo.count_for_user(current_user.id),
     )
 
 

@@ -28,13 +28,25 @@ class HeadingSuggestionRepository:
         self.db.refresh(record)
         return record
 
-    def list_for_user(self, user_id: int, *, limit: int = 20) -> list[HeadingSuggestion]:
+    def list_for_user(
+        self, user_id: int, *, limit: int = 20, offset: int = 0
+    ) -> list[HeadingSuggestion]:
         return (
             self.db.query(HeadingSuggestion)
             .filter(HeadingSuggestion.user_id == user_id)
-            .order_by(HeadingSuggestion.created_at.desc())
+            # created_at 만으로 정렬하면 같은 초에 만들어진 기록의 순서가 페이지마다
+            # 달라져 항목이 중복/누락될 수 있으므로 id 로 동점을 깬다.
+            .order_by(HeadingSuggestion.created_at.desc(), HeadingSuggestion.id.desc())
+            .offset(offset)
             .limit(limit)
             .all()
+        )
+
+    def count_for_user(self, user_id: int) -> int:
+        return (
+            self.db.query(HeadingSuggestion)
+            .filter(HeadingSuggestion.user_id == user_id)
+            .count()
         )
 
     def get(self, suggestion_id: int) -> HeadingSuggestion | None:
