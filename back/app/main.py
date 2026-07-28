@@ -1,4 +1,5 @@
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
@@ -68,17 +69,37 @@ def _run_migrations() -> None:
     cfg = Config(str(_BACK_DIR / "alembic.ini"))
     cfg.set_main_option("script_location", str(_BACK_DIR / "migrations"))
     command.upgrade(cfg, "head")
-    logger.info("Alembic migrations applied (head)")
 
 
 def _init_db() -> None:
-    _run_migrations()
+    """기동 전에 반드시 끝나야 하는 준비 작업.
 
+    이 함수가 끝나야 서버가 포트를 연다. 그래서 여기서 막히면 Cloud Run에는
+    "컨테이너가 PORT에서 리슨하지 못했다"로만 보이고 원인이 드러나지 않는다.
+    단계마다 로그를 남겨, 실패했을 때 어디까지 갔는지 로그만 보고 알 수 있게 한다.
+    """
+    logger.info("기동 1/2: DB 마이그레이션 시작 (alembic upgrade head)")
+    started = time.monotonic()
+    try:
+        _run_migrations()
+    except Exception:
+        logger.exception(
+            "기동 실패: DB 마이그레이션 (%.1fs 경과). DATABASE_URL 접속 가능 여부를 확인하세요.",
+            time.monotonic() - started,
+        )
+        raise
+    logger.info("기동 1/2 완료: 마이그레이션 적용됨 (%.1fs)", time.monotonic() - started)
+
+    logger.info("기동 2/2: 기능 플래그 기본값 확인")
     db = SessionLocal()
     try:
         SystemSettingRepository(db).ensure_defaults(_DEFAULT_FEATURE_FLAGS)
+    except Exception:
+        logger.exception("기동 실패: 기능 플래그 기본값 저장")
+        raise
     finally:
         db.close()
+    logger.info("기동 2/2 완료 — 이제 포트를 엽니다")
 
 
 def _auto_send_report() -> None:

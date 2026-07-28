@@ -75,6 +75,10 @@ def run_migrations_online() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        # 앱 기동이 이 마이그레이션을 기다리므로, DB에 닿지 못하면 빨리 실패해야 한다.
+        # 타임아웃이 없으면 OS 기본 TCP 재시도(수 분)까지 매달려서, Cloud Run 쪽에는
+        # 원인 없는 "포트를 열지 못했다"로만 보인다.
+        connect_args={"connect_timeout": 10},
     )
     with connectable.connect() as connection:
         context.configure(
