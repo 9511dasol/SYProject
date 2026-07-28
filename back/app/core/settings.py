@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 14
 
+    # 업로드 상한
+    # CSV·Excel 업로드 한 건(그리고 다중 업로드의 합계) 상한
+    MAX_DATA_UPLOAD_MB: int = 50
+    # 모든 요청의 본문 상한 — 미들웨어가 Content-Length로 먼저 거른다.
+    # 이미지 업로드(50MB)와 다중 CSV 업로드를 모두 수용할 수 있게 넉넉히 잡는다.
+    MAX_REQUEST_MB: int = 100
+
     # 로그인 무차별 대입 방어 — 연속 실패가 임계값에 닿으면 계정을 일시 잠근다.
     LOGIN_MAX_FAILED_ATTEMPTS: int = 5
     LOGIN_LOCKOUT_MINUTES: int = 15

@@ -6,8 +6,9 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -30,6 +31,7 @@ from app.routers import (
     heading_router,
     image_filter_router,
     image_resize_router,
+    health_router,
     keyword_compare_router,
     marketing_router,
     system_setting_router,
@@ -160,6 +162,27 @@ app = FastAPI(title="Marketing AI Pipeline API", version="1.0.0", lifespan=lifes
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+_MAX_REQUEST_BYTES = settings.MAX_REQUEST_MB * 1_024 * 1_024
+
+
+@app.middleware("http")
+async def limit_request_size(request: Request, call_next):
+    """본문이 지나치게 큰 요청을 라우터에 닿기 전에 거른다.
+
+    엔드포인트별 검증은 각자의 상한을 따로 두지만, 그 코드가 실행되려면
+    Starlette이 본문을 먼저 버퍼링해야 한다. 여기서 Content-Length만 보고
+    미리 끊으면 그 비용 자체를 피할 수 있다.
+    (Content-Length는 없거나 거짓일 수 있으므로 엔드포인트 검증을 대체하지 않는다.)
+    """
+    raw = request.headers.get("content-length")
+    if raw and raw.isdigit() and int(raw) > _MAX_REQUEST_BYTES:
+        return JSONResponse(
+            {"detail": f"요청 본문이 너무 큽니다 (최대 {settings.MAX_REQUEST_MB}MB)."},
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        )
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -169,6 +192,7 @@ app.add_middleware(
     expose_headers=["Content-Disposition", "X-AI-Provider", "X-AI-Upscale-Used"],
 )
 
+app.include_router(health_router.router)
 app.include_router(auth_router.router)
 app.include_router(marketing_router.router)
 app.include_router(keyword_compare_router.router)

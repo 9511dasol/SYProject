@@ -32,6 +32,7 @@ dependencies = [
 dev = [
     "ruff>=0.15.14",
     "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
     "pytest-mock>=3.14.0",
     "freezegun>=1.5.0",
@@ -40,6 +41,8 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra -q"
+# async def 테스트를 마커 없이 그대로 실행한다 (업로드 검증 헬퍼가 async)
+asyncio_mode = "auto"
 filterwarnings = [
     # pandas/openpyxl 등 서드파티의 DeprecationWarning은 소음이라 무시
     "ignore::DeprecationWarning",

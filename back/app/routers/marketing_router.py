@@ -3,12 +3,19 @@ import math
 from urllib.parse import quote
 
 import pandas as pd
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.core.database import SessionLocal
 from app.core.security import get_current_user
 from app.core.settings import settings
+from app.core.uploads import (
+    CSV_EXTENSIONS,
+    EXCEL_EXTENSIONS,
+    check_content_length,
+    read_data_upload,
+    read_data_uploads,
+)
 from app.models.user_model import User
 from app.repositories.marketing_repo import MarketingRepository
 from app.schemas.marketing_schema import (
@@ -336,13 +343,15 @@ def _run_save_task(task_id: str, df: pd.DataFrame, year: int, month: int, replac
 
 @router.post("/save-excel-task")
 async def start_save_excel_task(
+    request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     replace: bool = Query(False),
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Excel DB 저장을 백그라운드로 시작하고 task_id 반환"""
-    content = await file.read()
+    check_content_length(request)
+    content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
     try:
         svc = ExcelReaderService()
         report = svc.read_report(content)
@@ -567,13 +576,13 @@ async def update_comment(
 
 @router.post("/upload", response_model=UploadTaskResponse)
 async def upload_files(
+    request: Request,
     background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
     current_user: User = Depends(get_current_user),
 ) -> UploadTaskResponse:
-    file_data: list[FileEntry] = [
-        (await f.read(), f.filename or "") for f in files
-    ]
+    check_content_length(request)
+    file_data: list[FileEntry] = await read_data_uploads(files, allowed_extensions=CSV_EXTENSIONS)
 
     task_id = task_store.create_task(
         _KIND_UPLOAD, status=TaskStatus.PENDING.value, user_id=current_user.id,
@@ -603,12 +612,12 @@ async def get_task_status(task_id: str) -> TaskStatusResponse:
 
 @router.post("/preview", response_model=ReportResponse)
 async def preview_report(
+    request: Request,
     files: list[UploadFile] = File(...),
 ) -> ReportResponse:
     """CSV → DB 저장 + KPI 계산 후 JSON 리포트 반환"""
-    file_data: list[FileEntry] = [
-        (await f.read(), f.filename or "") for f in files
-    ]
+    check_content_length(request)
+    file_data: list[FileEntry] = await read_data_uploads(files, allowed_extensions=CSV_EXTENSIONS)
 
     db = SessionLocal()
     try:
@@ -640,10 +649,12 @@ async def undo_upload(undo_id: str) -> dict:
 
 @router.post("/load-excel")
 async def load_excel(
+    request: Request,
     file: UploadFile = File(...),
 ) -> dict:
     """Excel 파일(.xlsx)을 읽어 전체 리포트 데이터 JSON 반환"""
-    content = await file.read()
+    check_content_length(request)
+    content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
     try:
         return ExcelReaderService().read_report(content)
     except Exception as exc:
@@ -652,13 +663,15 @@ async def load_excel(
 
 @router.post("/save-excel-data")
 async def save_excel_data(
+    request: Request,
     file: UploadFile = File(...),
     replace: bool = Query(False),
 ) -> dict:
     """Excel 파일 매체 시트 데이터를 DB에 저장.
     replace=true 이면 해당 연월 기존 데이터를 먼저 삭제하고 교체.
     """
-    content = await file.read()
+    check_content_length(request)
+    content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
     try:
         svc = ExcelReaderService()
         report = svc.read_report(content)
@@ -748,12 +761,12 @@ async def delete_row(
 
 @router.post("/export")
 async def export_excel(
+    request: Request,
     files: list[UploadFile] = File(...),
 ) -> StreamingResponse:
     """CSV → Excel 템플릿 채운 뒤 다운로드"""
-    file_data: list[FileEntry] = [
-        (await f.read(), f.filename or "") for f in files
-    ]
+    check_content_length(request)
+    file_data: list[FileEntry] = await read_data_uploads(files, allowed_extensions=CSV_EXTENSIONS)
 
     db = SessionLocal()
     try:
