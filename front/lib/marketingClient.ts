@@ -346,10 +346,15 @@ export function canPickSaveLocation(): boolean {
  */
 export async function saveFileWithPicker(blob: Blob, defaultName: string): Promise<SaveResult> {
   const picker = getSavePicker();
+  let handle: FileSystemFileHandle | null = null;
+
   if (picker) {
+    // 대화상자를 여는 단계와 실제로 쓰는 단계를 분리한다.
+    // 한 try로 묶으면 사용자가 위치를 고른 뒤 쓰기가 실패했을 때도 폴백이 돌아
+    // 다운로드 폴더에 파일이 한 번 더 저장된다 — 저장이 두 번 일어나는 것처럼 보인다.
     try {
       // call(window, …) — 함수를 떼어내 부르면 일부 브라우저가 잘못된 this로 거부한다
-      const handle = await picker.call(window, {
+      handle = await picker.call(window, {
         suggestedName: defaultName,
         types: [
           {
@@ -360,15 +365,22 @@ export async function saveFileWithPicker(blob: Blob, defaultName: string): Promi
           },
         ],
       });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      return 'saved';
     } catch (e) {
       if ((e as Error).name === 'AbortError') return 'cancelled'; // 사용자가 취소
-      // SecurityError(제스처 없음)·NotAllowedError 등은 기본 다운로드로 폴백
+      // SecurityError(제스처 없음)·NotAllowedError 등 — 대화상자 자체를 못 썼으니 폴백
     }
   }
+
+  if (handle) {
+    // 여기서 실패하면 예외를 그대로 올린다. 호출부가 오류를 보여주고 사용자가 다시
+    // 시도하게 하는 편이, 조용히 다운로드 폴더에 한 벌 더 떨구는 것보다 낫다.
+    // (대상 파일을 Excel이 열어두고 있으면 이 단계에서 막힌다)
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return 'saved';
+  }
+
   downloadBlob(blob, defaultName);
   return 'downloaded';
 }

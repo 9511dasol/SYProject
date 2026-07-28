@@ -357,6 +357,8 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   // 서버에서 받아 저장을 기다리는 파일 (사용자가 저장 위치를 고를 때까지 붙들고 있는다)
   const [readyBlob, setReadyBlob] = useState<Blob | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  // 버튼 비활성화(isSaving)는 리렌더 뒤에야 걸린다 — 빠른 더블클릭 방어는 ref로 한다
+  const savingRef = useRef(false);
   // 완료된 export를 두 번 내려받지 않도록 (StrictMode의 이펙트 2회 실행 대비)
   const fetchedTaskRef = useRef<string | null>(null);
 
@@ -448,7 +450,10 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
 
   // ── 저장 (사용자 클릭) ────────────────────────────────────────────────────
   async function handleSaveFile() {
-    if (!readyBlob || !dlTask || isSaving) return;
+    // isSaving(상태)만으로는 같은 프레임 안의 두 번째 클릭을 막지 못한다 —
+    // setIsSaving은 즉시 반영되지 않아 두 번 다 가드를 통과하고 저장 대화상자가 두 번 뜬다.
+    if (!readyBlob || !dlTask || savingRef.current) return;
+    savingRef.current = true;
     setIsSaving(true);
     try {
       const result = await saveFileWithPicker(readyBlob, dlTask.filename);
@@ -461,6 +466,7 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
     } catch (err) {
       pushToast('error', err instanceof Error ? err.message : '파일 저장 실패');
     } finally {
+      savingRef.current = false;
       setIsSaving(false);
     }
   }
