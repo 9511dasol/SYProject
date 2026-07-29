@@ -1,4 +1,10 @@
-export type AIToolKey = 'image_filter' | 'image_resize' | 'heading_suggest';
+/** 백엔드 ai_tool_usage_logs.tool 과 짝이 맞아야 한다 (app/services/ai_usage.py) */
+export type AIToolKey =
+  | 'image_filter'
+  | 'image_resize'
+  | 'heading_suggest'
+  | 'marketing_comment'
+  | 'report_mail';
 
 export interface AIToolUsageLogItem {
   id: number;

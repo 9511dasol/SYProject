@@ -10,7 +10,7 @@ import io
 from PIL import Image
 
 from app.core.settings import settings
-from app.services.gemini_usage import TokenUsage
+from app.services.token_usage import TokenUsage
 from app.services.image_ai_edit_service import generate_image
 from app.services.image_resize_service import resize_image
 

@@ -18,7 +18,7 @@ from PIL import Image
 
 from app.core.settings import settings
 from app.schemas.heading_schema import HeadingResponse
-from app.services.gemini_usage import TokenUsage
+from app.services.token_usage import TokenUsage
 
 # ── 클라이언트 (지연 초기화) ──────────────────────────────────────────────────
 
@@ -147,7 +147,7 @@ async def _call_gemini(thumbnail_bytes: bytes) -> tuple[str, TokenUsage | None]:
     except genai_errors.APIError as exc:
         raise RuntimeError(f"Gemini API 오류 ({exc.code}): {exc.message}") from exc
 
-    return response.text or "", TokenUsage.from_response(response)
+    return response.text or "", TokenUsage.from_gemini_response(response)
 
 
 async def generate_headings(

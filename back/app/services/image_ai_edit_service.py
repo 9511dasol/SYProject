@@ -12,7 +12,7 @@ from google import genai
 from google.genai import types
 
 from app.core.settings import settings
-from app.services.gemini_usage import TokenUsage
+from app.services.token_usage import TokenUsage
 
 _client: genai.Client | None = None
 
@@ -55,7 +55,7 @@ def generate_image(image_bytes: bytes, prompt: str, mime_type: str = "image/png"
     for part in candidates[0].content.parts or []:
         inline = getattr(part, "inline_data", None)
         if inline and inline.data:
-            return ImageGenResult(image_bytes=inline.data, usage=TokenUsage.from_response(resp))
+            return ImageGenResult(image_bytes=inline.data, usage=TokenUsage.from_gemini_response(resp))
 
     return None
 

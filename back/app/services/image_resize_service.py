@@ -4,7 +4,7 @@ import io
 
 from PIL import Image
 
-from app.services.gemini_usage import TokenUsage
+from app.services.token_usage import TokenUsage
 from app.services.image_ai_edit_service import ai_upscale
 
 # 출력 포맷별 Content-Type 매핑

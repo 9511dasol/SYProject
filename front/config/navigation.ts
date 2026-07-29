@@ -104,7 +104,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         icon: 'bx-data',
         href: '/admin/periods',
         badge: 'NEW',
-        description: '연월별 저장 데이터 현황 조회 및 삭제',
+        description: '연월별 저장 데이터 현황 조회·삭제, 매체별 예산 입력',
       },
     ],
   },

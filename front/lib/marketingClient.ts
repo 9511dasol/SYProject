@@ -23,8 +23,11 @@ function toFormData(files: File[]): FormData {
  * 기간은 `period=26년 5월&period=26년 6월` 처럼 같은 키를 반복해야 FastAPI가 list로 받는다
  * (axios 기본 직렬화는 `period[]=` 로 나가서 서버가 못 읽는다).
  */
-function saveQuery(replace: boolean, periods?: string[]): string {
-  const qs = new URLSearchParams({ replace: String(replace) });
+function saveQuery(replace: boolean, periods?: string[], saveComment = true): string {
+  const qs = new URLSearchParams({
+    replace: String(replace),
+    save_comment: String(saveComment),
+  });
   periods?.forEach((p) => qs.append('period', p));
   return qs.toString();
 }
@@ -100,17 +103,27 @@ export async function loadExcelReports(file: File): Promise<ExcelReport[]> {
   }
 }
 
-/** periods 를 주면 고른 달만, 없으면 파일 안의 모든 달을 저장한다. */
+/**
+ * periods 를 주면 고른 달만, 없으면 파일 안의 모든 달을 저장한다.
+ * saveComment 는 summary B32 코멘트를 marketing_period_meta 에 함께 반영할지 여부.
+ */
 export async function saveExcelData(
   file: File,
   replace = false,
   periods?: string[],
-): Promise<{ saved_rows: number; deleted_rows: number; periods: string[]; message: string }> {
+  saveComment = true,
+): Promise<{
+  saved_rows: number;
+  deleted_rows: number;
+  saved_comments: number;
+  periods: string[];
+  message: string;
+}> {
   try {
     const formData = new FormData();
     formData.append('file', file);
     const { data } = await api.post(
-      `/api/marketing/save-excel-data?${saveQuery(replace, periods)}`,
+      `/api/marketing/save-excel-data?${saveQuery(replace, periods, saveComment)}`,
       formData,
     );
     return data;
@@ -253,12 +266,13 @@ export async function startSaveExcelTask(
   file: File,
   replace = false,
   periods?: string[],
+  saveComment = true,
 ): Promise<{ task_id: string }> {
   try {
     const formData = new FormData();
     formData.append('file', file);
     const { data } = await api.post(
-      `/api/marketing/save-excel-task?${saveQuery(replace, periods)}`,
+      `/api/marketing/save-excel-task?${saveQuery(replace, periods, saveComment)}`,
       formData,
     );
     return data as { task_id: string };

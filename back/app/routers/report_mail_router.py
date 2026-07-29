@@ -6,10 +6,12 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy.orm import Session
 
+from app.core.ai_budget import require_ai_budget
 from app.core.database import SessionLocal
 from app.core.feature_flags import require_feature_flag
 from app.core.security import get_current_user, get_db
 from app.models.report_log_model import ReportLog
+from app.models.user_model import User
 from app.services.report_factory import build_orchestrator
 
 logger = logging.getLogger(__name__)
@@ -61,18 +63,23 @@ class LogResponse(BaseModel):
 
 # ── 엔드포인트 ─────────────────────────────────────────────────────────────────
 
-@router.post("/send", summary="리포트 메일 발송 (백그라운드)")
+@router.post(
+    "/send",
+    summary="리포트 메일 발송 (백그라운드)",
+    dependencies=[Depends(require_ai_budget)],
+)
 def send_report(
     body: SendReportRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """분석 → LLM 코멘트 → HTML 빌드 → 메일 발송을 백그라운드로 실행합니다."""
 
     def _task() -> None:
         task_db = SessionLocal()
         try:
-            orchestrator = build_orchestrator(task_db)
+            orchestrator = build_orchestrator(task_db, user=current_user)
             orchestrator.run(
                 curr_year=body.curr_year,
                 curr_month=body.curr_month,
@@ -99,12 +106,13 @@ def send_report_sync(
     recipients: str,
     subject: str = "",
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """즉시 발송하고 결과를 반환합니다 (주로 테스트용)."""
     to = [r.strip() for r in recipients.split(",") if r.strip()]
     if not to:
         raise HTTPException(status_code=400, detail="수신자를 입력하세요.")
-    orchestrator = build_orchestrator(db)
+    orchestrator = build_orchestrator(db, user=current_user)
     result = orchestrator.run(
         curr_year=curr_year,
         curr_month=curr_month,

@@ -17,6 +17,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 
+from app.core.ai_budget import require_ai_budget
 from app.core.database import SessionLocal
 from app.core.security import get_current_user
 from app.core.settings import settings
@@ -40,6 +41,7 @@ from app.schemas.marketing_schema import (
     UploadTaskResponse,
 )
 from app.services import storage_service, task_store
+from app.services.ai_usage import AI_TOOL_MARKETING_COMMENT, log_ai_usage
 from app.services.analysis_service import AnalysisService
 from app.services.comment_service import CommentService
 from app.services.excel_service import ExcelService, resolve_period
@@ -176,23 +178,65 @@ def _periods_in_df(df: pd.DataFrame) -> list[tuple[int, int]]:
     return sorted({(int(y), int(m)) for y, m in zip(dt.dt.year, dt.dt.month)})
 
 
-def _excel_to_df(content: bytes, periods: list[str] | None) -> tuple[pd.DataFrame, list[str]]:
-    """업로드된 엑셀 → DB 저장용 DataFrame + 읽은 기간 목록.
+def _excel_to_df(
+    content: bytes, periods: list[str] | None
+) -> tuple[pd.DataFrame, list[str], dict[tuple[int, int], str]]:
+    """업로드된 엑셀 → (DB 저장용 DataFrame, 읽은 기간 목록, 연월별 코멘트).
 
     periods 를 주면 그 기간 시트만, 없으면 파일 안의 모든 기간을 읽는다.
+
+    코멘트(summary B32)는 시트별로 따로 모은다. 시트 이름의 기간 라벨은 연도가 빠져
+    있기도 해서("3월"), 실제 연월은 매체 시트의 날짜 값에서 가져온다.
     """
     svc = ExcelReaderService()
     try:
         reports = svc.read_reports(content, periods=periods or None)
-        df = svc.reports_to_db_dataframe(reports)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    if df.empty:
+    frames: list[pd.DataFrame] = []
+    comments: dict[tuple[int, int], str] = {}
+    for report in reports:
+        frame = svc.to_db_dataframe(report)
+        if frame.empty:
+            continue
+        frame["report_date"] = pd.to_datetime(frame["report_date"])
+        frames.append(frame)
+
+        text = (report.get("comment") or "").strip()
+        if text:
+            first = frame["report_date"].min()
+            comments[(int(first.year), int(first.month))] = text
+
+    if not frames:
         raise HTTPException(status_code=422, detail="저장할 데이터가 없습니다.")
 
-    df["report_date"] = pd.to_datetime(df["report_date"])
-    return df, [r["period"] for r in reports]
+    return pd.concat(frames, ignore_index=True), [r["period"] for r in reports], comments
+
+
+def _save_period_comments(comments: dict[tuple[int, int], str]) -> int:
+    """엑셀 summary B32 코멘트를 marketing_period_meta 에 반영하고 저장한 기간 수를 돌려준다.
+
+    빈 코멘트는 건너뛴다 — 파일에 코멘트가 없다고 해서 이미 저장돼 있는 코멘트를
+    지울 이유는 없다. (엑셀 내보내기가 이 값을 B32 에 다시 써 넣으므로, 저장하지 않으면
+    업로드 → 내보내기를 한 바퀴 돌 때마다 코멘트가 사라진다.)
+    """
+    filled = {key: text.strip() for key, text in comments.items() if text and text.strip()}
+    if not filled:
+        return 0
+
+    db = SessionLocal()
+    try:
+        repo = MarketingRepository(db)
+        for (year, month), text in filled.items():
+            repo.upsert_period_meta(year, month, comment=text)
+        db.commit()
+        return len(filled)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def _empty_report(period: str) -> ReportResponse:
@@ -446,7 +490,11 @@ def _delete_periods(periods: list[tuple[int, int]]) -> int:
 
 
 def _run_save_task(
-    task_id: str, df: pd.DataFrame, periods: list[tuple[int, int]], replace: bool
+    task_id: str,
+    df: pd.DataFrame,
+    periods: list[tuple[int, int]],
+    replace: bool,
+    comments: dict[tuple[int, int], str] | None = None,
 ) -> None:
     """Excel DataFrame → DB UPSERT 백그라운드 작업.
 
@@ -469,11 +517,21 @@ def _run_save_task(
 
         task_store.update_task(task_id, progress=90)
 
+        # ── 3단계: 코멘트 — 실패해도 데이터 저장까지 실패로 만들지 않는다 ──────────
+        saved_comments = 0
+        if comments:
+            try:
+                saved_comments = _save_period_comments(comments)
+            except Exception:
+                logger.exception("코멘트 저장 실패 (데이터는 저장됨, task=%s)", task_id)
+
         scope = ", ".join(_period_label(y, m) for y, m in periods)
         if replace:
             msg = f"{scope}: 기존 {deleted}개 행을 삭제하고 {saved}개 행으로 교체했습니다."
         else:
             msg = f"{scope}: {saved}개 행을 저장했습니다."
+        if saved_comments:
+            msg += f" 코멘트 {saved_comments}개 기간도 함께 저장했습니다."
 
         task_store.update_task(
             task_id,
@@ -483,6 +541,7 @@ def _run_save_task(
             result_patch={
                 "saved_rows": saved,
                 "deleted_rows": deleted if replace else 0,
+                "saved_comments": saved_comments,
                 "undo_id": undo_id,
             },
         )
@@ -499,20 +558,24 @@ async def start_save_excel_task(
     period: list[str] | None = Query(
         None, description="저장할 기간 시트 (예: period=26년 5월&period=26년 6월). 생략 시 전체"
     ),
+    save_comment: bool = Query(True, description="summary B32 코멘트도 함께 저장"),
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Excel DB 저장을 백그라운드로 시작하고 task_id 반환.
 
     period 를 주면 고른 달만, 없으면 파일에 담긴 모든 달을 저장한다.
     replace=true 이면 저장 대상 달들의 기존 행을 각각 지우고 교체한다.
+    save_comment=true 이면 summary B32 코멘트도 marketing_period_meta 에 반영한다.
     """
     check_content_length(request)
     content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
-    df, _ = _excel_to_df(content, period)
+    df, _, comments = _excel_to_df(content, period)
     periods = _periods_in_df(df)
 
     task_id = task_store.create_task(_KIND_SAVE, user_id=current_user.id)
-    background_tasks.add_task(_run_save_task, task_id, df, periods, replace)
+    background_tasks.add_task(
+        _run_save_task, task_id, df, periods, replace, comments if save_comment else None
+    )
 
     return {"task_id": task_id}
 
@@ -710,18 +773,24 @@ async def get_summary(
         db.close()
 
 
-@router.post("/comment")
+@router.post("/comment", dependencies=[Depends(require_ai_budget)])
 async def update_comment(
     year: int = Query(...),
     month: int = Query(...),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
-    """해당 연월 vs 직전월 누적 DB 데이터를 비교해 AI 코멘트를 새로 생성하고 저장"""
+    """해당 연월 vs 직전월 누적 DB 데이터를 비교해 AI 코멘트를 새로 생성하고 저장.
+
+    LLM 호출이므로 다른 AI 도구와 똑같이 월 예산 게이트를 지나고, 쓴 토큰을
+    ai_tool_usage_logs 에 남긴다. 예전에는 둘 다 없어서 이 버튼으로 쓴 토큰이
+    관리자 화면의 사용량과 예산 집계에서 통째로 빠져 있었다.
+    """
     prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
 
     db = SessionLocal()
     try:
         comparison = AnalysisService(db).compare(year, month, prev_year, prev_month)
-        comment = CommentService(llm=build_llm()).generate(comparison)
+        comment, usage = CommentService(llm=build_llm()).generate_with_usage(comparison)
         repo = MarketingRepository(db)
         repo.upsert_period_meta(year, month, comment=comment)
         db.commit()
@@ -731,6 +800,13 @@ async def update_comment(
         raise HTTPException(status_code=500, detail=f"코멘트 생성 실패: {exc}")
     finally:
         db.close()
+
+    log_ai_usage(
+        user=current_user,
+        tool=AI_TOOL_MARKETING_COMMENT,
+        label=_period_label(year, month),
+        usage=usage,
+    )
     return {"comment": comment, "comment_updated_at": comment_updated_at}
 
 
@@ -834,15 +910,17 @@ async def save_excel_data(
     period: list[str] | None = Query(
         None, description="저장할 기간 시트 (예: period=26년 5월&period=26년 6월). 생략 시 전체"
     ),
+    save_comment: bool = Query(True, description="summary B32 코멘트도 함께 저장"),
 ) -> dict:
     """Excel 파일 매체 시트 데이터를 DB에 저장.
 
     period 를 주면 고른 달만, 없으면 파일에 담긴 모든 달을 저장한다.
     replace=true 이면 저장 대상 달들의 기존 데이터를 각각 먼저 삭제하고 교체.
+    save_comment=true 이면 summary B32 코멘트도 marketing_period_meta 에 반영한다.
     """
     check_content_length(request)
     content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
-    df, _ = _excel_to_df(content, period)
+    df, _, comments = _excel_to_df(content, period)
     periods = _periods_in_df(df)
 
     deleted = 0
@@ -857,14 +935,26 @@ async def save_excel_data(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"DB 저장 실패: {exc}")
 
+    # 코멘트 저장이 실패해도 이미 들어간 데이터를 되돌리지는 않는다 — 부가 정보라서
+    # 여기서 500을 던지면 "저장이 안 됐다"로 읽히고 사용자가 같은 파일을 다시 올린다.
+    saved_comments = 0
+    if save_comment:
+        try:
+            saved_comments = _save_period_comments(comments)
+        except Exception:
+            logger.exception("코멘트 저장 실패 (데이터는 저장됨)")
+
     scope = ", ".join(_period_label(y, m) for y, m in periods)
     if replace:
         msg = f"{scope}: 기존 {deleted}개 행을 삭제하고 {saved}개 행으로 교체했습니다."
     else:
         msg = f"{scope}: {saved}개 행을 저장했습니다."
+    if saved_comments:
+        msg += f" 코멘트 {saved_comments}개 기간도 함께 저장했습니다."
     return {
         "saved_rows": saved,
         "deleted_rows": deleted if replace else 0,
+        "saved_comments": saved_comments,
         "periods": [_period_label(y, m) for y, m in periods],
         "message": msg,
     }

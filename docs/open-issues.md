@@ -117,17 +117,17 @@ PERIOD 토큰을 치환하는 방식으로 전환했다. 셀 값·수식·조건
 
 ---
 
-## 6. 엑셀 이메일 발송 차단 중 — 되돌리는 방법
+## 6. 엑셀 이메일 발송 — 화면에서 제거됨, API는 남아 있음
 
-DB 엑셀을 메일로 받는 경로(`export-db-task?deliver_by=email`)를 막아둔 상태다.
-다운로드와 리포트 메일(`/api/report-mail`)은 영향받지 않는다.
+DB 엑셀을 메일로 받는 버튼을 대시보드(`DbDashboard`)에서 걷어냈다(2026-07-29).
+필요 없다는 판단이었고, 그때 `RecipientPopover` 와 `components/ui/EmailRecipientInput.tsx`
+도 함께 지웠다 — 되살리려면 git 에서 꺼내면 된다.
 
-다시 열려면 스위치 두 개를 함께 되돌린다:
+백엔드 경로(`export-db-task?deliver_by=email`)는 그대로 있고 여전히 막혀 있다
+(`marketing_router.py` → `EXPORT_EMAIL_UNDER_MAINTENANCE = True`). 화면을 다시 붙일 때
+이 값도 함께 `False` 로 돌려야 한다 — 안 그러면 API가 503을 돌려준다.
 
-- `back/app/routers/marketing_router.py` → `EXPORT_EMAIL_UNDER_MAINTENANCE = False`
-- `front/components/marketing/DbDashboard.tsx` → `EXPORT_EMAIL_UNDER_MAINTENANCE = false`
-
-백엔드만 풀면 버튼이 계속 비활성이고, 프론트만 풀면 API가 503을 돌려준다.
+코멘트 기반 리포트 메일(`/report-email`, `/api/report-mail`)은 별개이며 영향받지 않는다.
 
 ---
 

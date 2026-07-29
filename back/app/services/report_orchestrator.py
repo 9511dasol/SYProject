@@ -3,6 +3,8 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.models.report_log_model import ReportLog
+from app.models.user_model import User
+from app.services.ai_usage import AI_TOOL_REPORT_MAIL, log_ai_usage
 from app.services.analysis_service import AnalysisService
 from app.services.comment_service import CommentService
 from app.services.mail.base import AbstractMailSender
@@ -21,12 +23,15 @@ class ReportOrchestrator:
         builder_svc: ReportBuilderService,
         mail_sender: AbstractMailSender,
         db: Session,
+        user: User | None = None,
     ):
         self.analysis = analysis_svc
         self.comment = comment_svc
         self.builder = builder_svc
         self.mail = mail_sender
         self.db = db
+        # 사용량 로그에 남길 실행 주체. 월간 크론처럼 사람이 없으면 None.
+        self.user = user
 
     def run(
         self,
@@ -51,7 +56,14 @@ class ReportOrchestrator:
         )
         try:
             comparison = self.analysis.compare(curr_year, curr_month, prev_year, prev_month)
-            comment = self.comment.generate(comparison)
+            comment, usage = self.comment.generate_with_usage(comparison)
+            # 코멘트가 나온 시점에 바로 남긴다 — 뒤의 메일 발송이 실패해도 토큰은 이미 썼다.
+            log_ai_usage(
+                user=self.user,
+                tool=AI_TOOL_REPORT_MAIL,
+                label=f"{curr_year}년 {curr_month}월",
+                usage=usage,
+            )
             html = self.builder.build(comparison, comment)
             self.mail.send(recipients, subject, html)
             log.status = "sent"

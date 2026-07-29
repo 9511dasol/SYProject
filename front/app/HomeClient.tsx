@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
-import MainTabs from '@/components/marketing/MainTabs';
+import UploadPanel from '@/components/marketing/UploadPanel';
 import ReportDashboard, { type ImportedReport, type PendingLoad } from '@/components/marketing/ReportDashboard';
 import Modal from '@/components/ui/Modal';
 import ToastContainer, { type ToastItem } from '@/components/ui/Toast';
@@ -26,28 +26,9 @@ interface SaveTaskEntry {
   startError?: string;       // startSaveExcelTask 실패 시
 }
 
-// ── 퀵 액션 카드 데이터 ────────────────────────────────────────────────────────
-
-const QUICK_ACTIONS = [
-  {
-    id: 'report',
-    href: '#saved-report',
-    icon: 'bx-bar-chart-alt-2',
-    title: '저장된 리포트 보기',
-    description: 'DB에 저장된 연·월 데이터를 조회하고 Excel로 내려받습니다.',
-    accent: 'from-blue-500/10 to-indigo-500/5 border-blue-200/80',
-    iconBg: 'bg-blue-600',
-  },
-  {
-    id: 'upload',
-    href: undefined,
-    icon: 'bx-cloud-upload',
-    title: '새 데이터 업로드',
-    description: 'CSV 분석·저장 또는 Excel 불러오기·DB 저장을 진행합니다.',
-    accent: 'from-emerald-500/10 to-teal-500/5 border-emerald-200/80',
-    iconBg: 'bg-emerald-600',
-  },
-] as const;
+const CARD_BASE =
+  'group relative flex gap-4 p-5 rounded-2xl border bg-linear-to-br bg-white dark:bg-surface ' +
+  'dark:border-border shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 text-left';
 
 // ── 섹션 헤더 ─────────────────────────────────────────────────────────────────
 
@@ -79,6 +60,9 @@ export default function HomeClient() {
   const queryClient = useQueryClient();
 
   const [uploadOpen, setUploadOpen] = useState(false);
+  // 홈 카드에 떨궈 모달을 연 경우, 그 파일을 모달의 첫 상태로 넘긴다
+  const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [saveTaskEntries, setSaveTaskEntries] = useState<SaveTaskEntry[]>([]);
   const [importedReports, setImportedReports] = useState<ImportedReport[]>([]);
@@ -173,6 +157,7 @@ export default function HomeClient() {
   const handleUploadSuccess = useCallback(
     (message: string, undoId?: string) => {
       setUploadOpen(false);
+      setDroppedFiles([]);
       // refreshTrigger 대신 직접 캐시 무효화
       queryClient.invalidateQueries({ queryKey: queryKeys.periods() });
       if (undoId) {
@@ -211,6 +196,7 @@ export default function HomeClient() {
 
       setPendingLoads((prev) => [...prev, { id: pendingId, label }]);
       setUploadOpen(false);
+      setDroppedFiles([]);
 
       loadExcelReports(file)
         .then((reports) => {
@@ -292,7 +278,25 @@ export default function HomeClient() {
     saveActiveTab(id);
   }, []);
 
-  const openUpload = useCallback(() => setUploadOpen(true), []);
+  const openUpload = useCallback(() => {
+    setDroppedFiles([]);
+    setUploadOpen(true);
+  }, []);
+
+  const closeUpload = useCallback(() => {
+    setUploadOpen(false);
+    setDroppedFiles([]);
+  }, []);
+
+  // 카드에 떨군 파일로 모달을 연다. preventDefault 를 빠뜨리면 브라우저가 그 파일로
+  // 페이지를 이동시켜 작업하던 화면이 통째로 날아간다.
+  const handleCardDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    setDroppedFiles(files);
+    setUploadOpen(true);
+  }, []);
 
   return (
     <>
@@ -304,20 +308,17 @@ export default function HomeClient() {
         }
       />
 
-      {/* 업로드 모달 */}
-      <Modal
-        open={uploadOpen}
-        onClose={() => setUploadOpen(false)}
-        title="데이터 업로드"
-        icon="bx-cloud-upload"
-        size="lg"
-      >
-        <MainTabs
-          onSuccess={handleUploadSuccess}
-          onError={handleUploadError}
-          onRequestLoad={handleRequestLoad}
-        />
-      </Modal>
+      {/* 업로드 모달 — 열 때마다 새로 마운트해 이전 선택이 남지 않게 한다 */}
+      {uploadOpen && (
+        <Modal open onClose={closeUpload} title="데이터 업로드" icon="bx-cloud-upload" size="lg">
+          <UploadPanel
+            initialFiles={droppedFiles}
+            onSuccess={handleUploadSuccess}
+            onError={handleUploadError}
+            onRequestLoad={handleRequestLoad}
+          />
+        </Modal>
+      )}
 
       {/* 배경 그라디언트 */}
       <div className="fixed inset-0 -z-10 pointer-events-none" aria-hidden>
@@ -340,47 +341,55 @@ export default function HomeClient() {
           </p>
 
           <div className="grid sm:grid-cols-2 gap-4">
-            {QUICK_ACTIONS.map((action) =>
-              action.id === 'upload' ? (
-                <button
-                  key={action.id}
-                  onClick={openUpload}
-                  className={`group relative flex gap-4 p-5 rounded-2xl border bg-linear-to-br
-                    ${action.accent} bg-white dark:bg-surface dark:border-border shadow-sm hover:shadow-md hover:-translate-y-0.5
-                    transition-all duration-200 text-left`}
-                >
-                  <span className={`flex items-center justify-center w-11 h-11 rounded-xl ${action.iconBg} text-white shadow-sm shrink-0`}>
-                    <i className={`bx ${action.icon} text-xl`} />
-                  </span>
-                  <div className="min-w-0 pt-0.5">
-                    <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-fg group-hover:text-slate-900 dark:group-hover:text-fg">
-                      {action.title}
-                      <i className="bx bx-right-arrow-alt text-slate-400 dark:text-fg-subtle group-hover:translate-x-0.5 transition-transform" />
-                    </span>
-                    <p className="text-xs text-slate-500 dark:text-fg-muted mt-1.5 leading-relaxed">{action.description}</p>
-                  </div>
-                </button>
-              ) : (
-                <a
-                  key={action.id}
-                  href={action.href}
-                  className={`group relative flex gap-4 p-5 rounded-2xl border bg-linear-to-br
-                    ${action.accent} bg-white dark:bg-surface dark:border-border shadow-sm hover:shadow-md hover:-translate-y-0.5
-                    transition-all duration-200`}
-                >
-                  <span className={`flex items-center justify-center w-11 h-11 rounded-xl ${action.iconBg} text-white shadow-sm shrink-0`}>
-                    <i className={`bx ${action.icon} text-xl`} />
-                  </span>
-                  <div className="min-w-0 pt-0.5">
-                    <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-fg group-hover:text-slate-900 dark:group-hover:text-fg">
-                      {action.title}
-                      <i className="bx bx-right-arrow-alt text-slate-400 dark:text-fg-subtle group-hover:translate-x-0.5 transition-transform" />
-                    </span>
-                    <p className="text-xs text-slate-500 dark:text-fg-muted mt-1.5 leading-relaxed">{action.description}</p>
-                  </div>
-                </a>
-              ),
-            )}
+            <a
+              href="#saved-report"
+              className={`${CARD_BASE} from-blue-500/10 to-indigo-500/5 border-blue-200/80`}
+            >
+              <span className="flex items-center justify-center w-11 h-11 rounded-xl bg-blue-600 text-white shadow-sm shrink-0">
+                <i className="bx bx-bar-chart-alt-2 text-xl" />
+              </span>
+              <div className="min-w-0 pt-0.5">
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-fg">
+                  저장된 리포트 보기
+                  <i className="bx bx-right-arrow-alt text-slate-400 dark:text-fg-subtle group-hover:translate-x-0.5 transition-transform" />
+                </span>
+                <p className="text-xs text-slate-500 dark:text-fg-muted mt-1.5 leading-relaxed">
+                  DB에 저장된 연·월 데이터를 조회하고 Excel로 내려받습니다.
+                </p>
+              </div>
+            </a>
+
+            {/* 업로드 카드는 그 자체가 드롭존이다 — 파일을 여기 떨구면 모달이 파일 선택
+                단계를 건너뛰고 바로 확인 단계로 열린다 (클릭 3번 → 1번). */}
+            <button
+              onClick={openUpload}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleCardDrop}
+              className={`${CARD_BASE} ${
+                dragOver
+                  ? 'from-emerald-500/25 to-teal-500/10 border-emerald-500 ring-2 ring-emerald-500/40'
+                  : 'from-emerald-500/10 to-teal-500/5 border-emerald-200/80'
+              }`}
+            >
+              <span className="flex items-center justify-center w-11 h-11 rounded-xl bg-emerald-600 text-white shadow-sm shrink-0">
+                <i className="bx bx-cloud-upload text-xl" />
+              </span>
+              <div className="min-w-0 pt-0.5">
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-fg">
+                  새 데이터 업로드
+                  <i className="bx bx-right-arrow-alt text-slate-400 dark:text-fg-subtle group-hover:translate-x-0.5 transition-transform" />
+                </span>
+                <p className="text-xs text-slate-500 dark:text-fg-muted mt-1.5 leading-relaxed">
+                  {dragOver
+                    ? '여기에 놓으면 바로 확인 단계로 넘어갑니다'
+                    : '매체·전환 CSV 또는 리포트 Excel을 끌어다 놓거나 클릭하세요.'}
+                </p>
+              </div>
+            </button>
           </div>
 
           <ol className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-500 dark:text-fg-muted">

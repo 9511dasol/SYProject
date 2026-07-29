@@ -7,6 +7,7 @@
 
 from sqlalchemy.orm import Session
 
+from app.models.user_model import User
 from app.services.analysis_service import AnalysisService
 from app.services.comment_service import CommentService
 from app.services.llm import build_llm
@@ -15,11 +16,13 @@ from app.services.report_builder_service import ReportBuilderService
 from app.services.report_orchestrator import ReportOrchestrator
 
 
-def build_orchestrator(db: Session) -> ReportOrchestrator:
+def build_orchestrator(db: Session, user: User | None = None) -> ReportOrchestrator:
+    """user 는 AI 사용량 로그에 남길 실행 주체 — 월간 크론처럼 사람이 없으면 생략한다."""
     return ReportOrchestrator(
         analysis_svc=AnalysisService(db),
         comment_svc=CommentService(llm=build_llm()),
         builder_svc=ReportBuilderService(),
         mail_sender=build_mail_sender(),
         db=db,
+        user=user,
     )

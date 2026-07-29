@@ -11,6 +11,8 @@ const TOOL_LABELS: Record<AIToolKey, string> = {
   image_filter: '이미지 정제',
   image_resize: '리사이저 (AI 업스케일)',
   heading_suggest: '헤딩 문구 추천',
+  marketing_comment: '마케팅 코멘트 생성',
+  report_mail: '리포트 메일 코멘트',
 };
 
 const PAGE_SIZE = 50;
@@ -272,7 +274,8 @@ export default function AdminAiUsageLogsClient() {
                   <th className="px-4 py-3">시각</th>
                   <th className="px-4 py-3">사용자</th>
                   <th className="px-4 py-3">기능</th>
-                  <th className="px-4 py-3">파일명</th>
+                  {/* 이미지 도구는 파일명, 코멘트 생성은 대상 기간이 들어온다 */}
+                  <th className="px-4 py-3">대상</th>
                   <th className="px-4 py-3">프롬프트</th>
                   <th className="px-4 py-3 text-right">토큰</th>
                 </tr>
@@ -282,7 +285,7 @@ export default function AdminAiUsageLogsClient() {
                   <tr key={log.id}>
                     <td className="px-4 py-3 text-fg-subtle whitespace-nowrap">{formatDate(log.created_at)}</td>
                     <td className="px-4 py-3 text-fg">{log.user_email}</td>
-                    <td className="px-4 py-3 text-fg-muted whitespace-nowrap">{TOOL_LABELS[log.tool]}</td>
+                    <td className="px-4 py-3 text-fg-muted whitespace-nowrap">{TOOL_LABELS[log.tool] ?? log.tool}</td>
                     <td className="px-4 py-3 text-fg-muted max-w-50 truncate" title={log.image_filename}>
                       {log.image_filename}
                     </td>

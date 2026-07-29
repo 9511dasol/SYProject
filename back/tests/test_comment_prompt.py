@@ -2,15 +2,17 @@
 
 from app.services.analysis_service import MediaComparison, MediaKPI, PeriodComparison
 from app.services.comment_service import CommentService
+from app.services.token_usage import TokenUsage
 
 
 class _StubLLM:
-    def __init__(self):
+    def __init__(self, usage: TokenUsage | None = None):
         self.prompt = ""
+        self._usage = usage
 
-    def generate(self, prompt: str) -> str:
+    def generate_with_usage(self, prompt: str) -> tuple[str, TokenUsage | None]:
         self.prompt = prompt
-        return "코멘트"
+        return "코멘트", self._usage
 
 
 def _comparison(has_prev2: bool) -> PeriodComparison:
@@ -48,6 +50,27 @@ def _render(has_prev2: bool) -> str:
     llm = _StubLLM()
     CommentService(llm=llm).generate(_comparison(has_prev2))
     return llm.prompt
+
+
+class TestUsagePassthrough:
+    """코멘트와 함께 토큰 사용량이 올라와야 관리자 화면·예산 집계에 잡힌다."""
+
+    def test_usage_is_returned_alongside_the_comment(self):
+        usage = TokenUsage(prompt_tokens=1200, output_tokens=300, total_tokens=1500)
+        comment, got = CommentService(llm=_StubLLM(usage)).generate_with_usage(
+            _comparison(has_prev2=True)
+        )
+
+        assert comment == "코멘트"
+        assert got == usage
+
+    def test_missing_usage_does_not_break_generation(self):
+        comment, got = CommentService(llm=_StubLLM(None)).generate_with_usage(
+            _comparison(has_prev2=True)
+        )
+
+        assert comment == "코멘트"
+        assert got is None
 
 
 class TestThreeMonthPrompt:
