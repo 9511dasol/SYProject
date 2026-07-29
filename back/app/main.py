@@ -49,7 +49,7 @@ scheduler = AsyncIOScheduler()
 
 # 관리자 페이지 "기능 플래그" 기본값 — key: (기본값, 설명)
 _DEFAULT_FEATURE_FLAGS: dict[str, tuple[str, str]] = {
-    "is_dashboard_enabled":      ("true", "SA 광고 대시보드 (/)"),
+    "is_dashboard_enabled":      ("true", "SA 광고 대시보드 (/dashboard)"),
     "is_report_email_enabled":   ("true", "코멘트 & 리포트 메일 (/report-email)"),
     "is_keyword_compare_enabled": ("true", "키워드 성과 비교 (/keyword-compare)"),
     "is_image_filter_enabled":   ("true", "이미지 정제 (/image-filter)"),
