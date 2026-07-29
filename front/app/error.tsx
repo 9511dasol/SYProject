@@ -63,7 +63,7 @@ export default function GlobalError({ error, reset }: ErrorProps) {
           다시 시도
         </button>
         <Link
-          href="/"
+          href="/dashboard"
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold
             border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
         >

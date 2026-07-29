@@ -32,7 +32,7 @@ export default function NotFound() {
 
       {/* 홈으로 */}
       <Link
-        href="/"
+        href="/dashboard"
         className="mt-7 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold
           bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.98] transition-all shadow-sm"
       >

@@ -17,7 +17,7 @@ import Button from '@/components/ui/Button';
 interface UploadPanelProps {
   onSuccess?: (message: string, undoId?: string) => void;
   onError?: (message: string) => void;
-  /** 엑셀 리포트를 대시보드 탭으로 여는 경로 (HomeClient 가 백그라운드로 처리) */
+  /** 엑셀 리포트를 대시보드 탭으로 여는 경로 (DashboardClient 가 백그라운드로 처리) */
   onRequestLoad?: (file: File, fileName: string) => void;
   /** 홈 카드에 파일을 떨궈 열렸을 때 미리 채워지는 파일 */
   initialFiles?: File[];

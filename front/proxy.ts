@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 
-// 인증 없이 접근 가능한 경로
+// 인증 없이 접근 가능한 경로 (하위 경로까지 공개)
 const PUBLIC_PATHS = ['/login'];
 
 function isPublicPath(pathname: string) {
+  // 제품 소개(랜딩) 페이지는 '/' 하나만 공개한다 — PUBLIC_PATHS에 '/'를 넣으면
+  // startsWith('/') 때문에 앱 전체가 열려버리므로 여기서 따로 처리한다.
+  if (pathname === '/') return true;
+
   return PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 }
 
@@ -15,19 +19,20 @@ export const proxy = auth((req) => {
   const isAdmin = req.auth?.user?.role === 'admin';
   const { pathname } = req.nextUrl;
 
+  // 세션이 없으면 로그인 폼이 아니라 소개 페이지로 보낸다 —
+  // 로그인은 그 페이지의 CTA에서 시작한다.
   if (!isLoggedIn && !isPublicPath(pathname)) {
-    const loginUrl = new URL('/login', req.nextUrl.origin);
-    return NextResponse.redirect(loginUrl);
+    return NextResponse.redirect(new URL('/', req.nextUrl.origin));
   }
 
   if (isLoggedIn && pathname === '/login') {
-    const homeUrl = new URL(isAdmin ? '/admin/settings' : '/', req.nextUrl.origin);
+    const homeUrl = new URL(isAdmin ? '/admin/settings' : '/dashboard', req.nextUrl.origin);
     return NextResponse.redirect(homeUrl);
   }
 
   // 관리자 전용 경로 — admin이 아니면 접근 차단
   if (isLoggedIn && !isAdmin && pathname.startsWith('/admin')) {
-    return NextResponse.redirect(new URL('/', req.nextUrl.origin));
+    return NextResponse.redirect(new URL('/dashboard', req.nextUrl.origin));
   }
 });
 

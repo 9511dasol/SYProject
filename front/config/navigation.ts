@@ -9,7 +9,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         id: 'dashboard',
         label: 'SA 광고 대시보드',
         icon: 'bx-bar-chart-alt-2',
-        href: '/',
+        href: '/dashboard',
         description: '매체 데이터 분석 및 DB 저장',
       },
       {

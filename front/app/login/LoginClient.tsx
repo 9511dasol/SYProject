@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getSession, signIn } from 'next-auth/react';
 import { isAxiosError } from 'axios';
@@ -51,7 +52,7 @@ export default function LoginClient() {
       }
 
       const session = await getSession();
-      router.push(session?.user.role === 'admin' ? '/admin/settings' : '/');
+      router.push(session?.user.role === 'admin' ? '/admin/settings' : '/dashboard');
       router.refresh();
     } finally {
       setPending(false);
@@ -84,7 +85,7 @@ export default function LoginClient() {
         return;
       }
 
-      router.push('/');
+      router.push('/dashboard');
       router.refresh();
     } catch (err) {
       if (isAxiosError(err) && err.response?.status === 409) {
@@ -100,6 +101,19 @@ export default function LoginClient() {
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-slate-50">
       <BackgroundCurve mode={mode} />
+
+      {/* 소개 페이지로 돌아가기 — 곡선 배경(z-6) 위에 떠 있어야 하므로 z-10.
+          배경이 초록 곡선일 때도, 흰 여백일 때도 읽히도록 반투명 흰 알약으로 둔다. */}
+      <Link
+        href="/"
+        className="absolute top-4 left-4 z-10 inline-flex items-center gap-1.5
+          rounded-xl border border-slate-200/70 bg-white/85 px-3.5 py-2
+          text-xs font-semibold text-slate-700 shadow-sm backdrop-blur
+          transition-colors hover:bg-white hover:text-slate-900"
+      >
+        <i className="bx bx-left-arrow-alt text-base" />
+        소개 페이지로
+      </Link>
 
       {/* FORM 영역 */}
       <div className="relative flex h-screen flex-wrap">

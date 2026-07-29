@@ -39,10 +39,7 @@ function NavItemRow({
   pathname: string;
   onClose: () => void;
 }) {
-  const isActive =
-    item.href === '/'
-      ? pathname === '/'
-      : pathname === item.href || pathname.startsWith(item.href + '/');
+  const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
   if (item.disabled) {
     return (
@@ -115,18 +112,28 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           flex flex-col transition-transform duration-300 ease-in-out
           ${open ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}
       >
-        {/* 로고 영역 */}
+        {/* 로고 영역 — 로고 클릭 시 소개 페이지(홈)로 나간다 */}
         <div className="h-14 px-5 flex items-center gap-3 border-b border-border-soft shrink-0">
-          <span
-            className="flex items-center justify-center w-8 h-8 rounded-xl
-              bg-linear-to-br from-blue-600 to-indigo-600 shadow-sm shadow-blue-600/30 shrink-0"
+          <Link
+            href="/"
+            onClick={onClose}
+            title="소개 페이지(홈)"
+            className="flex items-center gap-3 min-w-0 group"
           >
-            <i className="bx bx-line-chart text-white text-base" />
-          </span>
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-fg leading-tight">마케팅 AI</p>
-            <p className="text-[10px] text-fg-subtle leading-tight tracking-wide">Analytics Platform</p>
-          </div>
+            <span
+              className="flex items-center justify-center w-8 h-8 rounded-xl
+                bg-linear-to-br from-blue-600 to-indigo-600 shadow-sm shadow-blue-600/30 shrink-0
+                group-hover:scale-105 transition-transform duration-150"
+            >
+              <i className="bx bx-line-chart text-white text-base" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-bold text-fg leading-tight">마케팅 AI</span>
+              <span className="block text-[10px] text-fg-subtle leading-tight tracking-wide">
+                Analytics Platform
+              </span>
+            </span>
+          </Link>
 
           {/* 모바일 닫기 버튼 */}
           <button

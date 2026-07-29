@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { NAV_GROUPS } from '@/config/navigation';
 import type { NavItem } from '@/types/navigation';
@@ -21,10 +22,7 @@ interface BreadcrumbItem {
 function findNavItem(pathname: string): BreadcrumbItem | null {
   for (const group of NAV_GROUPS) {
     for (const item of group.items) {
-      const isMatch =
-        item.href === '/'
-          ? pathname === '/'
-          : pathname === item.href || pathname.startsWith(item.href + '/');
+      const isMatch = pathname === item.href || pathname.startsWith(`${item.href}/`);
       if (isMatch) {
         return { groupLabel: group.groupLabel ?? '', item };
       }
@@ -55,6 +53,19 @@ export default function Header({ onMenuClick }: HeaderProps) {
       >
         <i className="bx bx-menu text-xl" />
       </button>
+
+      {/* 홈(소개 페이지) — 브레드크럼 맨 앞에 두어 '홈 › 그룹 › 페이지'로 읽히게 한다 */}
+      <Link
+        href="/"
+        aria-label="소개 페이지로 이동"
+        title="소개 페이지(홈)"
+        className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0
+          text-fg-muted hover:text-fg hover:bg-surface-2
+          border border-transparent hover:border-border transition-all duration-200"
+      >
+        <i className="bx bx-home-alt text-lg" />
+      </Link>
+      <i className="bx bx-chevron-right text-fg-subtle text-sm shrink-0 -ml-1" />
 
       {/* 브레드크럼 / 페이지 타이틀 */}
       {match ? (

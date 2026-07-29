@@ -19,7 +19,8 @@ export default function SidebarProfile() {
     if (loggingOut) return;
     setLoggingOut(true);
     try {
-      await signOut({ callbackUrl: '/login' });
+      // 로그아웃하면 로그인 폼이 아니라 제품 소개 페이지로 나간다.
+      await signOut({ callbackUrl: '/' });
     } catch {
       setLoggingOut(false);
     }

@@ -56,7 +56,7 @@ function SectionHeader({
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
 
-export default function HomeClient() {
+export default function DashboardClient() {
   const queryClient = useQueryClient();
 
   const [uploadOpen, setUploadOpen] = useState(false);

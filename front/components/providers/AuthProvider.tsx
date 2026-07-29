@@ -12,10 +12,10 @@ function AuthStoreSync() {
 
   useEffect(() => {
     // accessToken 자동 갱신(refresh token 만료 등으로)이 실패한 경우 —
-    // 세션은 남아있지만 더 이상 API를 호출할 수 없으므로 바로 로그아웃시켜 재로그인을 유도한다.
+    // 세션은 남아있지만 더 이상 API를 호출할 수 없으므로 바로 로그아웃시켜 소개 페이지로 내보낸다.
     if (session?.error === 'RefreshAccessTokenError') {
       clearUser();
-      signOut({ callbackUrl: '/login' });
+      signOut({ callbackUrl: '/' });
       return;
     }
 
