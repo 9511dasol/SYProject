@@ -1,8 +1,13 @@
-"""summary 시트 '전월' 행 채우기 테스트.
+"""빈 템플릿 + DB 값으로 리포트 엑셀을 만드는 경로.
 
-템플릿에 없는 기간은 다른 달 시트를 복사해 만드는데, 그 복사본의 전월 행에는
-템플릿을 만들 당시의 고정 숫자가 남는다. DB 값으로 덮어쓰지 않으면 MOM 비교가
-조용히 틀리므로 이 경로를 검증한다.
+템플릿(app/assets/report_template.xlsx)은 어느 달의 데이터도 갖고 있지 않다.
+수식·서식만 남기고 값은 비었고, 시트 이름의 기간 자리에는 PERIOD 토큰이 들어 있다.
+그래서 여기서 검증할 것은 "채워 넣은 값이 맞는가"와 "채우지 않은 칸에 남의 달 숫자가
+남지 않는가" 두 가지다.
+
+예전에는 템플릿이 특정 달의 실적을 안고 있고 다른 달은 그 시트를 복사해 만들었다.
+덮어쓰지 못한 셀(매체별 전월 행, 네이버BS 브검MO 비용, 운영 메모 …)이 어느 달 파일에도
+그대로 따라왔던 것이 이 구조를 바꾼 이유다.
 """
 
 import io
@@ -15,16 +20,21 @@ import pandas as pd
 import pytest
 
 from app.services.excel_service import (
+    PLACEHOLDER,
     PREV_MONTH_ROW,
+    PREV_ROW,
+    SUMMARY_BUDGET_COL,
+    SUMMARY_BUDGET_ROWS,
     SUMMARY_DAILY_ROW,
     SUMMARY_DAILY_SLOTS,
-    YOY_ROW,
     TEMPLATE_PATH,
+    YOY_ROW,
     ExcelService,
     _prev_month_cells,
+    resolve_period,
 )
 
-# 실제 6월 실적 (템플릿 하드코딩 값과 같은 수치) — 파생 지표 검산에 쓴다
+# 실제 6월 실적 — 파생 지표 검산에 쓴다
 PREV_TOTALS = {
     "impressions": 4574572,
     "clicks": 103847,
@@ -35,6 +45,62 @@ PREV_TOTALS = {
     "purchase": 5298.0,
     "apply": 1119.0,
 }
+
+_ALL_MEDIA = ("네이버SA", "네이버BS", "카카오SA", "구글SA", "네이버PSA")
+
+_SAMPLE = {
+    "impressions": 111, "clicks": 22, "cost": 3300.0, "conversions": 44,
+    "revenue": 5.0, "signup": 6.0, "purchase": 7.0, "apply": 8.0,
+}
+
+
+def _kpi_frame(year: int, month: int, days: int) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "date": f"{year}-{month:02d}-{day:02d}",
+                "impressions": 100 * day,
+                "clicks": 10 * day,
+                "cost": 1000 * day,
+                "total_conv": day,
+                "signup": day,
+                "purchase": day,
+                "revenue": 5000 * day,
+                "apply": day,
+            }
+            for day in range(1, days + 1)
+        ]
+    )
+
+
+def _export(period: str, year: int, month: int, days: int, **kwargs):
+    kpis = {label: _kpi_frame(year, month, days) for label in _ALL_MEDIA}
+    raw = ExcelService().fill_template(kpis, period, year, month, **kwargs)
+    return openpyxl.load_workbook(io.BytesIO(raw))
+
+
+needs_template = pytest.mark.skipif(not TEMPLATE_PATH.exists(), reason="report_template.xlsx 없음")
+
+
+# ── 기간 라벨 파싱 ────────────────────────────────────────────────────────────
+
+
+class TestResolvePeriod:
+    def test_reads_year_and_month_from_label(self):
+        assert resolve_period("26년 7월", None, None) == (2026, 7)
+
+    def test_four_digit_year_is_kept(self):
+        assert resolve_period("2026년 12월", None, None) == (2026, 12)
+
+    def test_explicit_arguments_win(self):
+        assert resolve_period("26년 7월", 2025, 3) == (2025, 3)
+
+    def test_unparsable_label_raises(self):
+        with pytest.raises(ValueError):
+            resolve_period("지난달", None, None)
+
+
+# ── summary 전월 행 (여기만 파생 지표까지 값으로 들어간다) ────────────────────
 
 
 class TestPrevMonthCells:
@@ -67,88 +133,35 @@ class TestPrevMonthCells:
         assert all(v == 0 for k, v in cells.items() if k != 8)
 
 
-def _kpi_frame(year: int, month: int, days: int) -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {
-                "date": f"{year}-{month:02d}-{day:02d}",
-                "impressions": 100 * day,
-                "clicks": 10 * day,
-                "cost": 1000 * day,
-                "total_conv": day,
-                "signup": day,
-                "purchase": day,
-                "revenue": 5000 * day,
-                "apply": day,
-            }
-            for day in range(1, days + 1)
-        ]
-    )
-
-
-@pytest.mark.skipif(not TEMPLATE_PATH.exists(), reason="report_template.xlsx 없음")
-class TestFillTemplatePrevMonthRow:
-    """템플릿에 없는 기간(26년 8월)을 시트 복사로 만드는 경로."""
-
+@needs_template
+class TestSummaryPrevMonthRow:
     @staticmethod
     def _summary(prev_totals):
-        kpis = {
-            label: _kpi_frame(2026, 8, 31)
-            for label in ("네이버SA", "네이버BS", "카카오SA", "구글SA", "네이버PSA")
-        }
-        raw = ExcelService().fill_template(kpis, "26년 8월", 2026, 8, prev_totals)
-        return openpyxl.load_workbook(io.BytesIO(raw))["summary_26년 8월"]
+        return _export("26년 8월", 2026, 8, 31, prev_totals=prev_totals)["summary_26년 8월"]
 
-    def test_prev_totals_overwrite_stale_numbers(self):
+    def test_prev_totals_are_written(self):
         ws = self._summary(PREV_TOTALS)
 
         assert ws.cell(PREV_MONTH_ROW, 2).value.strftime("%Y-%m") == "2026-07"
         assert ws.cell(PREV_MONTH_ROW, 3).value == 4574572
         assert ws.cell(PREV_MONTH_ROW, 7).value == 36887933.0
-        # 템플릿에 남아 있던 markup 숫자(38203774)가 비워졌는지
-        assert ws.cell(PREV_MONTH_ROW, 8).value is None
+        assert ws.cell(PREV_MONTH_ROW, 8).value is None   # markup 광고비
 
-    def test_without_prev_totals_row_is_blanked(self):
-        # 전월 데이터가 없으면 남의 달 숫자를 남기지 않는다
+    def test_without_prev_totals_row_is_blank(self):
         ws = self._summary(None)
 
         assert ws.cell(PREV_MONTH_ROW, 2).value.strftime("%Y-%m") == "2026-07"
         assert all(ws.cell(PREV_MONTH_ROW, c).value is None for c in range(3, 23))
 
-    def test_output_stays_small(self):
-        kpis = {"네이버SA": _kpi_frame(2026, 8, 31)}
-        raw = ExcelService().fill_template(kpis, "26년 8월", 2026, 8, PREV_TOTALS)
-        # 예전 86MB 템플릿은 출력물이 87MB였다 — 슬림 템플릿 회귀 방지선
-        assert len(raw) < 5 * 1024 * 1024
+
+# ── 시트 구성 ─────────────────────────────────────────────────────────────────
 
 
-_ALL_MEDIA = ("네이버SA", "네이버BS", "카카오SA", "구글SA", "네이버PSA")
+@needs_template
+class TestSheetNaming:
+    """템플릿의 PERIOD 토큰이 요청 기간으로 바뀌고, 그 참조까지 함께 따라와야 한다."""
 
-
-def _export(period: str, year: int, month: int, days: int, yoy: dict | None = None):
-    kpis = {label: _kpi_frame(year, month, days) for label in _ALL_MEDIA}
-    raw = ExcelService().fill_template(kpis, period, year, month, None, yoy)
-    return openpyxl.load_workbook(io.BytesIO(raw))
-
-
-def _template_period() -> str:
-    """템플릿이 담고 있는 기간 — 템플릿이 갱신돼도 테스트가 따라가게 파일에서 읽는다."""
-    wb = openpyxl.load_workbook(TEMPLATE_PATH, read_only=True)
-    try:
-        return next(n[len("summary_"):] for n in wb.sheetnames if n.startswith("summary_"))
-    finally:
-        wb.close()
-
-
-@pytest.mark.skipif(not TEMPLATE_PATH.exists(), reason="report_template.xlsx 없음")
-class TestExportContainsOnlyRequestedPeriod:
-    """템플릿은 최신 한 기간만 갖고 있고, 다른 기간은 그 시트를 복사해 만든다.
-
-    복사 원본을 남겨두면 5월 파일에도 템플릿의 기간 시트가 함께 담겨서,
-    받는 사람이 파일을 열면 '전부 그 달'로 보인다.
-    """
-
-    def test_other_period_sheets_are_removed(self):
+    def test_only_requested_period_sheets_exist(self):
         wb = _export("26년 8월", 2026, 8, 31)
 
         assert all(name.endswith("26년 8월") for name in wb.sheetnames), wb.sheetnames
@@ -157,8 +170,19 @@ class TestExportContainsOnlyRequestedPeriod:
     def test_summary_is_the_sheet_excel_opens(self):
         assert _export("26년 8월", 2026, 8, 31).active.title == "summary_26년 8월"
 
-    def test_no_formula_references_a_removed_sheet(self):
-        """지운 시트를 가리키는 수식이 남으면 Excel에서 #REF! 가 된다."""
+    def test_no_placeholder_token_survives(self):
+        """토큰이 남으면 시트 이름과 수식이 어긋나 Excel에서 #REF! 가 된다."""
+        wb = _export("26년 8월", 2026, 8, 31)
+        leftover = [
+            (name, cell.coordinate)
+            for name in wb.sheetnames
+            for row in wb[name].iter_rows()
+            for cell in row
+            if isinstance(cell.value, str) and PLACEHOLDER in cell.value
+        ]
+        assert leftover == []
+
+    def test_no_formula_references_a_missing_sheet(self):
         wb = _export("26년 8월", 2026, 8, 31)
         names = set(wb.sheetnames)
 
@@ -173,27 +197,19 @@ class TestExportContainsOnlyRequestedPeriod:
         ]
         assert dangling == []
 
-    def test_template_period_export_keeps_its_sheets(self):
-        """템플릿과 같은 기간이면 복사가 일어나지 않는다 — 지울 것도 없어야 한다."""
-        period = _template_period()
-        wb = _export(period, 2026, 7, 31)
-
-        assert [n for n in wb.sheetnames if n.endswith(period)] == wb.sheetnames
-        assert f"summary_{period}" in wb.sheetnames
+    def test_output_stays_small(self):
+        kpis = {"네이버SA": _kpi_frame(2026, 8, 31)}
+        raw = ExcelService().fill_template(kpis, "26년 8월", 2026, 8)
+        # 예전 86MB 템플릿은 출력물이 87MB였다 — 슬림 템플릿 회귀 방지선
+        assert len(raw) < 5 * 1024 * 1024
 
 
-_YOY_SAMPLE = {
-    "impressions": 111, "clicks": 22, "cost": 3300.0, "conversions": 44,
-    "revenue": 5.0, "signup": 6.0, "purchase": 7.0, "apply": 8.0,
-}
+@needs_template
+class TestExternalWorkbookLinks:
+    """템플릿의 전년동월 행은 원래 외부 통합문서(=[1]네이버SA_7월!C22)를 참조했다.
 
-
-@pytest.mark.skipif(not TEMPLATE_PATH.exists(), reason="report_template.xlsx 없음")
-class TestYearAgoRow:
-    """매체 시트 8행(전년동월).
-
-    템플릿은 이 행을 외부 통합문서(=[1]네이버SA_7월!C22)에서 끌어온다. 받는 사람에게는
-    그 파일이 없어 빈칸이 되고, 이 행을 합산하는 summary 7행과 YOY 행까지 함께 비었다.
+    받는 사람에게 그 파일이 없어 빈칸이 되고, 이 행을 합산하는 summary 7행과 YOY 행까지
+    함께 비었다. 이제 참조 자체가 템플릿에 없어야 한다.
     """
 
     def test_no_external_workbook_reference_survives(self):
@@ -207,60 +223,118 @@ class TestYearAgoRow:
         ]
         assert leftover == []
 
-    def test_values_are_written_when_data_exists(self):
-        wb = _export("26년 8월", 2026, 8, 31, {"네이버SA": _YOY_SAMPLE})
-        ws = wb["네이버SA_26년 8월"]
-
-        assert ws.cell(YOY_ROW, 3).value == 111    # 노출
-        assert ws.cell(YOY_ROW, 4).value == 22     # 클릭
-        assert ws.cell(YOY_ROW, 7).value == 3300   # 광고비
-        assert ws.cell(YOY_ROW, 8).value == 44     # 총전환수
-        assert ws.cell(YOY_ROW, 11).value == 36    # 총전환수(신청제외) = 44 - 8
-
-    def test_missing_media_is_filled_with_zero(self):
-        # 1년 전 데이터가 아예 없는 매체 — 빈칸으로 두면 YOY가 조용히 비어버린다
-        wb = _export("26년 8월", 2026, 8, 31, {"네이버SA": _YOY_SAMPLE})
-        ws = wb["카카오SA_26년 8월"]
-
-        assert [ws.cell(YOY_ROW, c).value for c in (3, 4, 7, 8, 11, 13)] == [0, 0, 0, 0, 0, 0]
-
-    def test_formulas_are_left_alone(self):
-        """값 셀만 바꾸고 계산 로직은 템플릿 그대로 둔다."""
-        wb = _export("26년 8월", 2026, 8, 31, {"네이버SA": _YOY_SAMPLE})
-
-        ws = wb["네이버SA_26년 8월"]
-        assert ws.cell(YOY_ROW, 5).value == "=IFERROR(D8/C8,)"   # CTR
-        assert ws.cell(YOY_ROW, 6).value == "=IFERROR(G8/D8,)"   # CPC
-
-        summary = wb["summary_26년 8월"]
-        assert summary.cell(7, 3).value.startswith("=SUM(")       # 전년동월 합계
-        assert summary.cell(10, 3).value == "=IFERROR(C9/C7-1,)"  # YOY
-
     def test_external_link_definition_is_dropped(self):
-        """참조를 다 없앴으므로 링크 정의도 남기지 않는다 — Excel의 '링크 업데이트' 질문 방지."""
+        """링크 정의만 남아도 Excel이 열 때마다 '연결된 데이터를 업데이트할까요?'를 묻는다."""
         kpis = {label: _kpi_frame(2026, 8, 31) for label in _ALL_MEDIA}
-        raw = ExcelService().fill_template(kpis, "26년 8월", 2026, 8, None, None)
+        raw = ExcelService().fill_template(kpis, "26년 8월", 2026, 8)
 
         with zipfile.ZipFile(io.BytesIO(raw)) as z:
             assert [n for n in z.namelist() if "externalLink" in n] == []
             assert "externalReferences" not in z.read("xl/workbook.xml").decode("utf-8")
 
 
-@pytest.mark.skipif(not TEMPLATE_PATH.exists(), reason="report_template.xlsx 없음")
+# ── 매체 시트의 비교 행 (8=전년동월, 9=전월) ─────────────────────────────────
+
+
+@needs_template
+class TestMediaComparisonRows:
+    def test_year_ago_values_are_written(self):
+        ws = _export("26년 8월", 2026, 8, 31, yoy_media_totals={"네이버SA": _SAMPLE})["네이버SA_26년 8월"]
+
+        assert ws.cell(YOY_ROW, 3).value == 111     # 노출
+        assert ws.cell(YOY_ROW, 4).value == 22      # 클릭
+        assert ws.cell(YOY_ROW, 7).value == 3300    # 광고비
+        assert ws.cell(YOY_ROW, 14).value == 6      # 회원가입
+        assert ws.cell(YOY_ROW, 16).value == 7      # 구매완료
+        assert ws.cell(YOY_ROW, 18).value == 5      # 구매매출
+        assert ws.cell(YOY_ROW, 21).value == 8      # 설명회신청
+
+    def test_prev_month_values_are_written(self):
+        """매체별 전월 행은 예전에 템플릿 상수 그대로여서 MOM 이 늘 같은 달과 비교됐다."""
+        ws = _export("26년 8월", 2026, 8, 31, prev_media_totals={"네이버SA": _SAMPLE})["네이버SA_26년 8월"]
+
+        assert ws.cell(PREV_ROW, 3).value == 111
+        assert ws.cell(PREV_ROW, 7).value == 3300
+        assert ws.cell(PREV_ROW, 18).value == 5
+
+    def test_missing_media_is_filled_with_zero(self):
+        # 1년 전 데이터가 아예 없는 매체 — 빈칸으로 두면 YOY가 조용히 비어버린다
+        wb = _export("26년 8월", 2026, 8, 31, yoy_media_totals={"네이버SA": _SAMPLE})
+        ws = wb["카카오SA_26년 8월"]
+
+        assert [ws.cell(YOY_ROW, c).value for c in (3, 4, 7, 8, 11, 13, 15)] == [0] * 7
+
+    def test_derived_cells_stay_as_formulas(self):
+        """값 칸만 채우고 계산은 템플릿 수식에 맡긴다."""
+        wb = _export("26년 8월", 2026, 8, 31, yoy_media_totals={"네이버SA": _SAMPLE})
+
+        ws = wb["네이버SA_26년 8월"]
+        assert ws.cell(YOY_ROW, 5).value == "=IFERROR(D8/C8,)"    # CTR
+        assert ws.cell(YOY_ROW, 6).value == "=IFERROR(G8/D8,)"    # CPC
+        assert ws.cell(YOY_ROW, 8).value == "=SUM(N8,P8,U8)"      # 총전환수
+        assert ws.cell(PREV_ROW, 8).value == "=SUM(N9,P9,U9)"
+
+        summary = wb["summary_26년 8월"]
+        assert summary.cell(7, 3).value.startswith("=SUM(")        # 전년동월 합계
+        assert summary.cell(10, 3).value == "=IFERROR(C9/C7-1,)"   # YOY
+
+    def test_total_conversions_match_the_current_month_definition(self):
+        """총전환수가 RAW 칸인 매체는 당월 수식과 같은 정의로 채운다.
+
+        카카오는 당월이 회원가입+구매완료라, 전월/전년동월만 DB 총전환수를 쓰면
+        같은 열에서 정의가 달라진 채로 MOM 이 계산된다.
+        """
+        wb = _export("26년 8월", 2026, 8, 31, yoy_media_totals={"카카오SA": _SAMPLE, "구글SA": _SAMPLE})
+
+        assert wb["카카오SA_26년 8월"].cell(YOY_ROW, 8).value == 13   # 회원가입 6 + 구매완료 7
+        assert wb["구글SA_26년 8월"].cell(YOY_ROW, 9).value == 21     # + 설명회신청 8
+
+
+# ── 일별 구간 ─────────────────────────────────────────────────────────────────
+
+
+@needs_template
+class TestDailyRows:
+    def test_raw_values_land_on_the_right_day(self):
+        ws = _export("26년 8월", 2026, 8, 31)["네이버SA_26년 8월"]
+
+        assert ws.cell(23, 2).value == datetime(2026, 8, 1)
+        assert ws.cell(23, 3).value == 100     # 노출
+        assert ws.cell(25, 3).value == 300     # 3일
+        assert ws.cell(25, 7).value == 3000    # 광고비
+
+    def test_days_without_data_stay_blank(self):
+        """짧은 달의 남는 칸에 옛 숫자가 남으면 TOTAL이 조용히 부풀어 오른다."""
+        ws = _export("26년 2월", 2026, 2, 28)["네이버SA_26년 2월"]
+
+        for row in range(23 + 28, 54):
+            assert [ws.cell(row, c).value for c in (3, 4, 7, 14, 16, 18, 21)] == [None] * 7
+
+    def test_naver_bs_mobile_cost_column_is_empty(self):
+        """브검MO(25열)에 상수가 남아 있어 매달 유령 광고비가 더해졌다 — 회귀 방지."""
+        ws = _export("26년 8월", 2026, 8, 31)["네이버BS_26년 8월"]
+
+        assert ws.cell(23, 24).value == 1000                        # 브검PC = DB 광고비
+        assert all(ws.cell(r, 25).value is None for r in range(23, 54))
+
+    def test_kakao_cost_has_no_hand_typed_leftovers(self):
+        """카카오 광고비 열에는 '=70*1.1' 같은 손입력 수식이 남아 있었다."""
+        ws = _export("26년 2월", 2026, 2, 28)["카카오SA_26년 2월"]
+
+        assert all(ws.cell(r, 7).value is None for r in range(23 + 28, 54))
+
+
+# ── summary 날짜·기준일 ───────────────────────────────────────────────────────
+
+
+@needs_template
 class TestSummaryDates:
-    """summary 시트 ■ SA TOTAL 구간과 일별 구간의 날짜.
-
-    템플릿에서 시트를 복사해 오면 템플릿 기간(현재 26년 7월)의 날짜가 그대로 남는다.
-    데이터 수식은 새 기간 시트를 정확히 가리키므로 숫자는 맞고 '언제 것인지'만 틀리는,
-    읽는 사람이 알아차리기 어려운 형태가 된다.
-    """
-
     def test_sa_total_rows_show_year_ago_prev_and_current(self):
         ws = _export("26년 6월", 2026, 6, 30)["summary_26년 6월"]
 
-        assert ws.cell(YOY_ROW - 1, 2).value == datetime(2025, 6, 1)   # 전년동월
+        assert ws.cell(YOY_ROW - 1, 2).value == datetime(2025, 6, 1)     # 전년동월
         assert ws.cell(PREV_MONTH_ROW, 2).value == datetime(2026, 5, 1)  # 전월
-        assert ws.cell(YOY_ROW + 1, 2).value == datetime(2026, 6, 1)   # 당월
+        assert ws.cell(YOY_ROW + 1, 2).value == datetime(2026, 6, 1)     # 당월
 
     def test_january_rolls_back_to_previous_year(self):
         ws = _export("26년 1월", 2026, 1, 31)["summary_26년 1월"]
@@ -284,3 +358,56 @@ class TestSummaryDates:
             for i in range(28, SUMMARY_DAILY_SLOTS)
         ]
         assert leftover == [None, None, None]
+
+    def test_month_length_and_end_date(self):
+        ws = _export("26년 2월", 2026, 2, 28)["summary_26년 2월"]
+
+        assert ws["D3"].value == 28
+        assert ws["B1"].value == datetime(2026, 3, 1)   # 기간 종료일 = 다음 달 1일
+
+    def test_finished_month_uses_month_end_as_base_date(self):
+        """기준일이 =TODAY() 였을 때는 지난 달 리포트의 WoW 행이 통째로 비었다."""
+        ws = _export("20년 3월", 2020, 3, 31)["summary_20년 3월"]
+
+        assert ws["D1"].value == datetime(2020, 4, 1)
+
+    def test_base_date_is_referenced_not_recomputed(self):
+        """매체 시트의 전주/금주 날짜는 summary 기준일 한 칸만 보게 만들었다."""
+        ws = _export("20년 3월", 2020, 3, 31)["네이버SA_20년 3월"]
+
+        assert ws["B13"].value == "='summary_20년 3월'!$D$1-8"
+        assert ws["B14"].value == "='summary_20년 3월'!$D$1-1"
+
+
+# ── 매체별 예산 · 코멘트 ──────────────────────────────────────────────────────
+
+
+@needs_template
+class TestBudgetsAndComment:
+    def test_budgets_are_written_per_media(self):
+        ws = _export(
+            "26년 8월", 2026, 8, 31,
+            media_budgets={"네이버SA": 19_000_000, "카카오SA": 50_000},
+        )["summary_26년 8월"]
+
+        assert ws.cell(SUMMARY_BUDGET_ROWS["네이버SA"], SUMMARY_BUDGET_COL).value == 19_000_000
+        assert ws.cell(SUMMARY_BUDGET_ROWS["카카오SA"], SUMMARY_BUDGET_COL).value == 50_000
+
+    def test_unset_media_budget_is_zero(self):
+        ws = _export("26년 8월", 2026, 8, 31, media_budgets={"네이버SA": 1})["summary_26년 8월"]
+
+        assert ws.cell(SUMMARY_BUDGET_ROWS["구글SA"], SUMMARY_BUDGET_COL).value == 0
+
+    def test_budget_subtotal_rows_stay_as_formulas(self):
+        """SA total / SA+BS total / TOTAL 행은 건드리지 않는다."""
+        ws = _export("26년 8월", 2026, 8, 31, media_budgets={"네이버SA": 1})["summary_26년 8월"]
+
+        assert ws.cell(24, SUMMARY_BUDGET_COL).value == "=SUM(D21:D23)"
+        assert ws.cell(26, SUMMARY_BUDGET_COL).value == "=SUM(D24,D25)"
+
+    def test_comment_is_written(self):
+        ws = _export("26년 8월", 2026, 8, 31, comment="CPC 상승")["summary_26년 8월"]
+        assert ws["B32"].value == "CPC 상승"
+
+    def test_without_comment_cell_is_blank(self):
+        assert _export("26년 8월", 2026, 8, 31)["summary_26년 8월"]["B32"].value is None

@@ -1,31 +1,42 @@
-"""Excel 템플릿에 일별 원시 지표(RAW)를 채워 넣는 서비스.
+"""빈 Excel 템플릿에 DB 값을 채워 리포트를 만드는 서비스.
 
-템플릿 구조 (각 매체 시트 공통):
+템플릿(app/assets/report_template.xlsx)은 **어느 달의 데이터도 갖고 있지 않다.**
+수식·서식·레이아웃만 남기고 값은 전부 비운 상태이고, 시트 이름의 기간 자리에는
+중립 토큰 PERIOD 가 들어 있다(`summary_PERIOD`, `네이버SA_PERIOD` …).
+여기서는 그 토큰을 요청받은 기간으로 바꾸고 DB 값을 써 넣기만 한다.
+템플릿을 다시 만들려면 `python -m scripts.reset_report_template` 을 쓴다.
+
+예전에는 템플릿이 특정 달의 실적을 안고 있어서, 다른 달은 그 시트를 복사해 기간
+문자열만 바꾸고 남은 숫자를 덮어쓰는 방식이었다. 덮어쓰지 못한 셀(매체별 전월 행,
+네이버BS 브검MO 비용, 운영 메모 …)은 어느 달 파일에도 그대로 따라왔다.
+
+시트 구조 (각 매체 시트 공통):
   col A   : 빈 스페이서
-  col B   : 날짜 (수식 — ='summary_…'!B70 등, 수정 불가)
+  col B   : 날짜
+  row 7   : 컬럼 헤더
+  row 8   : 전년동월  ┐ 같은 레이아웃. RAW 칸만 채우면
+  row 9   : 전월      ┤ CTR·전환율 등 파생 지표는 템플릿 수식이 계산한다
+  row 10  : 당월      ┘ (= 22행 TOTAL 참조)
   row 20  : ■ {매체명} 섹션 제목
   row 21  : 컬럼 헤더
   row 22  : TOTAL 집계 행
   row 23+ : 일별 RAW 데이터 (row 23 = 해당 월 1일)
-
-CTR·CPC·전환율 등 수식 컬럼은 Excel이 자동 계산 → 여기서는 RAW(type='n') 컬럼만 씀.
 """
 
 import calendar
 import io
 import math
+import re
 from datetime import date, datetime
 from pathlib import Path
 
 import openpyxl
 import pandas as pd
 
-# 템플릿은 app/assets 에 두고 git으로 함께 배포한다.
-# 예전에는 back/example/ (gitignore 대상) 에 두고 배포 때 GCS에서 내려받았는데,
-# 그 파일이 과거 기간 시트를 전부 안고 있어 86MB까지 불어났다 —
-# 출력물도 87MB가 되어 브라우저 다운로드가 막히고 생성에 1분이 걸렸다.
-# 지금 템플릿은 최신 한 기간(시트 6개)만 담고, 다른 기간은 아래 fallback 복사로 만든다.
 TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "report_template.xlsx"
+
+# 템플릿 시트 이름의 기간 자리표시자 — reset_report_template.py 와 같은 값이어야 한다.
+PLACEHOLDER = "PERIOD"
 
 SHEET_PREFIX: dict[str, str] = {
     "네이버SA":  "네이버SA",
@@ -35,17 +46,13 @@ SHEET_PREFIX: dict[str, str] = {
     "네이버PSA": "파워컨텐츠",  # DB 레이블 → 템플릿 시트 접두어 (기존 템플릿 호환)
 }
 
-# 기간별로 존재하는 시트의 접두어 — "{접두어}_{기간}" 형태.
-# 다른 기간 시트를 지울 때 이 목록에 있는 것만 대상으로 한다.
-_PERIOD_SHEET_PREFIXES: frozenset[str] = frozenset({"summary", *SHEET_PREFIX.values()})
+SUMMARY_PREFIX = "summary"
 
-DATA_ROW = 23  # row 23 = 해당 월 1일 (고정 오프셋)
+DATA_ROW = 23   # row 23 = 해당 월 1일 (고정 오프셋)
+YOY_ROW = 8     # 전년동월
+PREV_ROW = 9    # 전월
 
-# summary 시트에서 '전월' 비교 행. 컬럼은 헤더(row 6)와 같은 순서다.
-# 이 행은 수식이 아니라 템플릿을 만들 당시의 고정 숫자라, 템플릿에 없는 기간을
-# 시트 복사로 만들면 남의 달 실적이 그대로 따라온다 → DB 값으로 덮어쓴다.
-PREV_MONTH_ROW = 8
-_PREV_COL_MARKUP = 8  # 광고비(vat, markup) — DB에 markup 정보가 없어 비워 둔다
+_PERIOD_RE = re.compile(r"(\d{2,4})\s*년\s*(\d{1,2})\s*월")
 
 
 # (kpi_field, col_number) — RAW 값 컬럼만 포함, 수식 컬럼 제외
@@ -61,6 +68,7 @@ _NAVER_SA_COLS: list[tuple[str, int]] = [
 ]
 
 # 네이버BS: col7 광고비 = SUM(X:Y) 수식 → 원시 비용을 col24(브검PC)에 입력
+# (col25 브검MO 는 DB에 구분이 없어 비워 둔다)
 _NAVER_BS_COLS: list[tuple[str, int]] = [
     ("impressions",  3),
     ("clicks",       4),
@@ -110,59 +118,98 @@ _SHEET_COLS: dict[str, list[tuple[str, int]]] = {
 }
 
 
-# 전년동월(8행) 컬럼 — (kpi_field, col_number).
+# 전년동월(8행)·전월(9행) 컬럼 — (field, col_number).
 #
-# 템플릿의 8행은 원래 외부 통합문서("[🔸SA] 매체별 데이터 & 경쟁사 모니터링_2026.xlsx")를
-# =[1]네이버SA_7월!C22 형태로 참조한다. 받는 사람에게 그 파일이 없으므로 Excel에서는
-# 빈칸이 되고, 이 행을 합산하는 summary 7행과 그걸 쓰는 YOY 행까지 함께 비어버린다.
-# 그래서 여기서 DB 값(없으면 0)으로 대체한다 — 수식은 건드리지 않고 이 셀들만 값으로 바꾼다.
+# 이 두 행은 당월(10행)과 레이아웃이 같고, 당월이 "=C22" 로 끌어오는 칸만 값이 필요하다.
+# 나머지(CTR·전환율·markup 광고비 …)는 템플릿 수식이 같은 행 안에서 계산한다.
 #
-# 컬럼 배치가 22행(TOTAL)과 같고 매체마다 달라, 일별 컬럼맵과 별도로 둔다.
-# conversions_ex_apply = 총전환수 − 설명회신청 (템플릿의 '총전환수(신청제외)')
-_YOY_COLS: dict[str, list[tuple[str, int]]] = {
+# field 의 "+" 는 합산을 뜻한다 — 총전환수를 당월 수식과 같은 정의로 맞추기 위함이다.
+# (카카오 = 회원가입+구매완료, 구글 = 회원가입+구매완료+설명회신청, 파워 = DB 총전환수)
+_AGGREGATE_COLS: dict[str, list[tuple[str, int]]] = {
     "네이버SA": [
-        ("impressions", 3), ("clicks", 4), ("cost", 7), ("conversions", 8),
-        ("conversions_ex_apply", 11), ("signup", 14), ("purchase", 16), ("apply", 21),
+        ("impressions", 3), ("clicks", 4), ("cost", 7),
+        ("signup", 14), ("purchase", 16), ("revenue", 18), ("apply", 21),
     ],
     "네이버BS": [
-        ("impressions", 3), ("clicks", 4), ("cost", 7), ("conversions", 8),
-        ("conversions_ex_apply", 11), ("signup", 14), ("purchase", 16), ("apply", 21),
+        ("impressions", 3), ("clicks", 4), ("cost", 7),
+        ("signup", 14), ("purchase", 16), ("revenue", 18), ("apply", 21),
     ],
     "카카오SA": [
-        ("impressions", 3), ("clicks", 4), ("cost", 7), ("conversions", 8),
-        ("signup", 11), ("purchase", 13),
+        ("impressions", 3), ("clicks", 4), ("cost", 7), ("signup+purchase", 8),
+        ("signup", 11), ("purchase", 13), ("revenue", 15),
     ],
     "구글SA": [
-        ("impressions", 3), ("clicks", 4), ("cost", 7), ("cost_markup", 8),
-        ("conversions", 9), ("conversions_ex_apply", 12), ("signup", 15),
-        ("purchase", 17), ("apply", 22),
+        ("impressions", 3), ("clicks", 4), ("cost", 7), ("signup+purchase+apply", 9),
+        ("signup", 15), ("purchase", 17), ("revenue", 19), ("apply", 22),
     ],
     "네이버PSA": [
         ("impressions", 3), ("clicks", 4), ("cost", 7), ("conversions", 9),
+        ("signup", 12), ("purchase", 14), ("revenue", 16),
     ],
 }
 
-YOY_ROW = 8  # 전년동월 행 (7=헤더, 9=전월, 10=당월)
 
-# summary 시트의 날짜 셀 — 템플릿에서 복사해 오면 템플릿 기간(예: 7월)의 날짜가 그대로 남는다.
-# 데이터 수식은 새 기간 시트를 정확히 가리키는데 날짜 라벨만 옛 달이라, 숫자는 맞고
-# "언제 것인지"만 틀리는 형태가 된다. 그래서 기간이 정해지면 전부 다시 쓴다.
+# ── summary 시트 좌표 ─────────────────────────────────────────────────────
+SUMMARY_END_DATE_CELL = "B1"    # 기간 종료일 (= 다음 달 1일). 잔여일수 계산의 기준
+SUMMARY_BASE_DATE_CELL = "D1"   # 기준일. 원래 =TODAY() 였다 (아래 _base_date 주석 참고)
+SUMMARY_MONTH_DAYS_CELL = "D3"
+SUMMARY_COMMENT_CELL = "B32"
+
 SUMMARY_YOY_DATE_ROW = 7    # 전년동월
+PREV_MONTH_ROW = 8          # 전월
 SUMMARY_CURR_DATE_ROW = 9   # 당월
 SUMMARY_DAILY_ROW = 70      # 일별 구간 첫 행 (= 그 달 1일)
 SUMMARY_DAILY_SLOTS = 31    # 70~100행. 짧은 달은 남는 칸을 비운다
 
+_PREV_COL_MARKUP = 8  # 광고비(vat, markup) — DB에 markup 정보가 없어 비워 둔다
 
-def _yoy_value(totals: dict | None, field: str) -> float:
-    """전년동월 셀 값. 데이터가 없으면 0 — 외부 참조를 남겨 빈칸이 되는 것보다 낫다.
+# ■ 매체별 예산 구간의 매체별 행 (D열 = 총합(vat,markup))
+SUMMARY_BUDGET_COL = 4
+SUMMARY_BUDGET_ROWS: dict[str, int] = {
+    "네이버SA":  21,
+    "카카오SA":  22,
+    "구글SA":    23,
+    "네이버BS":  25,
+    "네이버PSA": 27,
+}
 
-    cost_markup(광고비 vat·마크업)은 DB에 없어 항상 0이다.
+
+def resolve_period(period: str, year: int | None, month: int | None) -> tuple[int, int]:
+    """기간 라벨("26년 7월")에서 연·월을 얻는다. 명시된 값이 있으면 그쪽이 우선."""
+    if year and month:
+        return year, month
+    m = _PERIOD_RE.search(period)
+    if not m:
+        raise ValueError(f"기간에서 연월을 읽을 수 없습니다: {period!r}")
+    y, mo = int(m.group(1)), int(m.group(2))
+    return (2000 + y if y < 100 else y), mo
+
+
+def _next_month_first(year: int, month: int) -> date:
+    return date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+
+
+def _base_date(year: int, month: int) -> date:
+    """누적일수·잔여일수·Time elapsed·WoW 가 기준으로 삼는 날짜.
+
+    템플릿은 원래 이 자리에 =TODAY() 를 썼다. 그래서 지난 달 리포트를 뽑으면 WoW 행이
+    통째로 비고(그 달에 없는 날짜를 SUMIF 하므로) 예산소진율도 100%를 넘겨 표시됐다.
+    끝난 달은 그 달의 마지막 날 다음 날을, 진행 중인 달은 오늘을 기준으로 삼는다 —
+    같은 달을 언제 뽑아도 같은 파일이 나온다.
     """
-    if not totals or field == "cost_markup":
+    return min(date.today(), _next_month_first(year, month))
+
+
+def _aggregate_value(totals: dict | None, field: str) -> float:
+    """전년동월·전월 행에 넣을 값. 데이터가 없으면 0 — 빈칸으로 두면 YOY/MOM 이 조용히 빈다."""
+    if not totals:
         return 0
-    if field == "conversions_ex_apply":
-        return (totals.get("conversions") or 0) - (totals.get("apply") or 0)
-    return totals.get(field) or 0
+    return sum(totals.get(part) or 0 for part in field.split("+"))
+
+
+def _fill_aggregate_row(ws, media_label: str, row: int, totals: dict | None) -> None:
+    for field, col in _AGGREGATE_COLS.get(media_label, []):
+        ws.cell(row, col).value = _aggregate_value(totals, field)
 
 
 def _fill_summary_dates(ws_sum, year: int, month: int) -> None:
@@ -183,12 +230,6 @@ def _fill_summary_dates(ws_sum, year: int, month: int) -> None:
         )
 
 
-def _fill_yoy_row(ws, media_label: str, totals: dict | None) -> None:
-    """매체 시트 8행(전년동월)의 외부 통합문서 참조를 DB 값으로 바꾼다."""
-    for field, col in _YOY_COLS.get(media_label, []):
-        ws.cell(YOY_ROW, col).value = _yoy_value(totals, field)
-
-
 def _to_date(raw_date) -> date:
     """date / datetime / 'YYYY-MM-DD' 문자열을 Python date 객체로 변환"""
     if isinstance(raw_date, datetime):
@@ -201,10 +242,6 @@ def _to_date(raw_date) -> date:
         return raw_date.date()
     t = raw_date.timetuple()
     return date(t.tm_year, t.tm_mon, t.tm_mday)
-
-
-def _day_from_date(raw_date) -> int:
-    return _to_date(raw_date).day
 
 
 def _clean(val) -> float | int | None:
@@ -236,8 +273,8 @@ def _div(num: float, den: float) -> float:
 def _prev_month_cells(totals: dict) -> dict[int, float | None]:
     """DB 전월 합계 → summary '전월' 행의 {열 번호: 값}.
 
-    markup 광고비(8열)는 DB에 없어 None(빈칸)으로 둔다 — 옛 숫자를 남겨 두면
-    MOM 비교가 조용히 틀리므로, 모르는 값은 비우는 편이 낫다.
+    이 행은 매체 시트와 달리 파생 지표까지 값으로 들어간다(템플릿에 수식이 없다).
+    markup 광고비(8열)는 DB에 없어 None(빈칸)으로 둔다 — 모르는 값은 비우는 편이 낫다.
     """
     imp = totals["impressions"]
     clk = totals["clicks"]
@@ -273,42 +310,24 @@ def _prev_month_cells(totals: dict) -> dict[int, float | None]:
     }
 
 
-def _drop_other_period_sheets(wb, period: str) -> None:
-    """요청한 기간이 아닌 기간 시트를 지운다.
+def _retitle(wb, period: str) -> None:
+    """시트 이름과 수식 안의 PERIOD 토큰을 요청한 기간으로 바꾼다.
 
-    템플릿은 최신 한 기간(시트 6개)만 갖고 있고 다른 기간은 그걸 복사해 만든다.
-    복사만 하고 원본을 두면 5월 파일에도 템플릿의 7월 시트가 그대로 남아,
-    받는 사람 눈에는 파일을 열자마자 '전부 7월'로 보인다.
-
-    접두어를 아는 시트만 지운다 — 나중에 조회용·안내용 시트가 템플릿에 추가돼도
-    같이 지워지지 않게.
+    수식은 '{접두어}_PERIOD'!C23 형태로 시트를 참조하므로, 이름만 바꾸면 참조가 깨진다.
+    두 작업은 항상 같이 해야 한다.
     """
-    keep_suffix = f"_{period}"
-    if not any(name.endswith(keep_suffix) for name in wb.sheetnames):
-        return  # 남길 시트가 하나도 없으면 손대지 않는다 (빈 워크북 방지)
+    token = f"_{PLACEHOLDER}"
+    new = f"_{period}"
 
     for name in list(wb.sheetnames):
-        if name.endswith(keep_suffix):
-            continue
-        if name.rsplit("_", 1)[0] in _PERIOD_SHEET_PREFIXES:
-            del wb[name]
+        if name.endswith(token):
+            wb[name].title = f"{name[: -len(token)]}{new}"
 
-    wb.active = 0  # 삭제로 활성 시트 인덱스가 어긋날 수 있다 — summary를 먼저 보여준다
-
-
-def _copy_sheet_with_formula_update(wb, src_name: str, dst_name: str, old_period: str, new_period: str) -> None:
-    """시트를 복사하고 수식 안의 기간 문자열을 교체한다."""
-    ws = wb.copy_worksheet(wb[src_name])
-    ws.title = dst_name
-    for row in ws.iter_rows():
-        for cell in row:
-            if (
-                cell.value
-                and isinstance(cell.value, str)
-                and cell.value.startswith("=")
-                and old_period in cell.value
-            ):
-                cell.value = cell.value.replace(old_period, new_period)
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str) and cell.value.startswith("=") and token in cell.value:
+                    cell.value = cell.value.replace(token, new)
 
 
 class ExcelService:
@@ -320,96 +339,102 @@ class ExcelService:
         month: int | None = None,
         prev_totals: dict | None = None,
         yoy_media_totals: dict[str, dict] | None = None,
+        *,
+        prev_media_totals: dict[str, dict] | None = None,
+        media_budgets: dict[str, float] | None = None,
+        comment: str | None = None,
     ) -> bytes:
-        """템플릿을 복사해 각 매체 시트에 일별 원시 지표를 채운 뒤 bytes 반환.
+        """빈 템플릿에 DB 값을 채워 넣고 xlsx bytes 를 반환한다.
 
-        prev_totals 를 주면 summary 시트의 '전월' 행을 그 값으로 덮어쓴다
-        (MarketingRepository.get_period_totals 형태). 템플릿에 없는 기간은 다른 달
-        시트를 복사해 만드는데, 그 복사본에 남은 옛 전월 숫자를 바로잡기 위함이다.
+        media_kpis        : {매체: 일별 KPI DataFrame} — 매체 시트 23행 이하
+        period            : 시트 이름에 쓸 기간 라벨 ("26년 7월")
+        year, month       : 생략하면 period 에서 읽는다
+        prev_totals       : 직전월 전체 합계 → summary '전월' 행
+        yoy_media_totals  : 1년 전 같은 달의 매체별 합계 → 매체 시트 8행
+        prev_media_totals : 직전월 매체별 합계 → 매체 시트 9행
+        media_budgets     : {매체: 월 예산} → summary ■ 매체별 예산
+        comment           : summary B32 코멘트
 
-        yoy_media_totals 는 1년 전 같은 달의 매체별 합계
-        ({매체: get_period_totals 형태}). 매체 시트 8행(전년동월)이 원래 외부 통합문서를
-        참조해 받는 사람에게는 빈칸이 되므로, 이 값으로 대체한다. 데이터가 없는 매체는
-        0으로 채운다 — 수식은 그대로 두고 값 셀만 바꾸므로 YOY 계산은 템플릿 그대로 돈다.
+        데이터가 없는 매체·기간은 0으로 채운다. 빈칸으로 두면 그 값을 쓰는 YOY/MOM 행이
+        조용히 비어버려서, 받는 사람은 '숫자가 없다'와 '0이다'를 구분할 수 없다.
         """
+        year, month = resolve_period(period, year, month)
+
         wb = openpyxl.load_workbook(
             io.BytesIO(_template_bytes()),
             keep_links=True,   # False로 하면 수식 참조가 끊겨 Excel이 손상 경고를 표시함
             keep_vba=False,
         )
+        _retitle(wb, period)
 
-        # summary 시트가 없으면 가장 최근 summary를 복사해 날짜 수식 기반 보장
-        summary_name = f"summary_{period}"
+        summary_name = f"{SUMMARY_PREFIX}_{period}"
         if summary_name not in wb.sheetnames:
-            fallback_summary = next(
-                (s for s in reversed(wb.sheetnames) if s.startswith("summary_")),
-                None,
+            raise ValueError(
+                f"템플릿에 {SUMMARY_PREFIX}_{PLACEHOLDER} 시트가 없습니다. "
+                "python -m scripts.reset_report_template 으로 템플릿을 다시 만들어 주세요."
             )
-            if fallback_summary:
-                old_period_s = fallback_summary[len("summary_"):]
-                _copy_sheet_with_formula_update(wb, fallback_summary, summary_name, old_period_s, period)
 
-        # summary 시트의 B1(시작일)·D3(월 일수)를 해당 기간에 맞게 보정
-        if year and month and summary_name in wb.sheetnames:
-            ws_sum = wb[summary_name]
-            ws_sum["B1"] = datetime(year, month, 1)
-            ws_sum["D3"] = calendar.monthrange(year, month)[1]
-
-            # 전년동월·당월·일별 날짜 — 템플릿 기간의 날짜가 그대로 남지 않게 다시 쓴다
-            _fill_summary_dates(ws_sum, year, month)
-
-            # 값 대입은 .value 로 한다 — ws.cell(r, c, None) 은 openpyxl이 무시해서
-            # 빈칸 처리가 안 되고 템플릿에 있던 옛 숫자가 그대로 남는다.
-            prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
-            ws_sum.cell(PREV_MONTH_ROW, 2).value = datetime(prev_year, prev_month, 1)
-            # 전월 데이터가 없으면 남의 달 숫자를 남기느니 비운다 (MOM은 IFERROR로 공백 처리됨)
-            cells = _prev_month_cells(prev_totals) if prev_totals else {}
-            for col in range(3, 23):
-                ws_sum.cell(PREV_MONTH_ROW, col).value = cells.get(col)
+        self._fill_summary(
+            wb[summary_name], year, month, prev_totals, media_budgets, comment
+        )
 
         filled = 0
-        for media_label, df in media_kpis.items():
-            prefix = SHEET_PREFIX.get(media_label)
-            if prefix is None:
-                continue
+        for media_label, prefix in SHEET_PREFIX.items():
             sheet_name = f"{prefix}_{period}"
             if sheet_name not in wb.sheetnames:
-                # 같은 접두어를 가진 가장 최근 시트를 복사해 새 기간 시트로 사용
-                fallback = next(
-                    (s for s in reversed(wb.sheetnames) if s.startswith(f"{prefix}_")),
-                    None,
-                )
-                if fallback is None:
-                    continue
-                old_period = fallback[len(f"{prefix}_"):]
-                _copy_sheet_with_formula_update(wb, fallback, sheet_name, old_period, period)
-
+                continue
             ws = wb[sheet_name]
-            col_map = _SHEET_COLS.get(media_label, _NAVER_SA_COLS)
-            self._fill_sheet(ws, df, col_map)
-            # 전년동월 행은 외부 통합문서 참조라 그대로 두면 빈칸이 된다 — 항상 값으로 바꾼다
-            _fill_yoy_row(ws, media_label, (yoy_media_totals or {}).get(media_label))
-            filled += 1
+
+            df = media_kpis.get(media_label)
+            if df is not None:
+                self._fill_sheet(ws, df, _SHEET_COLS.get(media_label, _NAVER_SA_COLS))
+                filled += 1
+
+            # 전년동월·전월은 데이터가 없는 매체도 0으로 채운다
+            _fill_aggregate_row(ws, media_label, YOY_ROW, (yoy_media_totals or {}).get(media_label))
+            _fill_aggregate_row(ws, media_label, PREV_ROW, (prev_media_totals or {}).get(media_label))
 
         if filled == 0:
-            raise ValueError(
-                f"템플릿에 '{period}' 기간에 맞는 시트가 없고 복사할 시트도 없습니다. "
-                "report_template.xlsx를 업데이트해 주세요."
-            )
-
-        # 템플릿에서 복사해 온 원본(다른 기간) 시트를 정리한다 — 채우기가 끝난 뒤에 해야
-        # fallback 복사가 원본을 찾을 수 있다.
-        _drop_other_period_sheets(wb, period)
-
-        # 외부 통합문서 참조는 위에서 전부 값으로 바꿨다 — 링크 정의만 남으면
-        # Excel이 열 때마다 "연결된 데이터를 업데이트할까요?"를 묻는다. 같이 지운다.
-        wb._external_links = []
+            raise ValueError(f"'{period}' 기간에 채울 매체 데이터가 없습니다.")
 
         wb.calculation.forceFullCalc = True  # 열 때 Excel이 수식 전체 재계산
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
         return buf.read()
+
+    def _fill_summary(
+        self,
+        ws_sum,
+        year: int,
+        month: int,
+        prev_totals: dict | None,
+        media_budgets: dict[str, float] | None,
+        comment: str | None,
+    ) -> None:
+        end = _next_month_first(year, month)
+        base = _base_date(year, month)
+        ws_sum[SUMMARY_END_DATE_CELL] = datetime(end.year, end.month, end.day)
+        ws_sum[SUMMARY_BASE_DATE_CELL] = datetime(base.year, base.month, base.day)
+        ws_sum[SUMMARY_MONTH_DAYS_CELL] = calendar.monthrange(year, month)[1]
+
+        # 전년동월·당월·일별 날짜 — 요청한 기간의 날짜로 채운다
+        _fill_summary_dates(ws_sum, year, month)
+
+        # 값 대입은 .value 로 한다 — ws.cell(r, c, None) 은 openpyxl이 무시해서
+        # 빈칸 처리가 안 된다.
+        prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
+        ws_sum.cell(PREV_MONTH_ROW, 2).value = datetime(prev_year, prev_month, 1)
+        cells = _prev_month_cells(prev_totals) if prev_totals else {}
+        for col in range(3, 23):
+            ws_sum.cell(PREV_MONTH_ROW, col).value = cells.get(col)
+
+        # ■ 매체별 예산 — 설정하지 않은 매체는 0 (예산소진율은 IFERROR 로 비어 보인다)
+        budgets = media_budgets or {}
+        for media_label, row in SUMMARY_BUDGET_ROWS.items():
+            ws_sum.cell(row, SUMMARY_BUDGET_COL).value = budgets.get(media_label) or 0
+
+        ws_sum[SUMMARY_COMMENT_CELL] = comment or None
 
     def _fill_sheet(
         self,

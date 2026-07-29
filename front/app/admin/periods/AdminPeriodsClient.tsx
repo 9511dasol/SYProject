@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { authFetch } from '@/lib/api/authFetch';
+import MediaBudgetModal from '@/components/admin/MediaBudgetModal';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Spinner from '@/components/ui/Spinner';
@@ -53,6 +54,7 @@ export default function AdminPeriodsClient() {
   const [totalRows, setTotalRows] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [target, setTarget] = useState<PeriodOverviewItem | null>(null);
+  const [budgetTarget, setBudgetTarget] = useState<PeriodOverviewItem | null>(null);
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -81,6 +83,20 @@ export default function AdminPeriodsClient() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // 예산 모달은 이 콜백들을 effect 의존성으로 쓴다 — 매 렌더 새 함수를 넘기면
+  // 부모가 다시 그려질 때마다 조회가 다시 돌아 입력 중이던 값이 날아간다.
+  const handleBudgetSaved = useCallback(
+    (message: string) => {
+      pushToast('success', message);
+      load();
+    },
+    [pushToast, load],
+  );
+  const handleBudgetError = useCallback(
+    (message: string) => pushToast('error', message),
+    [pushToast],
+  );
 
   const closeModal = () => {
     setTarget(null);
@@ -138,7 +154,8 @@ export default function AdminPeriodsClient() {
         <h1 className="text-xl font-bold text-fg">업로드 데이터 관리</h1>
         <p className="mt-1 text-sm text-fg-subtle">
           연월별로 저장된 마케팅 데이터 현황입니다. 잘못 올린 기간은 데이터 행 · 코멘트 · 엑셀 원본까지
-          한 번에 삭제할 수 있습니다.
+          한 번에 삭제할 수 있습니다. 엑셀 리포트의 <span className="font-medium text-fg-muted">매체별 예산</span>{' '}
+          도 여기서 기간별로 입력합니다 — 입력하지 않은 기간은 그 이전에 입력한 값을 이어받습니다.
         </p>
       </div>
 
@@ -195,22 +212,34 @@ export default function AdminPeriodsClient() {
                       <div className="flex flex-col gap-0.5">
                         <HasBadge has={item.has_comment} label="코멘트" />
                         <HasBadge has={item.has_excel} label="엑셀 원본" />
+                        <HasBadge has={item.has_budget} label="매체별 예산" />
                       </div>
                     </td>
                     <td className="px-4 py-3 text-fg-subtle whitespace-nowrap">
                       {formatDateTime(item.comment_updated_at)}
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setTarget(item)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-1.5
-                          text-xs font-semibold text-red-600 hover:bg-red-50 whitespace-nowrap
-                          dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-900/20"
-                      >
-                        <i className="bx bx-trash text-sm" />
-                        삭제
-                      </button>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setBudgetTarget(item)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5
+                            text-xs font-semibold text-fg-muted hover:bg-surface-2 whitespace-nowrap"
+                        >
+                          <i className="bx bx-wallet text-sm" />
+                          예산
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTarget(item)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-1.5
+                            text-xs font-semibold text-red-600 hover:bg-red-50 whitespace-nowrap
+                            dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-900/20"
+                        >
+                          <i className="bx bx-trash text-sm" />
+                          삭제
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -218,6 +247,16 @@ export default function AdminPeriodsClient() {
             </table>
           </div>
         </>
+      )}
+
+      {budgetTarget && (
+        <MediaBudgetModal
+          year={budgetTarget.year}
+          month={budgetTarget.month}
+          onClose={() => setBudgetTarget(null)}
+          onSaved={handleBudgetSaved}
+          onError={handleBudgetError}
+        />
       )}
 
       <Modal open={target !== null} onClose={closeModal} title="기간 데이터 삭제" icon="bx-trash">
@@ -232,6 +271,7 @@ export default function AdminPeriodsClient() {
                 <li>· 데이터 행 {formatCount(target.row_count)}건</li>
                 {target.has_comment && <li>· 저장된 AI 코멘트</li>}
                 {target.has_excel && <li>· 스토리지에 보관된 엑셀 원본</li>}
+                {target.has_budget && <li>· 이 기간에 입력한 매체별 예산</li>}
               </ul>
             </div>
 

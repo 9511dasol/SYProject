@@ -158,7 +158,7 @@ def _purge_expired_tasks() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     _init_db()
-    # 리포트 템플릿(약 87MB)은 여기서 선로드하지 않는다.
+    # 리포트 템플릿은 여기서 선로드하지 않는다.
     # 선로드하면 export를 한 번도 쓰지 않는 인스턴스까지 그 메모리를 상시 점유한다.
     # excel_service._template_bytes()가 첫 호출 때 읽고 mtime 기준으로 캐시하므로,
     # 첫 export만 파일 읽기만큼 느려지고 이후는 동일하다.

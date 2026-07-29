@@ -280,6 +280,38 @@ class MarketingRepository:
             return "", None
         return row.comment, row.comment_updated_at
 
+    def get_media_budgets(self, year: int, month: int) -> tuple[dict[str, float], tuple[int, int] | None]:
+        """(매체별 예산, 그 값을 가져온 연월). 값이 없으면 ({}, None).
+
+        요청한 기간에 예산이 없으면 그 이전에 입력된 가장 최근 기간의 값을 이어받는다.
+        예산은 계약이 바뀌지 않는 한 매달 같은 값이라, 매달 다시 입력하게 하면
+        입력을 건너뛴 달의 예산소진율·잔여광고비가 통째로 0이 되기 때문이다.
+        """
+        target = year * 12 + month
+        candidates = [
+            row
+            for row in self.db.query(MarketingPeriodMeta).all()
+            if row.media_budgets and row.year * 12 + row.month <= target
+        ]
+        if not candidates:
+            return {}, None
+
+        best = max(candidates, key=lambda r: r.year * 12 + r.month)
+        budgets = {str(k): float(v) for k, v in best.media_budgets.items() if v is not None}
+        return budgets, (best.year, best.month)
+
+    def set_media_budgets(self, year: int, month: int, budgets: dict[str, float]) -> None:
+        """해당 기간의 매체별 예산을 통째로 교체한다. 빈 dict 를 주면 설정을 지운다."""
+        value = {str(k): float(v) for k, v in budgets.items()} or None
+
+        row = self._get_period_meta(year, month)
+        if row:
+            row.media_budgets = value
+        else:
+            self.db.add(
+                MarketingPeriodMeta(year=year, month=month, comment="", media_budgets=value)
+            )
+
     def get_excel_content(self, year: int, month: int) -> bytes | None:
         """Supabase Storage에서 해당 연월의 엑셀 원본을 가져온다."""
         row = self._get_period_meta(year, month)
@@ -352,6 +384,7 @@ class MarketingRepository:
                 "has_comment": False,
                 "comment_updated_at": None,
                 "has_excel": False,
+                "has_budget": False,
             }
             for r in rows
         }
@@ -367,10 +400,12 @@ class MarketingRepository:
                 "has_comment": False,
                 "comment_updated_at": None,
                 "has_excel": False,
+                "has_budget": False,
             })
             entry["has_comment"] = bool(meta.comment)
             entry["comment_updated_at"] = meta.comment_updated_at
             entry["has_excel"] = bool(meta.excel_path)
+            entry["has_budget"] = bool(meta.media_budgets)
 
         return sorted(overview.values(), key=lambda e: (e["year"], e["month"]), reverse=True)
 

@@ -13,6 +13,8 @@ from app.core.security import get_db, require_admin
 from app.models.user_model import User
 from app.repositories.marketing_repo import MarketingRepository
 from app.schemas.admin_period_schema import (
+    MediaBudgetsResponse,
+    MediaBudgetsUpdate,
     PeriodDeleteResponse,
     PeriodOverviewItem,
     PeriodOverviewResponse,
@@ -32,6 +34,56 @@ def list_periods(
     return PeriodOverviewResponse(
         items=[PeriodOverviewItem(**item) for item in items],
         total_rows=sum(item["row_count"] for item in items),
+    )
+
+
+@router.get("/{year}/{month}/budgets", response_model=MediaBudgetsResponse)
+def get_media_budgets(
+    year: int = Path(..., ge=2000, le=2999),
+    month: int = Path(..., ge=1, le=12),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> MediaBudgetsResponse:
+    """엑셀 summary '■ 매체별 예산'에 채울 값.
+
+    해당 기간에 저장된 값이 없으면 그 이전 기간에서 이어받는다 — 어디서 왔는지는
+    inherited_from 으로 알려준다.
+    """
+    budgets, source = MarketingRepository(db).get_media_budgets(year, month)
+    return MediaBudgetsResponse(
+        year=year,
+        month=month,
+        budgets=budgets,
+        inherited_from=f"{source[0]}-{source[1]:02d}" if source else None,
+    )
+
+
+@router.put("/{year}/{month}/budgets", response_model=MediaBudgetsResponse)
+def update_media_budgets(
+    payload: MediaBudgetsUpdate,
+    year: int = Path(..., ge=2000, le=2999),
+    month: int = Path(..., ge=1, le=12),
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> MediaBudgetsResponse:
+    repo = MarketingRepository(db)
+    try:
+        repo.set_media_budgets(year, month, payload.budgets)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception("매체별 예산 저장 실패: %d-%02d", year, month)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"저장 실패: {exc}"
+        ) from exc
+
+    logger.info("관리자 %s 가 %d년 %d월 매체별 예산 수정", admin.email, year, month)
+    budgets, source = repo.get_media_budgets(year, month)
+    return MediaBudgetsResponse(
+        year=year,
+        month=month,
+        budgets=budgets,
+        inherited_from=f"{source[0]}-{source[1]:02d}" if source else None,
     )
 
 

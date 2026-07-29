@@ -42,7 +42,7 @@ from app.schemas.marketing_schema import (
 from app.services import storage_service, task_store
 from app.services.analysis_service import AnalysisService
 from app.services.comment_service import CommentService
-from app.services.excel_service import ExcelService
+from app.services.excel_service import ExcelService, resolve_period
 from app.services.excel_reader_service import ExcelReaderService
 from app.services.llm import build_llm
 from app.services.mail import MailSendError, build_mail_sender, mail_config_error
@@ -319,26 +319,42 @@ def _store_export_bytes(task_id: str, year: int, month: int, excel_bytes: bytes)
     return {"storage_path": None}
 
 
-def _prev_month_totals(year: int, month: int) -> dict | None:
-    """엑셀 summary '전월' 행에 채울 직전월 합계 (없으면 None)."""
+def _export_context(year: int, month: int) -> dict:
+    """엑셀의 일별 실적 외 나머지 칸을 채우는 데 필요한 DB 값을 한 번에 읽는다.
+
+    템플릿은 어느 달의 데이터도 갖고 있지 않은 빈 파일이므로, 비교 행·예산·코멘트까지
+    전부 여기서 넘겨줘야 한다. 넘기지 않은 칸은 0/빈칸으로 남는다.
+    """
     prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
     db = SessionLocal()
     try:
-        return MarketingRepository(db).get_period_totals(prev_year, prev_month)
+        repo = MarketingRepository(db)
+        budgets, _ = repo.get_media_budgets(year, month)
+        comment, _ = repo.get_comment_meta(year, month)
+        return {
+            "prev_totals": repo.get_period_totals(prev_year, prev_month),
+            "prev_media_totals": repo.get_media_totals(prev_year, prev_month),
+            "yoy_media_totals": repo.get_media_totals(year - 1, month),
+            "media_budgets": budgets,
+            "comment": comment or None,
+        }
     finally:
         db.close()
 
 
-def _year_ago_media_totals(year: int, month: int) -> dict[str, dict]:
-    """엑셀 매체 시트 '전년동월' 행에 채울 1년 전 같은 달의 매체별 합계.
-
-    데이터가 없으면 빈 dict — 엑셀 쪽에서 0으로 채운다.
-    """
-    db = SessionLocal()
-    try:
-        return MarketingRepository(db).get_media_totals(year - 1, month)
-    finally:
-        db.close()
+def _build_excel(media_kpis: dict, period: str, year: int, month: int) -> bytes:
+    ctx = _export_context(year, month)
+    return ExcelService().fill_template(
+        media_kpis,
+        period,
+        year,
+        month,
+        ctx["prev_totals"],
+        ctx["yoy_media_totals"],
+        prev_media_totals=ctx["prev_media_totals"],
+        media_budgets=ctx["media_budgets"],
+        comment=ctx["comment"],
+    )
 
 
 def _run_export_task(
@@ -349,8 +365,6 @@ def _run_export_task(
     month: int,
     deliver_by: str = "download",
     recipients: list[str] | None = None,
-    prev_totals: dict | None = None,
-    yoy_media_totals: dict[str, dict] | None = None,
 ) -> None:
     """동기 함수 → FastAPI BackgroundTasks가 스레드풀에서 실행.
 
@@ -370,9 +384,7 @@ def _run_export_task(
             task_store.update_task(task_id, status="cancelled")
             return
         task_store.update_task(task_id, progress=45)
-        excel_bytes = ExcelService().fill_template(
-            media_kpis, period, year, month, prev_totals, yoy_media_totals
-        )
+        excel_bytes = _build_excel(media_kpis, period, year, month)
 
         if task_store.is_cancelled(task_id):
             task_store.update_task(task_id, status="cancelled")
@@ -563,8 +575,6 @@ async def start_export_db_task(
     )
     background_tasks.add_task(
         _run_export_task, task_id, rows, period, year, month, deliver_by, recipients,
-        _prev_month_totals(year, month),
-        _year_ago_media_totals(year, month),
     )
 
     return {
@@ -659,14 +669,7 @@ async def export_db_excel(
     if not media_kpis:
         raise HTTPException(status_code=404, detail="해당 기간의 데이터가 없습니다.")
 
-    excel_bytes = ExcelService().fill_template(
-        media_kpis,
-        period,
-        year,
-        month,
-        _prev_month_totals(year, month),
-        _year_ago_media_totals(year, month),
-    )
+    excel_bytes = _build_excel(media_kpis, period, year, month)
     filename = f"마케팅분석_{period.replace(' ', '')}.xlsx"
     return StreamingResponse(
         iter([excel_bytes]),
@@ -933,7 +936,10 @@ async def export_excel(
     finally:
         db.close()
 
-    excel_bytes = ExcelService().fill_template(media_kpis, period)
+    # 일별 실적은 방금 올린 CSV에서 오지만, 비교 행·예산·코멘트는 DB에만 있다.
+    # 기간은 라벨("26년 7월")에서 읽는다.
+    year, month = resolve_period(period, None, None)
+    excel_bytes = _build_excel(media_kpis, period, year, month)
 
     filename = f"마케팅분석_{period.replace(' ', '')}.xlsx"
     return StreamingResponse(

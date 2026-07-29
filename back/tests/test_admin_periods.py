@@ -44,8 +44,19 @@ def _add_row(db, year: int, month: int, day: int, campaign_type: str = "네이�
     db.commit()
 
 
-def _add_meta(db, year: int, month: int, *, comment: str = "", excel_path: str | None = None) -> None:
-    db.add(MarketingPeriodMeta(year=year, month=month, comment=comment, excel_path=excel_path))
+def _add_meta(
+    db,
+    year: int,
+    month: int,
+    *,
+    comment: str = "",
+    excel_path: str | None = None,
+    media_budgets: dict | None = None,
+) -> None:
+    db.add(MarketingPeriodMeta(
+        year=year, month=month, comment=comment,
+        excel_path=excel_path, media_budgets=media_budgets,
+    ))
     db.commit()
 
 
@@ -117,6 +128,100 @@ def test_list_endpoint_returns_total_rows(client, db):
     body = client.get("/api/admin/periods").json()
     assert body["total_rows"] == 2
     assert len(body["items"]) == 2
+
+
+# ── 매체별 예산 ───────────────────────────────────────────────────────────────
+#
+# 엑셀 summary '■ 매체별 예산'은 원래 템플릿에 상수로 박혀 있었다. 템플릿을 빈 파일로
+# 만들면서 기간별로 DB에서 가져오게 옮겼고, 매달 다시 입력하지 않아도 되도록
+# 직전에 입력한 기간의 값을 이어받는다.
+
+
+def test_budgets_are_empty_when_never_set(db):
+    assert MarketingRepository(db).get_media_budgets(2026, 6) == ({}, None)
+
+
+def test_budgets_round_trip(db):
+    repo = MarketingRepository(db)
+    repo.set_media_budgets(2026, 6, {"네이버SA": 19_000_000})
+    db.commit()
+
+    assert repo.get_media_budgets(2026, 6) == ({"네이버SA": 19_000_000.0}, (2026, 6))
+
+
+def test_budgets_are_inherited_from_the_latest_earlier_period(db):
+    repo = MarketingRepository(db)
+    _add_meta(db, 2026, 3, media_budgets={"네이버SA": 1})
+    _add_meta(db, 2026, 5, media_budgets={"네이버SA": 2})
+
+    budgets, source = repo.get_media_budgets(2026, 7)
+    assert budgets == {"네이버SA": 2.0}
+    assert source == (2026, 5)
+
+
+def test_later_periods_do_not_leak_backwards(db):
+    """7월에 입력한 예산이 5월 리포트에 끼어들면 안 된다."""
+    _add_meta(db, 2026, 7, media_budgets={"네이버SA": 9})
+
+    assert MarketingRepository(db).get_media_budgets(2026, 5) == ({}, None)
+
+
+def test_budgets_survive_across_the_year_boundary(db):
+    _add_meta(db, 2025, 12, media_budgets={"네이버SA": 5})
+
+    budgets, source = MarketingRepository(db).get_media_budgets(2026, 1)
+    assert budgets == {"네이버SA": 5.0}
+    assert source == (2025, 12)
+
+
+def test_setting_budgets_keeps_existing_comment(db):
+    repo = MarketingRepository(db)
+    _add_meta(db, 2026, 6, comment="지난달 대비 CPC 상승")
+
+    repo.set_media_budgets(2026, 6, {"네이버SA": 1})
+    db.commit()
+
+    assert repo.get_comment_meta(2026, 6)[0] == "지난달 대비 CPC 상승"
+
+
+def test_overview_flags_budget(db):
+    _add_meta(db, 2026, 6, media_budgets={"네이버SA": 1})
+    assert MarketingRepository(db).list_period_overview()[0]["has_budget"] is True
+
+
+def test_get_budgets_endpoint_reports_inherited_period(client, db):
+    _add_meta(db, 2026, 5, media_budgets={"네이버SA": 19_000_000})
+
+    body = client.get("/api/admin/periods/2026/7/budgets").json()
+    assert body["budgets"] == {"네이버SA": 19_000_000}
+    assert body["inherited_from"] == "2026-05"
+    assert "네이버SA" in body["media"]
+
+
+def test_put_budgets_endpoint_persists(client, db):
+    res = client.put("/api/admin/periods/2026/6/budgets", json={"budgets": {"구글SA": 7_000_000}})
+
+    assert res.status_code == 200
+    assert res.json()["inherited_from"] == "2026-06"
+    assert MarketingRepository(db).get_media_budgets(2026, 6)[0] == {"구글SA": 7_000_000.0}
+
+
+def test_put_budgets_rejects_unknown_media(client):
+    res = client.put("/api/admin/periods/2026/6/budgets", json={"budgets": {"틱톡SA": 100}})
+    assert res.status_code == 422
+
+
+def test_put_budgets_rejects_negative_amount(client):
+    res = client.put("/api/admin/periods/2026/6/budgets", json={"budgets": {"구글SA": -1}})
+    assert res.status_code == 422
+
+
+def test_put_empty_budgets_clears_the_setting(client, db):
+    _add_meta(db, 2026, 6, media_budgets={"구글SA": 1})
+
+    client.put("/api/admin/periods/2026/6/budgets", json={"budgets": {}})
+
+    assert MarketingRepository(db).get_media_budgets(2026, 6) == ({}, None)
 
 
 # ── 삭제 ──────────────────────────────────────────────────────────────────────
