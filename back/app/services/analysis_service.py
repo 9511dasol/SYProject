@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import extract, func
 from sqlalchemy.orm import Session
 
-from app.models.marketing_model import MarketingData
+from app.models.marketing_model import MarketingData, resolve_total_conv
 
 
 def _safe_pct(new: float, old: float) -> float:
@@ -23,7 +23,8 @@ class MediaKPI:
     impressions: int = 0
     clicks: int = 0
     cost: float = 0.0
-    conversions: int = 0
+    # 구글은 전환수가 소수로 온다 (하루 66.38건) — 정수로 두면 코멘트 수치가 어긋난다
+    conversions: float = 0.0
     revenue: float = 0.0
     ctr: float = 0.0
     cpc: float = 0.0
@@ -82,9 +83,9 @@ class PeriodComparison:
     curr_cost: float = 0.0
     prev_cost: float = 0.0
     prev2_cost: float = 0.0
-    curr_conversions: int = 0
-    prev_conversions: int = 0
-    prev2_conversions: int = 0
+    curr_conversions: float = 0.0
+    prev_conversions: float = 0.0
+    prev2_conversions: float = 0.0
     curr_revenue: float = 0.0
     prev_revenue: float = 0.0
     prev2_revenue: float = 0.0
@@ -111,6 +112,9 @@ def _query_kpis(db: Session, year: int, month: int) -> dict[str, MediaKPI]:
             func.sum(MarketingData.cost).label("cost"),
             func.sum(MarketingData.conversions).label("conversions"),
             func.sum(MarketingData.conversion_revenue).label("revenue"),
+            func.sum(MarketingData.signup).label("signup"),
+            func.sum(MarketingData.purchase).label("purchase"),
+            func.sum(MarketingData.apply).label("apply"),
         )
         .filter(
             extract("year", MarketingData.report_date) == year,
@@ -125,7 +129,7 @@ def _query_kpis(db: Session, year: int, month: int) -> dict[str, MediaKPI]:
         imp = int(r.impressions or 0)
         clk = int(r.clicks or 0)
         cost = float(r.cost or 0)
-        conv = int(r.conversions or 0)
+        conv = round(resolve_total_conv(r.conversions, r.signup, r.purchase, r.apply), 2)
         rev = float(r.revenue or 0)
         result[r.campaign_type] = MediaKPI(
             campaign_type=r.campaign_type,
@@ -207,9 +211,10 @@ class AnalysisService:
         curr_cost = sum(k.cost for k in curr_map.values())
         prev_cost = sum(k.cost for k in prev_map.values())
         prev2_cost = sum(k.cost for k in prev2_map.values())
-        curr_conv = sum(k.conversions for k in curr_map.values())
-        prev_conv = sum(k.conversions for k in prev_map.values())
-        prev2_conv = sum(k.conversions for k in prev2_map.values())
+        # 소수 전환수가 그대로 흘러가면 프롬프트에 66.38000000000001 같은 값이 박힌다
+        curr_conv = round(sum(k.conversions for k in curr_map.values()), 2)
+        prev_conv = round(sum(k.conversions for k in prev_map.values()), 2)
+        prev2_conv = round(sum(k.conversions for k in prev2_map.values()), 2)
         curr_rev = sum(k.revenue for k in curr_map.values())
         prev_rev = sum(k.revenue for k in prev_map.values())
         prev2_rev = sum(k.revenue for k in prev2_map.values())

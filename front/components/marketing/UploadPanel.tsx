@@ -370,6 +370,9 @@ export default function UploadPanel({
               <p className="rounded-lg bg-surface-2 px-3.5 py-3 text-xs text-fg-muted leading-relaxed">
                 매체·전환 파일을 자동으로 분류해 분석한 뒤 <strong className="text-fg">바로 DB에 저장</strong>합니다.
                 저장 직후 뜨는 알림에서 되돌릴 수 있습니다.
+                <br />
+                <strong className="text-fg">한 파일만 올려도 됩니다.</strong> 이번에 올리지 않은 쪽
+                (전환만 올리면 노출·클릭·비용)은 이미 저장된 값을 그대로 두고, 저장된 값이 없으면 0으로 채웁니다.
               </p>
             </>
           )}

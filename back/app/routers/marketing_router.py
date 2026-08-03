@@ -28,6 +28,7 @@ from app.core.uploads import (
     read_data_upload,
     read_data_uploads,
 )
+from app.models.marketing_model import resolve_total_conv
 from app.models.user_model import User
 from app.repositories.marketing_repo import MarketingRepository
 from app.schemas.marketing_schema import (
@@ -150,7 +151,12 @@ def _db_rows_to_media_kpis(rows: list) -> dict[str, pd.DataFrame]:
             "impressions": r.impressions or 0,
             "clicks": r.clicks or 0,
             "cost": float(r.cost or 0),
-            "total_conv": r.conversions or 0,
+            "total_conv": resolve_total_conv(
+                r.conversions,
+                getattr(r, "signup", 0),
+                getattr(r, "purchase", 0),
+                getattr(r, "apply", 0),
+            ),
             "revenue": float(r.conversion_revenue or 0),
             "signup": float(getattr(r, "signup", 0) or 0),
             "purchase": float(getattr(r, "purchase", 0) or 0),

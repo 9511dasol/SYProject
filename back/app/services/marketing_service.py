@@ -84,9 +84,33 @@ def _is_google_campaign(df: pd.DataFrame) -> bool:
     return {"일", "캠페인 유형", "노출수", "클릭수"} <= cols and any("비용" in c for c in cols)
 
 
+# 구글 Ads 데이터 관리자는 계정·내보내기 설정에 따라 컬럼명이 조금씩 다르게 나온다.
+# (전환수: "전환"/"전환수", 전환 가치: "모든 전환 가치"/"전환 가치" …)
+# 이름 하나에만 의존하면 구글이 라벨을 바꾸는 순간 KeyError 로 업로드가 통째로 실패하므로
+# — 실제로 "전환 가치" → "모든 전환 가치" 변경 때문에 전환 파일 업로드가 500이 났다 —
+# 후보를 순서대로 찾아 쓴다.
+_GOOGLE_CONV_COUNT_COLUMNS = ("전환", "전환수", "모든 전환", "모든 전환수")
+_GOOGLE_CONV_VALUE_COLUMNS = ("모든 전환 가치", "전환 가치", "모든 전환값", "전환값")
+
+
+def _pick_column(df: pd.DataFrame, candidates: tuple[str, ...]) -> str | None:
+    """후보 컬럼명 중 df에 실제로 있는 첫 번째. 하나도 없으면 None."""
+    return next((c for c in candidates if c in df.columns), None)
+
+
+def _to_number(series: pd.Series) -> pd.Series:
+    """'1,234.56' 처럼 천 단위 쉼표가 낀 컬럼 → 숫자 (변환 실패는 0)"""
+    return pd.to_numeric(
+        series.astype(str).str.replace(",", "", regex=False), errors="coerce"
+    ).fillna(0)
+
+
 def _is_google_conversion(df: pd.DataFrame) -> bool:
-    """구글 Ads 데이터 관리자 '전환' 내보내기 판별 (일/캠페인 유형/전환 액션/전환)"""
-    return {"일", "캠페인 유형", "전환 액션", "전환"} <= set(df.columns)
+    """구글 Ads 데이터 관리자 '전환' 내보내기 판별 (일/캠페인 유형/전환 액션/전환수)"""
+    return (
+        {"일", "캠페인 유형", "전환 액션"} <= set(df.columns)
+        and _pick_column(df, _GOOGLE_CONV_COUNT_COLUMNS) is not None
+    )
 
 
 def _google_conv_subset(df_conv: pd.DataFrame | None) -> pd.DataFrame | None:
@@ -95,6 +119,14 @@ def _google_conv_subset(df_conv: pd.DataFrame | None) -> pd.DataFrame | None:
         return None
     g = df_conv[df_conv["전환 액션"].notna()].copy()
     return g if not g.empty else None
+
+
+def _naver_conv_subset(df_conv: pd.DataFrame | None) -> pd.DataFrame | None:
+    """섞여 concat된 df_conv에서 네이버(전환 유형 컬럼) 행만 추림"""
+    if df_conv is None or df_conv.empty or "전환 유형" not in df_conv.columns:
+        return None
+    n = df_conv[df_conv["전환 유형"].notna()].copy()
+    return n if not n.empty else None
 
 
 # 구글 전환 액션 → 표시 카테고리 통합 규칙 (의뢰자 요청):
@@ -108,6 +140,57 @@ GOOGLE_CONV_ACTION_MAP: dict[str, str] = {
     "인강구매완료_의약": "purchase",
     "회원가입": "signup",
 }
+
+_GOOGLE_CONV_CATEGORIES = ("purchase", "signup", "apply")
+
+
+def _google_conv_normalized(df_conv: pd.DataFrame) -> pd.DataFrame:
+    """구글 전환 df → date / category / conv / value 4컬럼으로 정규화.
+
+    GOOGLE_CONV_ACTION_MAP 에 없는 전환 액션은 버린다. 가치 컬럼은 전환수만 골라
+    내보낸 파일에는 아예 없을 수 있는데, 그때는 0으로 둔다 — 매출이 비는 것과
+    업로드 자체가 실패하는 것은 전혀 다른 문제라서 여기서 멈추지 않는다.
+    """
+    count_col = _pick_column(df_conv, _GOOGLE_CONV_COUNT_COLUMNS)
+    if count_col is None:
+        return pd.DataFrame(columns=["date", "category", "conv", "value"])
+
+    c = df_conv.copy()
+    c["category"] = c["전환 액션"].map(GOOGLE_CONV_ACTION_MAP)
+    c = c[c["category"].notna()].copy()
+    if c.empty:
+        return pd.DataFrame(columns=["date", "category", "conv", "value"])
+
+    c["date"] = c["일"].apply(_to_date)
+    c["conv"] = _to_number(c[count_col])
+    value_col = _pick_column(df_conv, _GOOGLE_CONV_VALUE_COLUMNS)
+    c["value"] = _to_number(c[value_col]) if value_col else 0.0
+    return c[["date", "category", "conv", "value"]]
+
+
+def _google_conv_daily(c: pd.DataFrame) -> pd.DataFrame:
+    """정규화된 구글 전환 → 날짜별 purchase/signup/apply/revenue.
+
+    매출은 구매 전환의 '전환 가치'만 합한다 (회원가입·신청은 금액이 없거나 의미가 없다).
+    """
+    daily = (
+        c.pivot_table(index="date", columns="category", values="conv", aggfunc="sum", fill_value=0)
+        .reset_index()
+    )
+    revenue = (
+        c[c["category"] == "purchase"]
+        .groupby("date", as_index=False)["value"].sum()
+        .rename(columns={"value": "revenue"})
+    )
+    return daily.merge(revenue, on="date", how="left")
+
+
+def _fill_missing_conv_columns(daily: pd.DataFrame) -> pd.DataFrame:
+    """그 기간에 한 건도 없던 전환 카테고리·매출 컬럼을 0으로 채운다."""
+    for cat in (*_GOOGLE_CONV_CATEGORIES, "revenue"):
+        if cat not in daily.columns:
+            daily[cat] = 0.0
+    return daily.fillna(0)
 
 
 def _is_conversion(df: pd.DataFrame) -> bool:
@@ -264,8 +347,10 @@ class MarketingService:
     ) -> pd.DataFrame:
         """impressions/clicks/cost가 이미 일자별로 집계된 daily df에 네이버 전환 데이터를
         조인하고 파생 지표를 계산한다. _calc_kpis / _calc_single_media_kpis 공용."""
-        # 전환 데이터 피벗 조인
-        if df_conv is not None and not df_conv.empty:
+        # 전환 데이터 피벗 조인.
+        # '캠페인유형' 이 있는지 확인하는 이유: 여기 오는 건 네이버 전환 데이터여야 하는데,
+        # 구글 전환 파일만 섞여 올라오면 그 컬럼이 없어 KeyError 로 업로드가 통째로 죽는다.
+        if df_conv is not None and not df_conv.empty and "캠페인유형" in df_conv.columns:
             c = df_conv[df_conv["캠페인유형"] == campaign_type].copy()
             if not c.empty:
                 c["date"] = c["일별"].apply(_to_date)
@@ -306,68 +391,32 @@ class MarketingService:
         m["date"] = m["일"].apply(_to_date)
         cost_col = next(c for c in m.columns if "비용" in c)
         for col in ("노출수", "클릭수", cost_col):
-            m[col] = pd.to_numeric(m[col].astype(str).str.replace(",", ""), errors="coerce").fillna(0)
+            m[col] = _to_number(m[col])
         daily = (
             m.groupby("date", as_index=False)
             .agg(impressions=("노출수", "sum"), clicks=("클릭수", "sum"), cost=(cost_col, "sum"))
         )
 
         if df_conv is not None and not df_conv.empty:
-            c = df_conv.copy()
-            c["date"] = c["일"].apply(_to_date)
-            c["category"] = c["전환 액션"].map(GOOGLE_CONV_ACTION_MAP)
-            c = c[c["category"].notna()].copy()
+            c = _google_conv_normalized(df_conv)
             if not c.empty:
-                c["전환"] = pd.to_numeric(c["전환"].astype(str).str.replace(",", ""), errors="coerce").fillna(0)
-                c["전환 가치"] = pd.to_numeric(c["전환 가치"].astype(str).str.replace(",", ""), errors="coerce").fillna(0)
-                conv_pivot = (
-                    c.pivot_table(index="date", columns="category", values="전환", aggfunc="sum", fill_value=0)
-                    .reset_index()
-                )
-                daily = daily.merge(conv_pivot, on="date", how="left")
-                revenue = (
-                    c[c["category"] == "purchase"]
-                    .groupby("date", as_index=False)["전환 가치"].sum()
-                    .rename(columns={"전환 가치": "revenue"})
-                )
-                daily = daily.merge(revenue, on="date", how="left")
+                # outer 조인 — 캠페인 파일에 없는 날짜에 전환이 잡혀 있어도 버리지 않는다.
+                # (두 파일의 기간이 하루라도 어긋나면 그날 전환이 통째로 사라졌었다)
+                daily = daily.merge(_google_conv_daily(c), on="date", how="outer")
 
-        for cat in ("purchase", "signup", "apply", "revenue"):
-            if cat not in daily.columns:
-                daily[cat] = 0.0
-        daily = daily.fillna(0)
-
+        daily = _fill_missing_conv_columns(daily)
         return {"구글SA": self._compute_kpi_ratios(daily)}
 
     def _calc_google_conv_only_kpis(self, df_conv: pd.DataFrame) -> dict[str, pd.DataFrame]:
         """구글 전환 데이터만 업로드된 경우 (노출·클릭·비용 = 0)"""
-        c = df_conv.copy()
-        c["date"] = c["일"].apply(_to_date)
-        c["category"] = c["전환 액션"].map(GOOGLE_CONV_ACTION_MAP)
-        c = c[c["category"].notna()].copy()
+        c = _google_conv_normalized(df_conv)
         if c.empty:
             return {}
-        c["전환"] = pd.to_numeric(c["전환"].astype(str).str.replace(",", ""), errors="coerce").fillna(0)
-        c["전환 가치"] = pd.to_numeric(c["전환 가치"].astype(str).str.replace(",", ""), errors="coerce").fillna(0)
 
-        daily = (
-            c.pivot_table(index="date", columns="category", values="전환", aggfunc="sum", fill_value=0)
-            .reset_index()
-        )
-        revenue = (
-            c[c["category"] == "purchase"]
-            .groupby("date", as_index=False)["전환 가치"].sum()
-            .rename(columns={"전환 가치": "revenue"})
-        )
-        daily = daily.merge(revenue, on="date", how="left")
-        for cat in ("purchase", "signup", "apply", "revenue"):
-            if cat not in daily.columns:
-                daily[cat] = 0.0
+        daily = _fill_missing_conv_columns(_google_conv_daily(c))
         daily["impressions"] = 0.0
         daily["clicks"] = 0.0
         daily["cost"] = 0.0
-        daily = daily.fillna(0)
-
         return {"구글SA": self._compute_kpi_ratios(daily)}
 
     def _calc_kpis(
@@ -455,11 +504,11 @@ class MarketingService:
             pivot["signup"] = _col("총 전환수", "회원가입")
             pivot["apply"] = _col("총 전환수", "신청 완료")
             pivot["revenue"] = _col("총 전환매출액(원)", "구매완료")
-            pivot["total_conv"] = pivot["purchase"] + pivot["signup"] + pivot["apply"]
             pivot["impressions"] = 0.0
             pivot["clicks"] = 0.0
             pivot["cost"] = 0.0
-            results[media_label] = pivot.fillna(0)
+            # 매체 파일이 같이 올라온 경로와 같은 컬럼 구성을 갖도록 파생 지표까지 계산한다
+            results[media_label] = self._compute_kpi_ratios(pivot.fillna(0))
         return results
 
     # ------------------------------------------------------------------ #
@@ -477,7 +526,10 @@ class MarketingService:
             if conv_dfs
             else pd.DataFrame()
         )
+        # 매체별로 전환 파일 형식이 달라 미리 갈라 둔다 — 한쪽 형식만 올라왔을 때
+        # 반대쪽 처리 코드가 없는 컬럼을 찾다 죽지 않도록.
         google_conv = _google_conv_subset(df_conv if not df_conv.empty else None)
+        naver_conv = _naver_conv_subset(df_conv if not df_conv.empty else None)
 
         media_kpis: dict[str, pd.DataFrame] = {}
         # 이번 업로드에서 각 매체 라벨이 실제로 노출/클릭/비용(media) 또는 전환(conv)
@@ -502,7 +554,7 @@ class MarketingService:
         for content, filename in media_files:
             self._extract_period(filename, content)
             df_media = _read_csv(content)
-            conv_arg = df_conv if not df_conv.empty else None
+            conv_arg = naver_conv
             if _is_kakao(df_media):
                 _merge_kpis(media_kpis, self._calc_kakao_kpis(df_media), has_media=True, has_conv=False)
             elif _is_single_media_daily(df_media):
@@ -523,16 +575,28 @@ class MarketingService:
                 # 알 수 없는 캠페인유형 → 카카오SA 폴백
                 _merge_kpis(media_kpis, self._calc_unknown_as_kakao(df_media), has_media=True, has_conv=False)
 
-        # 전환 데이터만 업로드된 경우: 미디어 없이 전환만 DB 반영
-        if not media_kpis and not df_conv.empty:
-            for content, filename in conv_files:
+        # 어떤 매체 파일도 다루지 않은 전환 데이터를 노출·클릭·비용 없이 따로 반영한다.
+        # 두 경우에 걸린다:
+        #   1) 전환 파일만 올린 경우 (매체 파일이 아예 없음)
+        #   2) 구글 전환 + 네이버 매체처럼 섞어 올려 구글 캠페인 파일이 빠진 경우
+        #      — 예전에는 media_kpis 가 비어 있을 때만 이 블록을 타서, 2번에서 구글
+        #        전환이 에러 없이 통째로 사라졌다.
+        # 저장할 때는 has_media=False 로 표시해 DB에 이미 있는 노출·클릭·비용을 지키게 한다.
+        if not df_conv.empty:
+            if not media_files:
+                content, filename = conv_files[0]
                 self._extract_period(filename, content)
-                break
+
+            def _merge_conv_only(new_kpis: dict) -> None:
+                for label, kpi_df in new_kpis.items():
+                    if media_authority.get(label):
+                        continue  # 매체 파일이 이 라벨의 전환까지 이미 조인했다
+                    _merge_kpis(media_kpis, {label: kpi_df}, has_media=False, has_conv=True)
+
             if google_conv is not None:
-                _merge_kpis(media_kpis, self._calc_google_conv_only_kpis(google_conv), has_media=False, has_conv=True)
-            naver_conv = df_conv[df_conv["전환 유형"].notna()] if "전환 유형" in df_conv.columns else pd.DataFrame()
-            if not naver_conv.empty:
-                _merge_kpis(media_kpis, self._calc_conv_only_kpis(naver_conv), has_media=False, has_conv=True)
+                _merge_conv_only(self._calc_google_conv_only_kpis(google_conv))
+            if naver_conv is not None:
+                _merge_conv_only(self._calc_conv_only_kpis(naver_conv))
 
         rows_saved, diff, undo_id = self.repo.save_from_kpis(media_kpis, media_authority, conv_authority)
 
@@ -558,6 +622,7 @@ class MarketingService:
             else pd.DataFrame()
         )
         google_conv = _google_conv_subset(df_conv if not df_conv.empty else None)
+        naver_conv = _naver_conv_subset(df_conv if not df_conv.empty else None)
 
         media_kpis: dict[str, pd.DataFrame] = {}
 
@@ -578,11 +643,28 @@ class MarketingService:
             if _is_kakao(df_media):
                 _merge(media_kpis, self._calc_kakao_kpis(df_media))
             elif _is_single_media_daily(df_media):
-                _merge(media_kpis, self._calc_single_media_kpis(df_media, df_conv if not df_conv.empty else None))
+                _merge(media_kpis, self._calc_single_media_kpis(df_media, naver_conv))
             elif _is_google_campaign(df_media):
                 _merge(media_kpis, self._calc_google_kpis(df_media, google_conv))
             else:
-                _merge(media_kpis, self._calc_kpis(df_media, df_conv if not df_conv.empty else None))
+                _merge(media_kpis, self._calc_kpis(df_media, naver_conv))
                 _merge(media_kpis, self._calc_unknown_as_kakao(df_media))
+
+        # 매체 파일이 다루지 않은 전환 데이터도 반영 — process_and_analyze 와 같은 규칙.
+        # (전환 CSV만 올리고 '저장 없이 엑셀만 받기'를 누르면 빈 리포트가 나왔다)
+        if not df_conv.empty:
+            if not media_files:
+                content, filename = conv_files[0]
+                self._extract_period(filename, content)
+
+            covered = set(media_kpis)
+
+            def _merge_conv_only(new_kpis: dict) -> None:
+                _merge(media_kpis, {k: v for k, v in new_kpis.items() if k not in covered})
+
+            if google_conv is not None:
+                _merge_conv_only(self._calc_google_conv_only_kpis(google_conv))
+            if naver_conv is not None:
+                _merge_conv_only(self._calc_conv_only_kpis(naver_conv))
 
         return media_kpis, self.current_period

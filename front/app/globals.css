@@ -223,6 +223,19 @@ body {
   overflow: hidden;
 }
 
+/* 스크롤을 쓰는 표는 위의 overflow:hidden 을 되돌린다.
+   Tailwind v4 는 유틸리티를 @layer 안에 넣는데 이 파일의 규칙은 레이어 밖이라,
+   레이어 없는 쪽이 무조건 이겨서 overflow-x-auto 가 통째로 무시됐다. 그래서 좁은
+   화면에서 표를 옆으로 밀 수가 없었다. border-radius 는 그대로 두어도 스크롤
+   컨테이너가 알아서 잘라내므로 둥근 모서리는 유지된다. */
+.data-table.overflow-x-auto {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.data-table.overflow-y-auto {
+  overflow-y: auto;
+}
+
 /* 헤더 행 */
 .data-table thead tr {
   background-color: var(--tbl-head);

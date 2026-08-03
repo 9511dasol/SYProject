@@ -42,3 +42,17 @@ class MarketingData(Base):
     signup: Mapped[float] = mapped_column(default=0.0)
     purchase: Mapped[float] = mapped_column(default=0.0)
     apply: Mapped[float] = mapped_column(default=0.0)
+
+
+def resolve_total_conv(conversions, signup, purchase, apply) -> float:
+    """총 전환수 = 세부 전환(회원가입·구매완료·신청) 합. 세부가 비어 있으면 conversions.
+
+    conversions 는 정수 컬럼이라 구글 Ads 처럼 전환수가 소수로 오는 매체는 저장할 때
+    소수점이 잘린다(하루 66.38건 → 66건). 세부 전환 3종은 실수 컬럼이라 값이 온전하게
+    남으므로, 읽을 때 이쪽을 합해 쓰면 컬럼 타입을 바꾸지 않고도 정확해진다.
+
+    세부가 전부 0이면 저장된 conversions 로 되돌아간다 — 세부 항목 컬럼이 없는 엑셀에서
+    불러온 행은 총합만 갖고 있어서, 무조건 합산하면 그런 행이 0으로 보이기 때문이다.
+    """
+    breakdown = float(signup or 0) + float(purchase or 0) + float(apply or 0)
+    return breakdown if breakdown else float(conversions or 0)

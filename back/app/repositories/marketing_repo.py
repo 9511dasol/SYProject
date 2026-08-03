@@ -10,7 +10,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 import pandas as pd
 
 from app.core.database import SessionLocal, engine
-from app.models.marketing_model import MarketingData, MarketingPeriodMeta
+from app.models.marketing_model import MarketingData, MarketingPeriodMeta, resolve_total_conv
 from app.repositories.undo_snapshot_repo import UndoSnapshotRepository
 from app.services import storage_service
 
@@ -114,7 +114,9 @@ class MarketingRepository:
                     "impressions": int(row.get("impressions") or 0),
                     "clicks": int(row.get("clicks") or 0),
                     "cost": float(row.get("cost") or 0),
-                    "conversions": int(row.get("total_conv") or 0),
+                    # 정수 컬럼이라 소수 전환수(구글)는 여기서 반올림된다. 온전한 값은
+                    # signup/purchase/apply 에 남고 읽을 때 resolve_total_conv 가 합산한다.
+                    "conversions": int(round(float(row.get("total_conv") or 0))),
                     "conversion_revenue": float(row.get("revenue") or 0),
                     "signup": float(row.get("signup") or 0),
                     "purchase": float(row.get("purchase") or 0),
@@ -485,7 +487,7 @@ class MarketingRepository:
             "impressions": int(r.impressions or 0),
             "clicks": int(r.clicks or 0),
             "cost": float(r.cost or 0),
-            "conversions": int(r.conversions or 0),
+            "conversions": resolve_total_conv(r.conversions, r.signup, r.purchase, r.apply),
             "revenue": float(r.revenue or 0),
             "signup": float(r.signup or 0),
             "purchase": float(r.purchase or 0),
@@ -522,7 +524,7 @@ class MarketingRepository:
                 "impressions": int(r.impressions or 0),
                 "clicks": int(r.clicks or 0),
                 "cost": float(r.cost or 0),
-                "conversions": int(r.conversions or 0),
+                "conversions": resolve_total_conv(r.conversions, r.signup, r.purchase, r.apply),
                 "revenue": float(r.revenue or 0),
                 "signup": float(r.signup or 0),
                 "purchase": float(r.purchase or 0),

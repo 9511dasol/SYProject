@@ -158,8 +158,11 @@ export default function DashboardClient() {
     (message: string, undoId?: string) => {
       setUploadOpen(false);
       setDroppedFiles([]);
-      // refreshTrigger 대신 직접 캐시 무효화
+      // refreshTrigger 대신 직접 캐시 무효화.
+      // summary 까지 같이 버려야 한다 — 60초 staleTime 이라, 보고 있던 달에 방금
+      // 데이터를 올려도 표가 예전 값(전환수·구매매출이 0/'-')을 계속 보여줬다.
       queryClient.invalidateQueries({ queryKey: queryKeys.periods() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allSummaries() });
       if (undoId) {
         addToast('success', message, {
           label: '되돌리기',
@@ -167,6 +170,7 @@ export default function DashboardClient() {
             undoUpload(undoId)
               .then(() => {
                 queryClient.invalidateQueries({ queryKey: queryKeys.periods() });
+                queryClient.invalidateQueries({ queryKey: queryKeys.allSummaries() });
                 addToast('success', '되돌리기 완료');
               })
               .catch((err) =>

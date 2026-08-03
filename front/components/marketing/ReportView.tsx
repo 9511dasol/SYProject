@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { MediaDailyRow, MediaSummary, ReportData, RowDiff, RowFormData } from '@/types/marketing';
 import CommentSection from '@/components/marketing/CommentSection';
 import RowEditorModal from '@/components/marketing/RowEditorModal';
+import ScrollableTable from '@/components/marketing/ScrollableTable';
 import { deleteMarketingRow, updateComment, upsertMarketingRow } from '@/lib/marketingClient';
 
 const fmt = {
@@ -12,6 +13,18 @@ const fmt = {
   won: (v: number) => Math.round(v).toLocaleString('ko-KR') + '원',
   dec: (v: number) => v.toFixed(1),
 };
+
+/**
+ * 표를 옆으로 밀어도 첫 칸(날짜·매체)은 제자리에 붙어 있게 한다 — 좁은 화면에서
+ * 오른쪽 지표를 보다가 지금 어느 행인지 놓치지 않도록.
+ *
+ * bg-inherit 인 이유: 행 배경색이 tr 에 걸려 있어서(tr-even/tr-odd, 수정·삭제 강조 등)
+ * 그대로 물려받아야 스크롤된 숫자가 첫 칸 밑으로 비쳐 보이지 않는다.
+ */
+const STICKY_CELL = 'sticky left-0 z-10 bg-inherit shadow-[1px_0_0_0_var(--tbl-border)]';
+
+/** 숫자 칸 공통 — 줄바꿈되면 컬럼이 찌그러져서 값을 못 읽는다 */
+const NUM_CELL = 'px-3 py-2 tabular-nums text-right whitespace-nowrap';
 
 // DB campaign_type 키 기준 (파워컨텐츠 시트는 '네이버PSA'로 저장됨)
 const MEDIA_ORDER = ['네이버SA', '네이버BS', '카카오SA', '구글SA', '네이버PSA'];
@@ -88,12 +101,17 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub?: st
 function SummaryTable({ rows }: { rows: MediaSummary[] }) {
   const headers = ['매체', '노출', '클릭', 'CTR', 'CPC', '광고비', '전환수', '전환율', '회원가입', '구매완료', 'ROAS'];
   return (
-    <div className="overflow-x-auto data-table">
+    <ScrollableTable hint="옆으로 밀어서 나머지 지표를 볼 수 있어요">
       <table className="min-w-full text-sm">
         <thead>
           <tr>
             {headers.map((h, i) => (
-              <th key={h} className={`px-3 py-2 text-xs font-medium whitespace-nowrap ${i === 0 ? 'text-left' : 'text-right'}`}>
+              <th
+                key={h}
+                className={`px-3 py-2 text-xs font-medium whitespace-nowrap ${
+                  i === 0 ? `${STICKY_CELL} text-left` : 'text-right'
+                }`}
+              >
                 {h}
               </th>
             ))}
@@ -102,22 +120,22 @@ function SummaryTable({ rows }: { rows: MediaSummary[] }) {
         <tbody>
           {rows.map((r, i) => (
             <tr key={r.label} className={i % 2 === 0 ? 'tr-even' : 'tr-odd'}>
-              <td className="px-3 py-2 font-medium whitespace-nowrap">{r.label}</td>
-              <td className="px-3 py-2 tabular-nums text-right">{fmt.num(r.impressions)}</td>
-              <td className="px-3 py-2 tabular-nums text-right">{fmt.num(r.clicks)}</td>
-              <td className="px-3 py-2 tabular-nums text-right">{fmt.pct(r.ctr)}</td>
-              <td className="px-3 py-2 tabular-nums text-right">{fmt.num(r.cpc)}</td>
-              <td className="px-3 py-2 tabular-nums text-right">{fmt.won(r.cost)}</td>
-              <td className="px-3 py-2 tabular-nums text-right">{fmt.dec(r.total_conv)}</td>
-              <td className="px-3 py-2 tabular-nums text-right">{fmt.pct(r.ctr > 0 ? r.total_conv / r.clicks : 0)}</td>
-              <td className="px-3 py-2 tabular-nums text-right">{fmt.dec(r.signup)}</td>
-              <td className="px-3 py-2 tabular-nums text-right">{fmt.dec(r.purchase)}</td>
-              <td className="px-3 py-2 tabular-nums text-right">{fmt.pct(r.roas)}</td>
+              <td className={`px-3 py-2 font-medium whitespace-nowrap ${STICKY_CELL}`}>{r.label}</td>
+              <td className={NUM_CELL}>{fmt.num(r.impressions)}</td>
+              <td className={NUM_CELL}>{fmt.num(r.clicks)}</td>
+              <td className={NUM_CELL}>{fmt.pct(r.ctr)}</td>
+              <td className={NUM_CELL}>{fmt.num(r.cpc)}</td>
+              <td className={NUM_CELL}>{fmt.won(r.cost)}</td>
+              <td className={NUM_CELL}>{fmt.dec(r.total_conv)}</td>
+              <td className={NUM_CELL}>{fmt.pct(r.ctr > 0 ? r.total_conv / r.clicks : 0)}</td>
+              <td className={NUM_CELL}>{fmt.dec(r.signup)}</td>
+              <td className={NUM_CELL}>{fmt.dec(r.purchase)}</td>
+              <td className={NUM_CELL}>{fmt.pct(r.roas)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
+    </ScrollableTable>
   );
 }
 
@@ -318,6 +336,16 @@ function RowDetailModal({ row, mediaLabel, editable, onEdit, onDelete, onRestore
   );
 }
 
+/**
+ * 그 날짜에 볼 만한 실적이 하나라도 있는지 — 빈 날짜를 표에서 숨기는 기준.
+ *
+ * 전환 지표까지 보는 이유: 전환 CSV만 올린 날은 노출·클릭·비용이 0이라, 노출만
+ * 보던 예전 조건으로는 한 달치가 통째로 사라져 '데이터 없음' 이 떴다.
+ */
+function hasAnyMetric(r: MediaDailyRow): boolean {
+  return r.impressions > 0 || r.clicks > 0 || r.cost > 0 || r.total_conv > 0 || r.revenue > 0;
+}
+
 // ── 일별 데이터 테이블 ────────────────────────────────────────────────────────
 interface DailyTableProps {
   rows: EnrichedRow[];
@@ -336,9 +364,7 @@ function DailyTable({ rows, diff, mediaLabel, editable, onEdit, onDelete, onRest
     ? ['날짜', '노출', '클릭', 'CTR', 'CPC', '광고비']
     : ['날짜', '노출', '클릭', 'CTR', 'CPC', '광고비', '전환수', '전환율', '전환단가', '회원가입', '구매완료', '구매매출', '신청', 'ROAS'];
 
-  const displayRows = rows.filter(
-    (r) => r.pendingStatus !== undefined || r.impressions > 0 || r.clicks > 0 || r.cost > 0,
-  );
+  const displayRows = rows.filter((r) => r.pendingStatus !== undefined || hasAnyMetric(r));
   const addedSet = new Set(diff?.added ?? []);
   const updatedSet = new Set(diff?.updated ?? []);
 
@@ -354,14 +380,16 @@ function DailyTable({ rows, diff, mediaLabel, editable, onEdit, onDelete, onRest
   return (
     <div className="space-y-3">
       {/* 테이블 */}
-      <div className="overflow-x-auto data-table">
+      <ScrollableTable hint="옆으로 밀어서 전환·매출 지표를 볼 수 있어요">
         <table className="min-w-full text-xs">
           <thead>
-            <tr className="sticky top-0">
+            <tr>
               {headers.map((h, i) => (
                 <th
                   key={i}
-                  className={`px-3 py-2 font-medium whitespace-nowrap ${i === 0 ? 'text-left' : 'text-right'}`}
+                  className={`px-3 py-2 font-medium whitespace-nowrap ${
+                    i === 0 ? `${STICKY_CELL} text-left` : 'text-right'
+                  }`}
                 >
                   {h}
                 </th>
@@ -397,7 +425,7 @@ function DailyTable({ rows, diff, mediaLabel, editable, onEdit, onDelete, onRest
                   onClick={() => handleRowClick(r.date)}
                   className={`${rowBg} ${editable ? 'cursor-pointer hover:brightness-95 transition-all duration-100' : ''}`}
                 >
-                  <td className={`px-3 py-2 font-medium whitespace-nowrap ${cellMuted ? 'text-slate-400 dark:text-fg-subtle line-through' : ''}`}>
+                  <td className={`px-3 py-2 font-medium whitespace-nowrap ${STICKY_CELL} ${cellMuted ? 'text-slate-400 dark:text-fg-subtle line-through' : ''}`}>
                     <span className="flex items-center gap-1.5">
                       {r.date.slice(5)}
                       {ps && <PendingBadge type={ps} />}
@@ -416,23 +444,23 @@ function DailyTable({ rows, diff, mediaLabel, editable, onEdit, onDelete, onRest
                     fmt.pct(r.ctr),
                     fmt.num(r.cpc),
                     fmt.won(r.cost),
+                    ...(isKakao
+                      ? []
+                      : [
+                          fmt.dec(r.total_conv),
+                          fmt.pct(r.conv_rate),
+                          r.conv_cost > 0 ? fmt.num(r.conv_cost) : '-',
+                          fmt.dec(r.signup),
+                          fmt.dec(r.purchase),
+                          r.revenue > 0 ? fmt.won(r.revenue) : '-',
+                          fmt.dec(r.apply),
+                          fmt.pct(r.roas),
+                        ]),
                   ] as string[]).map((v, ci) => (
-                    <td key={ci} className={`px-3 py-2 tabular-nums text-right ${cellMuted ? 'text-slate-300' : 'text-slate-600'}`}>
+                    <td key={ci} className={`${NUM_CELL} ${cellMuted ? 'text-slate-300' : 'text-slate-600'}`}>
                       {v}
                     </td>
                   ))}
-                  {!isKakao && (
-                    <>
-                      <td className={`px-3 py-2 tabular-nums text-right ${cellMuted ? 'text-slate-300' : 'text-slate-600'}`}>{fmt.dec(r.total_conv)}</td>
-                      <td className={`px-3 py-2 tabular-nums text-right ${cellMuted ? 'text-slate-300' : 'text-slate-600'}`}>{fmt.pct(r.conv_rate)}</td>
-                      <td className={`px-3 py-2 tabular-nums text-right ${cellMuted ? 'text-slate-300' : 'text-slate-600'}`}>{r.conv_cost > 0 ? fmt.num(r.conv_cost) : '-'}</td>
-                      <td className={`px-3 py-2 tabular-nums text-right ${cellMuted ? 'text-slate-300' : 'text-slate-600'}`}>{fmt.dec(r.signup)}</td>
-                      <td className={`px-3 py-2 tabular-nums text-right ${cellMuted ? 'text-slate-300' : 'text-slate-600'}`}>{fmt.dec(r.purchase)}</td>
-                      <td className={`px-3 py-2 tabular-nums text-right ${cellMuted ? 'text-slate-300' : 'text-slate-600'}`}>{r.revenue > 0 ? fmt.won(r.revenue) : '-'}</td>
-                      <td className={`px-3 py-2 tabular-nums text-right ${cellMuted ? 'text-slate-300' : 'text-slate-600'}`}>{fmt.dec(r.apply)}</td>
-                      <td className={`px-3 py-2 tabular-nums text-right ${cellMuted ? 'text-slate-300' : 'text-slate-600'}`}>{fmt.pct(r.roas)}</td>
-                    </>
-                  )}
                 </tr>
               );
             })}
@@ -448,7 +476,7 @@ function DailyTable({ rows, diff, mediaLabel, editable, onEdit, onDelete, onRest
             )}
           </tbody>
         </table>
-      </div>
+      </ScrollableTable>
 
       {selectedRow && (
         <RowDetailModal
@@ -750,8 +778,10 @@ export default function ReportView({ data, onClose, editable = false, year, mont
             const addedCount = tabDiff?.added.length ?? 0;
             const updatedCount = tabDiff?.updated.length ?? 0;
             const mergedRows = getMergedRows(data.daily[activeTab] ?? [], pending[activeTab] ?? {});
+            // 표가 실제로 그리는 행 수와 같은 기준을 쓴다 — 어긋나면 표에는 31일이
+            // 보이는데 머리말은 "0일" 이라고 말하게 된다
             const visibleCount = mergedRows.filter(
-              (r) => r.pendingStatus !== undefined || r.impressions > 0,
+              (r) => r.pendingStatus !== undefined || hasAnyMetric(r),
             ).length;
 
             return (

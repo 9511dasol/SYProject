@@ -46,17 +46,32 @@ You are a world-class Korean marketing copywriter specializing in digital advert
 
 Analyze the provided image and generate EXACTLY 10 compelling Korean marketing heading suggestions for 3 platforms.
 
-Platform breakdown and style guide:
+Platform breakdown and style guide — these lengths apply to the "text" field only:
 - Instagram (4 headings): Ultra-short, punchy, include 1-2 relevant emoji, emotional & visual, under 20 Korean characters
 - Blog (3 headings): SEO-friendly, keyword-rich, descriptive, informative tone, 20-40 Korean characters
 - YouTube (3 headings): Curiosity-driven, use numbers/questions/surprises for high CTR, 20-35 Korean characters
+
+The "desc" field is separate and must be substantially longer than the heading itself:
+- Write 2 natural sentences totalling about 85 Korean characters — usually 80-95.
+- That range is a guideline, not a hard limit. Landing a few characters outside it is
+  fine when it makes the sentence read better, and you should never pad with filler or
+  chop a sentence short just to hit a number. But do not habitually run past ~95
+  characters: two compact sentences, not two sprawling ones.
+- Sentence 1: what in the image the heading picks up on, and which audience it targets.
+  Sentence 2: why it works on that platform.
+- Never repeat the heading verbatim.
+- The same length applies to all three platforms — only the "text" field differs by platform.
+
+Examples of well-sized desc values (83 characters each — aim for this scale, not this wording):
+- "이미지의 50% 할인 문구를 전면에 내세워 가격에 민감한 수험생을 겨냥했습니다. 짧고 강한 표현이라 피드를 빠르게 넘기다가도 시선을 멈추게 만듭니다."
+- "이미지 속 D-7 마감 압박을 그대로 살려 지금 결정해야 할 이유를 만들었습니다. 목표가 뚜렷한 수험생에게 잘 통하고 클릭까지 자연스럽게 이어집니다."
 
 STRICT OUTPUT RULES:
 1. Respond ONLY with valid JSON — no markdown, no code block, no extra text whatsoever.
 2. ALL text and desc fields must be in Korean.
 3. Generate headings in this exact order: Instagram × 4, Blog × 3, YouTube × 3.
 4. Use this EXACT JSON schema (id starts at 1, increments by 1):
-{"headings": [{"id": 1, "platform": "Instagram", "text": "...", "desc": "이 문구를 추천하는 이유"}, ...]}
+{"headings": [{"id": 1, "platform": "Instagram", "text": "...", "desc": "이 문구를 추천하는 이유를 85자 내외 두 문장으로"}, ...]}
 """
 
 
@@ -93,6 +108,44 @@ def _clean_json(raw: str) -> str:
     return raw.strip()
 
 
+# desc 길이 보정 — 프롬프트만으로는 한글 글자 수가 잡히지 않는다.
+# 같은 지시로 여러 번 돌려도 평균이 78~121자로 흔들려서(모델이 글자를 못 셈),
+# 눈에 띄게 긴 것만 문장 경계에서 되돌린다. 문장 중간을 자르는 일은 없다.
+_DESC_TARGET = 85
+_DESC_MAX = 110              # 이 이하는 "85자 내외"로 보고 그대로 둔다
+_DESC_MIN_AFTER_TRIM = 60    # 잘라낸 결과가 이보다 짧아지면 차라리 원문을 쓴다
+
+_SENTENCE_END = re.compile(r'(?<=[.!?])\s+')
+
+
+def _fit_desc(desc: str) -> str:
+    """지나치게 길게 나온 desc 를 문장 단위로만 줄여 목표(85자)에 가깝게 되돌린다.
+
+    _DESC_MAX 이하면 손대지 않는다 — 90자든 105자든 "85자 내외"의 범위이고,
+    자연스러운 문장을 건드릴 이유가 없다.
+
+    줄일 때는 앞 문장부터 이어 붙이다가 한도를 넘기 직전까지만 남긴다. 한 문장짜리라
+    자를 지점이 없거나 남는 게 너무 짧아지면 원문을 그대로 돌려준다 — 어색하게 잘린
+    문장보다 조금 긴 문장이 낫다.
+    """
+    desc = desc.strip()
+    if len(desc) <= _DESC_MAX:
+        return desc
+
+    sentences = _SENTENCE_END.split(desc)
+    if len(sentences) < 2:
+        return desc
+
+    kept = ""
+    for sentence in sentences:
+        candidate = f"{kept} {sentence}".strip() if kept else sentence
+        if kept and len(candidate) > _DESC_MAX:
+            break
+        kept = candidate
+
+    return kept if len(kept) >= _DESC_MIN_AFTER_TRIM else desc
+
+
 def _parse_response(raw: str) -> HeadingResponse:
     """AI 응답 텍스트 → HeadingResponse (엄격 검증)."""
     cleaned = _clean_json(raw)
@@ -115,6 +168,8 @@ def _parse_response(raw: str) -> HeadingResponse:
     headings = data["headings"][:_TARGET_COUNT]
     for i, item in enumerate(headings, start=1):
         item["id"] = i
+        if isinstance(item.get("desc"), str):
+            item["desc"] = _fit_desc(item["desc"])
     data["headings"] = headings
 
     from pydantic import ValidationError
@@ -141,7 +196,11 @@ async def _call_gemini(thumbnail_bytes: bytes) -> tuple[str, TokenUsage | None]:
             config=types.GenerateContentConfig(
                 system_instruction=_SYSTEM_PROMPT,
                 response_mime_type="application/json",
-                max_output_tokens=2500,
+                # desc 를 85자로 늘리면서 함께 올렸다. 10개 × (제목 ~35자 + 내용 ~85자)에
+                # JSON 구조까지 더하면 예전 한도(2500)로는 응답이 중간에 잘려
+                # "JSON이 잘려 파싱할 수 없습니다" 로 떨어진다. 실제 사용한 토큰만
+                # 과금되므로 한도를 넉넉히 두는 쪽이 안전하다.
+                max_output_tokens=4000,
             ),
         )
     except genai_errors.APIError as exc:
