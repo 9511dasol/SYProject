@@ -53,7 +53,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         icon: 'bx-bulb',
         href: '/heading-suggest',
         badge: 'NEW',
-        description: 'Claude가 이미지를 분석해 매체별 헤딩 문구 10개를 제안',
+        description: 'Gemini가 이미지를 분석해 매체별 헤딩 문구 10개를 제안',
       },
       {
         id: 'heading-history',

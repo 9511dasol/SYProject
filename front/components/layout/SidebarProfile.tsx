@@ -3,17 +3,21 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { signOut } from 'next-auth/react';
-import { useAuthStore } from '@/lib/store/useAuthStore';
+import { signOut, useSession } from 'next-auth/react';
 
 /** 사이드바 하단 고정 프로필 영역 — 사용자 정보 표시 및 로그아웃 */
 export default function SidebarProfile() {
-  const user = useAuthStore((state) => state.user);
+  // 세션을 그대로 읽는다. 예전에는 zustand 스토어에 복사해 두고 그걸 읽었는데,
+  // 같은 값의 출처가 둘로 갈리는 데다 persist 때문에 로그아웃 후에도 localStorage 에
+  // 사용자 정보가 남았다.
+  const { data: session } = useSession();
   const [loggingOut, setLoggingOut] = useState(false);
 
+  const user = session?.user;
   if (!user) return null;
 
-  const initial = user.name.trim().charAt(0).toUpperCase() || '?';
+  const name = user.name ?? '';
+  const initial = name.trim().charAt(0).toUpperCase() || '?';
 
   const handleLogout = async () => {
     if (loggingOut) return;
@@ -33,7 +37,7 @@ export default function SidebarProfile() {
         {user.image ? (
           <Image
             src={user.image}
-            alt={user.name}
+            alt={name}
             width={36}
             height={36}
             unoptimized
@@ -50,7 +54,7 @@ export default function SidebarProfile() {
 
         {/* 이름 / 이메일 */}
         <Link href="/profile" className="flex-1 min-w-0 group" title="프로필 설정">
-          <p className="text-sm font-semibold text-fg truncate group-hover:text-primary transition-colors">{user.name}</p>
+          <p className="text-sm font-semibold text-fg truncate group-hover:text-primary transition-colors">{name}</p>
           <p className="text-xs text-fg-subtle truncate">{user.email}</p>
         </Link>
 

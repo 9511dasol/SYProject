@@ -1,29 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
-import { authFetch } from '@/lib/api/authFetch';
+import { useCallback, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { fetchJson, sendJson } from '@/lib/api/authFetch';
+import { queryKeys } from '@/lib/queryKeys';
 import MediaBudgetModal from '@/components/admin/MediaBudgetModal';
+import Alert from '@/components/ui/Alert';
 import Button from '@/components/ui/Button';
+import DataTable, { type Column } from '@/components/ui/DataTable';
+import { Input } from '@/components/ui/Field';
 import Modal from '@/components/ui/Modal';
-import Spinner from '@/components/ui/Spinner';
-import ToastContainer, { type ToastItem } from '@/components/ui/Toast';
+import { formatCount, formatDateTime } from '@/lib/format';
+import { useToast } from '@/components/providers/ToastProvider';
 import type { PeriodDeleteResponse, PeriodOverviewItem, PeriodOverviewResponse } from '@/types/periodAdmin';
-
-function formatCount(value: number): string {
-  return value.toLocaleString('ko-KR');
-}
-
-function formatDateTime(value: string | null): string {
-  if (!value) return '-';
-  return new Date(value).toLocaleString('ko-KR', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
 
 function dateRange(item: PeriodOverviewItem): string {
   if (!item.first_date || !item.last_date) return '-';
@@ -47,51 +36,31 @@ function HasBadge({ has, label }: { has: boolean; label: string }) {
 }
 
 export default function AdminPeriodsClient() {
-  const { data: session, status: sessionStatus } = useSession();
-  const isAdmin = sessionStatus === 'authenticated' && session?.user.role === 'admin';
+  const queryClient = useQueryClient();
+  const { toast: pushToast } = useToast();
 
-  const [items, setItems] = useState<PeriodOverviewItem[] | null>(null);
-  const [totalRows, setTotalRows] = useState(0);
-  const [error, setError] = useState<string | null>(null);
   const [target, setTarget] = useState<PeriodOverviewItem | null>(null);
   const [budgetTarget, setBudgetTarget] = useState<PeriodOverviewItem | null>(null);
   const [confirmText, setConfirmText] = useState('');
-  const [deleting, setDeleting] = useState(false);
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  const pushToast = useCallback((type: ToastItem['type'], message: string) => {
-    setToasts((prev) => [...prev, { id: `${Date.now()}-${Math.random()}`, type, message }]);
-  }, []);
+  const periodsQuery = useQuery({
+    queryKey: queryKeys.adminPeriods(),
+    queryFn: () =>
+      fetchJson<PeriodOverviewResponse>('/api/admin/periods', undefined, '기간 목록 조회 실패'),
+  });
 
-  const load = useCallback(() => {
-    if (!isAdmin) return;
-
-    authFetch('/api/admin/periods')
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail ?? data.message ?? '기간 목록 조회 실패');
-        return data as PeriodOverviewResponse;
-      })
-      .then((data) => {
-        setItems(data.items);
-        setTotalRows(data.total_rows);
-        setError(null);
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : '기간 목록 조회 실패'));
-  }, [isAdmin]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const reload = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.adminPeriods() });
+  }, [queryClient]);
 
   // 예산 모달은 이 콜백들을 effect 의존성으로 쓴다 — 매 렌더 새 함수를 넘기면
   // 부모가 다시 그려질 때마다 조회가 다시 돌아 입력 중이던 값이 날아간다.
   const handleBudgetSaved = useCallback(
     (message: string) => {
       pushToast('success', message);
-      load();
+      reload();
     },
-    [pushToast, load],
+    [pushToast, reload],
   );
   const handleBudgetError = useCallback(
     (message: string) => pushToast('error', message),
@@ -103,53 +72,92 @@ export default function AdminPeriodsClient() {
     setConfirmText('');
   };
 
-  const handleDelete = async () => {
-    if (!target) return;
-
-    setDeleting(true);
-    try {
-      const res = await authFetch(`/api/admin/periods/${target.year}/${target.month}`, {
-        method: 'DELETE',
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail ?? data.message ?? '삭제 실패');
-
-      pushToast('success', (data as PeriodDeleteResponse).message);
+  const deleteMutation = useMutation({
+    mutationFn: (item: PeriodOverviewItem) =>
+      sendJson<PeriodDeleteResponse>(
+        `/api/admin/periods/${item.year}/${item.month}`,
+        'DELETE',
+        undefined,
+        '삭제 실패',
+      ),
+    onSuccess: (data) => {
+      pushToast('success', data.message);
       closeModal();
-      load();
-    } catch (err) {
-      pushToast('error', err instanceof Error ? err.message : '삭제 실패');
-    } finally {
-      setDeleting(false);
-    }
+      // 기간을 지우면 대시보드의 기간 목록·요약도 더 이상 맞지 않는다
+      reload();
+      queryClient.invalidateQueries({ queryKey: queryKeys.periods() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allSummaries() });
+    },
+    onError: (err) => pushToast('error', err.message),
+  });
+
+  const items = periodsQuery.data?.items ?? null;
+  const totalRows = periodsQuery.data?.total_rows ?? 0;
+  const error = periodsQuery.error;
+  const deleting = deleteMutation.isPending;
+
+  const handleDelete = () => {
+    if (target) deleteMutation.mutate(target);
   };
-
-  if (sessionStatus === 'loading') {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Spinner size="lg" />
-      </div>
-    );
-  }
-
-  if (!isAdmin) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-2 min-h-[60vh] px-6 text-center">
-        <i className="bx bx-lock-alt text-3xl text-fg-subtle" />
-        <h2 className="text-lg font-bold text-fg">접근 권한이 없습니다</h2>
-        <p className="text-sm text-fg-subtle">관리자만 접근할 수 있는 페이지입니다.</p>
-      </div>
-    );
-  }
 
   // 오타로 엉뚱한 기간을 지우는 사고를 막기 위해 "2026-06" 형태를 직접 입력하게 한다.
   const confirmKey = target ? `${target.year}-${String(target.month).padStart(2, '0')}` : '';
   const canDelete = confirmText.trim() === confirmKey;
 
-  return (
-    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-      <ToastContainer toasts={toasts} onRemove={(id) => setToasts((p) => p.filter((t) => t.id !== id))} />
+  const columns: Column<PeriodOverviewItem>[] = [
+    {
+      header: '기간',
+      primary: true,
+      className: 'font-semibold text-fg whitespace-nowrap',
+      cell: (item) => `${item.year}년 ${item.month}월`,
+    },
+    {
+      header: '데이터 행',
+      align: 'right',
+      className: 'whitespace-nowrap',
+      cell: (item) =>
+        item.row_count === 0 ? <span className="text-fg-subtle">0</span> : formatCount(item.row_count),
+    },
+    {
+      header: '데이터 범위',
+      className: 'whitespace-nowrap',
+      cell: (item) => dateRange(item),
+    },
+    {
+      header: '보유 항목',
+      cell: (item) => (
+        <div className="flex flex-col gap-0.5">
+          <HasBadge has={item.has_comment} label="코멘트" />
+          <HasBadge has={item.has_excel} label="엑셀 원본" />
+          <HasBadge has={item.has_budget} label="매체별 예산" />
+        </div>
+      ),
+    },
+    {
+      header: '코멘트 갱신',
+      className: 'text-fg-subtle whitespace-nowrap',
+      cell: (item) => formatDateTime(item.comment_updated_at),
+    },
+    {
+      header: '작업',
+      align: 'right',
+      cell: (item) => (
+        <div className="flex justify-end gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => setBudgetTarget(item)}>
+            <i className="bx bx-wallet text-sm" />
+            예산
+          </Button>
+          <Button variant="ghost" tone="danger" size="sm" onClick={() => setTarget(item)}>
+            <i className="bx bx-trash text-sm" />
+            삭제
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
+  return (
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
       <div>
         <h1 className="text-xl font-bold text-fg">업로드 데이터 관리</h1>
         <p className="mt-1 text-sm text-fg-subtle">
@@ -159,95 +167,26 @@ export default function AdminPeriodsClient() {
         </p>
       </div>
 
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700
-          dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
-          {error}
-        </div>
+      {error && <Alert>{error.message}</Alert>}
+
+      {items && items.length > 0 && (
+        <p className="text-sm text-fg-subtle">
+          총 <span className="font-semibold text-fg">{items.length}</span>개 기간 ·{' '}
+          <span className="font-semibold text-fg">{formatCount(totalRows)}</span>행
+        </p>
       )}
 
-      {!items ? (
-        <div className="flex justify-center py-10">
-          <Spinner />
-        </div>
-      ) : items.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-          <i className="bx bx-data text-3xl text-fg-subtle" />
-          <p className="text-sm text-fg-subtle">저장된 데이터가 없습니다.</p>
-        </div>
-      ) : (
-        <>
-          <p className="text-sm text-fg-subtle">
-            총 <span className="font-semibold text-fg">{items.length}</span>개 기간 ·{' '}
-            <span className="font-semibold text-fg">{formatCount(totalRows)}</span>행
-          </p>
-
-          <div className="overflow-x-auto rounded-xl border border-border bg-surface">
-            <table className="w-full min-w-180 text-sm">
-              <thead>
-                <tr className="border-b border-border-soft text-left text-xs font-semibold uppercase tracking-wide text-fg-subtle">
-                  <th className="px-4 py-3">기간</th>
-                  <th className="px-4 py-3 text-right">데이터 행</th>
-                  <th className="px-4 py-3">데이터 범위</th>
-                  <th className="px-4 py-3">보유 항목</th>
-                  <th className="px-4 py-3">코멘트 갱신</th>
-                  <th className="px-4 py-3 text-right">작업</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {items.map((item) => (
-                  <tr key={`${item.year}-${item.month}`}>
-                    <td className="px-4 py-3 font-semibold text-fg whitespace-nowrap">
-                      {item.year}년 {item.month}월
-                    </td>
-                    <td className="px-4 py-3 text-right text-fg-muted whitespace-nowrap">
-                      {item.row_count === 0 ? (
-                        <span className="text-fg-subtle">0</span>
-                      ) : (
-                        formatCount(item.row_count)
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-fg-muted whitespace-nowrap">{dateRange(item)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col gap-0.5">
-                        <HasBadge has={item.has_comment} label="코멘트" />
-                        <HasBadge has={item.has_excel} label="엑셀 원본" />
-                        <HasBadge has={item.has_budget} label="매체별 예산" />
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-fg-subtle whitespace-nowrap">
-                      {formatDateTime(item.comment_updated_at)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setBudgetTarget(item)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5
-                            text-xs font-semibold text-fg-muted hover:bg-surface-2 whitespace-nowrap"
-                        >
-                          <i className="bx bx-wallet text-sm" />
-                          예산
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setTarget(item)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-1.5
-                            text-xs font-semibold text-red-600 hover:bg-red-50 whitespace-nowrap
-                            dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-900/20"
-                        >
-                          <i className="bx bx-trash text-sm" />
-                          삭제
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
+      <DataTable
+        rows={items}
+        rowKey={(item) => `${item.year}-${item.month}`}
+        columns={columns}
+        minWidth="min-w-180"
+        empty={{
+          icon: 'bx-data',
+          title: '저장된 데이터가 없습니다.',
+          description: '대시보드의 데이터 업로드에서 CSV 또는 엑셀을 저장하면 여기에 기간이 나타납니다.',
+        }}
+      />
 
       {budgetTarget && (
         <MediaBudgetModal
@@ -262,8 +201,7 @@ export default function AdminPeriodsClient() {
       <Modal open={target !== null} onClose={closeModal} title="기간 데이터 삭제" icon="bx-trash">
         {target && (
           <div className="space-y-4">
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700
-              dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
+            <Alert>
               <p className="font-semibold">
                 {target.year}년 {target.month}월 데이터를 삭제합니다. 되돌릴 수 없습니다.
               </p>
@@ -273,40 +211,29 @@ export default function AdminPeriodsClient() {
                 {target.has_excel && <li>· 스토리지에 보관된 엑셀 원본</li>}
                 {target.has_budget && <li>· 이 기간에 입력한 매체별 예산</li>}
               </ul>
-            </div>
+            </Alert>
 
-            <div>
-              <label htmlFor="confirm-period" className="block text-sm font-medium text-fg">
-                확인을 위해 <span className="font-mono font-bold">{confirmKey}</span> 를 입력하세요
-              </label>
-              <input
-                id="confirm-period"
-                value={confirmText}
-                onChange={(e) => setConfirmText(e.target.value)}
-                autoComplete="off"
-                placeholder={confirmKey}
-                className="mt-1.5 w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-fg
-                  focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
+            <Input
+              label={`확인을 위해 ${confirmKey} 를 입력하세요`}
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              autoComplete="off"
+              placeholder={confirmKey}
+            />
 
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={closeModal} className="px-4! py-2!">
+              <Button variant="outline" size="md" onClick={closeModal}>
                 취소
               </Button>
-              <button
-                type="button"
+              <Button
+                tone="danger"
+                size="md"
                 onClick={handleDelete}
-                disabled={!canDelete || deleting}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2
-                  text-sm font-semibold text-white transition-all hover:brightness-110
-                  disabled:pointer-events-none disabled:opacity-50"
+                disabled={!canDelete}
+                isLoading={deleting}
               >
-                {deleting && (
-                  <span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                )}
                 삭제
-              </button>
+              </Button>
             </div>
           </div>
         )}

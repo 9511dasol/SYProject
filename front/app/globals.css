@@ -33,16 +33,22 @@
   --border:       #e2e8f0;   /* slate-200 */
   --border-soft:  #f1f5f9;   /* slate-100 */
 
+  /* 페이지 하단으로 갈수록 배경색에 잠기게 하는 베일.
+     rgba(248,250,252,.8) 을 화면에 직접 박아 두던 값인데, 다크 모드에서도
+     그대로 흰 막이 덮여 배경이 하얗게 떴다. --bg 와 같은 색으로 맞춘다. */
+  --bg-veil:      rgba(248,250,252,.8);   /* slate-50 80% */
+
   /* Primary – blue 계열 */
   --primary:      #2563eb;   /* blue-600  */
   --primary-fg:   #ffffff;
   --primary-soft: #eff6ff;   /* blue-50   */
   --primary-ring: rgba(37,99,235,.35);
 
-  /* 그림자 */
-  --shadow-sm:    0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
-  --shadow-md:    0 4px 16px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.05);
-  --shadow-lg:    0 10px 40px rgba(0,0,0,.10), 0 4px 12px rgba(0,0,0,.06);
+  /* 그림자(elevation) — Tailwind 기본 --shadow-* 와 이름이 겹치지 않게 별도 이름을 쓴다.
+     @theme 에서 shadow-card · shadow-raised · shadow-overlay 로 노출된다. */
+  --elevation-1:  0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --elevation-2:  0 4px 16px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.05);
+  --elevation-3:  0 10px 40px rgba(0,0,0,.10), 0 4px 12px rgba(0,0,0,.06);
 
   /* ──────────────────────────────────────────────────────────
      테이블 전용 토큰
@@ -102,16 +108,18 @@
   --border:       #1e293b;   /* slate-800 */
   --border-soft:  #0f172a;   /* slate-900 */
 
+  --bg-veil:      rgba(2,6,23,.8);        /* slate-950 80% */
+
   /* Primary */
   --primary:      #3b82f6;   /* blue-500 */
   --primary-fg:   #ffffff;
   --primary-soft: #172554;   /* blue-950 */
   --primary-ring: rgba(59,130,246,.40);
 
-  /* 그림자 */
-  --shadow-sm:    0 1px 3px rgba(0,0,0,.35), 0 1px 2px rgba(0,0,0,.25);
-  --shadow-md:    0 4px 16px rgba(0,0,0,.50), 0 2px 6px rgba(0,0,0,.35);
-  --shadow-lg:    0 10px 40px rgba(0,0,0,.65), 0 4px 12px rgba(0,0,0,.45);
+  /* 그림자(elevation) — 어두운 배경에서는 더 진하고 넓게 퍼져야 형태가 읽힌다 */
+  --elevation-1:  0 1px 3px rgba(0,0,0,.35), 0 1px 2px rgba(0,0,0,.25);
+  --elevation-2:  0 4px 16px rgba(0,0,0,.50), 0 2px 6px rgba(0,0,0,.35);
+  --elevation-3:  0 10px 40px rgba(0,0,0,.65), 0 4px 12px rgba(0,0,0,.45);
 
   /* ──────────────────────────────────────────────────────────
      테이블 — 다크 모드
@@ -169,29 +177,85 @@
   --color-primary-soft: var(--primary-soft);
 
   /* 테이블 */
-  --color-tbl-head:     var(--tbl-head);
-  --color-tbl-head-fg:  var(--tbl-head-fg);
-  --color-tbl-total-bg: var(--tbl-total-bg);
-  --color-tbl-total-fg: var(--tbl-total-fg);
-  --color-tbl-border:   var(--tbl-border);
+  --color-tbl-head:        var(--tbl-head);
+  --color-tbl-head-fg:     var(--tbl-head-fg);
+  --color-tbl-even:        var(--tbl-even);
+  --color-tbl-odd:         var(--tbl-odd);
+  --color-tbl-hover:       var(--tbl-hover);
+  --color-tbl-total-bg:    var(--tbl-total-bg);
+  --color-tbl-total-fg:    var(--tbl-total-fg);
+  --color-tbl-total-bdr:   var(--tbl-total-bdr);
+  --color-tbl-current-bg:  var(--tbl-current-bg);
+  --color-tbl-current-fg:  var(--tbl-current-fg);
+  --color-tbl-border:      var(--tbl-border);
+  --color-tbl-border-soft: var(--tbl-border-soft);
 
-  /* 배지 */
-  --color-badge-success-bg: var(--badge-success-bg);
-  --color-badge-success-fg: var(--badge-success-fg);
-  --color-badge-warn-bg:    var(--badge-warn-bg);
-  --color-badge-warn-fg:    var(--badge-warn-fg);
-  --color-badge-danger-bg:  var(--badge-danger-bg);
-  --color-badge-danger-fg:  var(--badge-danger-fg);
-  --color-badge-info-bg:    var(--badge-info-bg);
-  --color-badge-info-fg:    var(--badge-info-fg);
-  --color-badge-amber-bg:   var(--badge-amber-bg);
-  --color-badge-amber-fg:   var(--badge-amber-fg);
+  /* 배지 — bdr(테두리)까지 등록해야 배지를 컴포넌트로 만들 때 유틸리티로 쓸 수 있다 */
+  --color-badge-success-bg:  var(--badge-success-bg);
+  --color-badge-success-fg:  var(--badge-success-fg);
+  --color-badge-success-bdr: var(--badge-success-bdr);
+  --color-badge-warn-bg:     var(--badge-warn-bg);
+  --color-badge-warn-fg:     var(--badge-warn-fg);
+  --color-badge-warn-bdr:    var(--badge-warn-bdr);
+  --color-badge-danger-bg:   var(--badge-danger-bg);
+  --color-badge-danger-fg:   var(--badge-danger-fg);
+  --color-badge-danger-bdr:  var(--badge-danger-bdr);
+  --color-badge-info-bg:     var(--badge-info-bg);
+  --color-badge-info-fg:     var(--badge-info-fg);
+  --color-badge-info-bdr:    var(--badge-info-bdr);
+  --color-badge-neutral-bg:  var(--badge-neutral-bg);
+  --color-badge-neutral-fg:  var(--badge-neutral-fg);
+  --color-badge-neutral-bdr: var(--badge-neutral-bdr);
+  --color-badge-amber-bg:    var(--badge-amber-bg);
+  --color-badge-amber-fg:    var(--badge-amber-fg);
+  --color-badge-amber-bdr:   var(--badge-amber-bdr);
+
+  /* ──────────────────────────────────────────────────────────
+     그림자(elevation) — shadow-card · shadow-raised · shadow-overlay
+     다크모드용 값이 따로 정의돼 있는데 @theme에 등록되지 않아 유틸리티로
+     쓸 수가 없었다(Tailwind는 shadow-sm 같은 기본 그림자를 빌드 시점에
+     값째로 박아 넣어서 --shadow-sm 을 읽지 않는다). 그래서 화면마다
+     shadow-slate-200/50 dark:shadow-black/20 식으로 다크 대응을 손으로
+     다시 적고 있었다.
+
+     Tailwind 기본 shadow-sm/md/lg 를 덮어쓰지 않고 새 이름을 쓰는 이유:
+     기본 그림자는 색을 --tw-shadow-color 로 받으므로 shadow-blue-600/30
+     처럼 색상 유틸리티와 조합된다(사이드바 활성 항목의 파란 글로우 등).
+     여기 값들은 색이 박혀 있어서 덮어쓰면 그 조합이 전부 무효가 된다.
+     ────────────────────────────────────────────────────────── */
+  --shadow-card:    var(--elevation-1);
+  --shadow-raised:  var(--elevation-2);
+  --shadow-overlay: var(--elevation-3);
+
+  /* 포커스 링 — ring-primary-ring 으로 쓴다 */
+  --color-primary-ring: var(--primary-ring);
 
   /* 레거시 호환 */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   z-index 스케일
+
+   그동안 z-6 · z-10 · z-20 · z-30 · z-40 · z-50 · z-200 · z-300 · z-400
+   아홉 종류를 화면마다 즉흥적으로 붙였다. 그 결과 공용 Modal(z-50)이 손으로
+   만든 모달(z-300/z-400)보다 아래에 깔리고, 토스트(z-200)가 그 모달들에
+   가려졌다. 층은 아래 다섯 개로 고정한다.
+
+   Tailwind v4 에는 z-index 테마 네임스페이스가 없어서(--z-index-* 를 @theme 에
+   등록해도 유틸리티가 생기지 않는다) 평범한 CSS 변수로 두고 임의값으로 쓴다:
+       <div className="z-[var(--z-modal)]">
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --z-sticky:   20;   /* 헤더 · sticky thead */
+  --z-drawer:   40;   /* 사이드바 (딤 오버레이는 그 아래 -1) */
+  --z-popover:  60;   /* 팝오버 · 드롭다운 */
+  --z-modal:   100;   /* 모달 (딤 포함) */
+  --z-toast:   200;   /* 토스트 — 항상 모달보다 위 */
 }
 
 /* ── 기본 스타일 ──────────────────────────────────────────────────────────── */
@@ -211,90 +275,94 @@ body {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   테이블 유틸리티 — .data-table
-   CSS 변수 기반으로 다크/라이트 모드에 자동 반응
-   사용법: <div className="overflow-x-auto data-table"> 또는
-           <div className="data-table"> (스크롤 별도 처리 시)
+   테이블 스타일 — .data-table
+   CSS 변수 기반으로 다크/라이트 모드에 자동 반응.
+   보통은 <ScrollableTable> 이 이 클래스를 붙여 준다.
+
+   @layer components 안에 두는 이유
+   ───────────────────────────────
+   Tailwind v4 는 유틸리티를 @layer utilities 에 넣고, 레이어 순서상 utilities 가
+   components 보다 뒤에 온다(= 유틸리티가 이긴다). 이 블록이 레이어 밖에 있던 동안은
+   레이어 없는 쪽이 특정도와 무관하게 무조건 이겨서 두 가지가 조용히 깨졌다:
+
+     1) `overflow-x-auto` 가 `.data-table { overflow: hidden }` 에 눌려 좁은 화면에서
+        표를 옆으로 밀 수 없었다. (`.data-table.overflow-x-auto` 로 되돌리고 있었다)
+     2) `.data-table tbody td { color }` 가 셀의 `text-emerald-600` 같은 색 유틸리티를
+        이겨서, 증감 색이 전부 회색으로 눌렸다 — ExcelReportView 의 SA TOTAL 증감
+        빨강·초록이 화면에 한 번도 나오지 않았다.
+
+   components 레이어로 옮기면 둘 다 자연스럽게 풀린다. 표가 색을 따로 지정하지 않으면
+   여기 기본값이 그대로 적용되고, 지정하면 그 색이 이긴다.
    ══════════════════════════════════════════════════════════════════════════ */
 
-.data-table {
-  border-radius: 0.75rem;
-  border: 1px solid var(--tbl-border);
-  overflow: hidden;
-}
+@layer components {
+  .data-table {
+    border-radius: 0.75rem;
+    border: 1px solid var(--tbl-border);
+    /* overflow-x-auto · overflow-y-auto 유틸리티가 필요할 때 이걸 덮어쓴다 */
+    overflow: hidden;
+  }
 
-/* 스크롤을 쓰는 표는 위의 overflow:hidden 을 되돌린다.
-   Tailwind v4 는 유틸리티를 @layer 안에 넣는데 이 파일의 규칙은 레이어 밖이라,
-   레이어 없는 쪽이 무조건 이겨서 overflow-x-auto 가 통째로 무시됐다. 그래서 좁은
-   화면에서 표를 옆으로 밀 수가 없었다. border-radius 는 그대로 두어도 스크롤
-   컨테이너가 알아서 잘라내므로 둥근 모서리는 유지된다. */
-.data-table.overflow-x-auto {
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-.data-table.overflow-y-auto {
-  overflow-y: auto;
-}
+  /* 헤더 행 */
+  .data-table thead tr {
+    background-color: var(--tbl-head);
+    border-bottom: 1px solid var(--tbl-border);
+  }
+  .data-table thead th {
+    color: var(--tbl-head-fg);
+  }
 
-/* 헤더 행 */
-.data-table thead tr {
-  background-color: var(--tbl-head);
-  border-bottom: 1px solid var(--tbl-border);
-}
-.data-table thead th {
-  color: var(--tbl-head-fg);
-}
+  /* sticky thead (max-h 컨테이너 내부용) */
+  .data-table thead.sticky-head {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: var(--tbl-sticky-bg);
+  }
 
-/* sticky thead (max-h 컨테이너 내부용) */
-.data-table thead.sticky-head {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background-color: var(--tbl-sticky-bg);
-}
+  /* 바디 행 */
+  .data-table tbody tr {
+    border-bottom: 1px solid var(--tbl-border-soft);
+  }
+  .data-table tbody td {
+    color: var(--fg-muted);
+  }
 
-/* 바디 행 */
-.data-table tbody tr {
-  border-bottom: 1px solid var(--tbl-border-soft);
-}
-.data-table tbody td {
-  color: var(--fg-muted);
-}
+  /* 짝수/홀수 줄무늬 */
+  .data-table .tr-even { background-color: var(--tbl-even); }
+  .data-table .tr-odd  { background-color: var(--tbl-odd); }
 
-/* 짝수/홀수 줄무늬 */
-.data-table .tr-even { background-color: var(--tbl-even); }
-.data-table .tr-odd  { background-color: var(--tbl-odd); }
+  /* 합계·소계 행 — 강조가 유틸리티에 밀리면 안 되므로 !important 를 유지한다 */
+  .data-table .tr-total {
+    background-color: var(--tbl-total-bg) !important;
+    border-top: 1px solid var(--tbl-total-bdr);
+    font-weight: 600;
+  }
+  .data-table .tr-total td {
+    color: var(--tbl-total-fg) !important;
+  }
 
-/* 합계·소계 행 */
-.data-table .tr-total {
-  background-color: var(--tbl-total-bg) !important;
-  border-top: 1px solid var(--tbl-total-bdr);
-  font-weight: 600;
-}
-.data-table .tr-total td {
-  color: var(--tbl-total-fg) !important;
-}
+  /* 현재(당월·금주) 강조 행 */
+  .data-table .tr-current {
+    background-color: var(--tbl-current-bg);
+    font-weight: 600;
+  }
+  .data-table .tr-current td { color: var(--tbl-current-fg); }
 
-/* 현재(당월·금주) 강조 행 */
-.data-table .tr-current {
-  background-color: var(--tbl-current-bg);
-  font-weight: 600;
-}
-.data-table .tr-current td { color: var(--tbl-current-fg); }
+  /* sticky 열 (첫 번째 셀) */
+  .data-table .td-sticky {
+    position: sticky;
+    left: 0;
+    z-index: 5;
+    background-color: inherit;  /* 행 배경 상속 */
+  }
+  .data-table .tr-total .td-sticky { background-color: var(--tbl-total-bg); }
+  .data-table .tr-current .td-sticky { background-color: var(--tbl-current-bg); }
 
-/* sticky 열 (첫 번째 셀) */
-.data-table .td-sticky {
-  position: sticky;
-  left: 0;
-  z-index: 5;
-  background-color: inherit;  /* 행 배경 상속 */
-}
-.data-table .tr-total .td-sticky { background-color: var(--tbl-total-bg); }
-.data-table .tr-current .td-sticky { background-color: var(--tbl-current-bg); }
-
-/* 호버 (특수 행 제외) */
-.data-table tbody tr:not(.tr-total):not(.tr-current):hover {
-  background-color: var(--tbl-hover);
+  /* 호버 (특수 행 제외) */
+  .data-table tbody tr:not(.tr-total):not(.tr-current):hover {
+    background-color: var(--tbl-hover);
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -326,13 +394,38 @@ body {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 1rem;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--elevation-1);
 }
 .card-raised {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 1rem;
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--elevation-2);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   등장 애니메이션
+   Toast가 `animate-in slide-in-from-right-4 fade-in`을 쓰고 있었는데, 이건
+   tailwindcss-animate 플러그인 클래스이고 그 플러그인이 설치돼 있지 않다.
+   그래서 토스트는 애니메이션 없이 툭 나타났다. 실제로 동작하는 키프레임으로
+   대체한다.
+
+   prefers-reduced-motion 을 켠 사용자에게는 이동을 없애고 페이드만 남긴다.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(1rem); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-in-right {
+    animation: none;
+  }
 }
 
 /* ── 스크롤바 숨김 ────────────────────────────────────────────────────────── */

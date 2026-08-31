@@ -2,34 +2,34 @@
 
 import { useState } from 'react';
 import CommentSection from '@/components/marketing/CommentSection';
+import {
+  formatCount,
+  formatDecimal,
+  formatNumber,
+  formatPercent,
+  formatWon,
+} from '@/lib/format';
+import { mediaLabel, orderedMediaKeys } from '@/lib/marketingMeta';
+import ScrollableTable from '@/components/ui/ScrollableTable';
 import type { BudgetRow, DailyTotalRow, ExcelReport, MediaSheetData, SaTotal } from '@/types/marketing';
 
 // ── 포맷 유틸 ─────────────────────────────────────────────────────────────────
 const f = {
-  num: (v: number | null | undefined) =>
-    v == null ? '-' : Math.round(v).toLocaleString('ko-KR'),
-  won: (v: number | null | undefined) =>
-    v == null || v === 0 ? '-' : Math.round(v).toLocaleString('ko-KR') + '원',
-  pct: (v: number | null | undefined) =>
-    v == null ? '-' : (v * 100).toFixed(2) + '%',
+  num: formatNumber,
+  /** 이 화면은 0원을 '-'로 감춘다 — 매체별 시트에 빈 칸이 많아 0이 줄줄이 찍히면 읽기 어렵다 */
+  won: (v: number | null | undefined) => (v === 0 ? '-' : formatWon(v)),
+  pct: formatPercent,
+  /** Excel 원본 셀 — 타입도 자릿수도 제각각이라 값을 보고 표기를 정한다 */
   cell: (v: string | number | null | undefined): string => {
     if (v == null) return '-';
     if (typeof v === 'number') {
       if (v === 0) return '0';
-      if (Math.abs(v) < 1) return (v * 100).toFixed(2) + '%';
-      if (Math.abs(v) > 100000) return Math.round(v).toLocaleString('ko-KR');
-      return Number.isInteger(v) ? v.toLocaleString('ko-KR') : v.toFixed(2);
+      if (Math.abs(v) < 1) return formatPercent(v);
+      if (Math.abs(v) > 100000) return formatNumber(v);
+      return Number.isInteger(v) ? formatCount(v) : formatDecimal(v, 2);
     }
     return String(v);
   },
-};
-
-// 백엔드 media dict 키 순서 (파워컨텐츠 시트는 '네이버PSA'로 저장됨)
-const MEDIA_ORDER = ['네이버SA', '네이버BS', '카카오SA', '구글SA', '네이버PSA'];
-
-// 탭·헤더에 표시할 사람이 읽기 좋은 이름
-const MEDIA_DISPLAY: Record<string, string> = {
-  '네이버PSA': '파워컨텐츠',
 };
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -73,7 +73,7 @@ const IS_RATIO_ROW = (label: string) => ['YOY', 'MOM', 'WoW'].includes(label);
 
 function SaTotalTable({ data }: { data: SaTotal }) {
   return (
-    <div className="overflow-x-auto data-table">
+    <ScrollableTable hint="옆으로 밀어서 나머지 지표를 볼 수 있어요">
       <table className="min-w-full text-xs">
         <thead>
           <tr>
@@ -137,14 +137,14 @@ function SaTotalTable({ data }: { data: SaTotal }) {
           })}
         </tbody>
       </table>
-    </div>
+    </ScrollableTable>
   );
 }
 
 // ── 예산 현황 테이블 ───────────────────────────────────────────────────────────
 function BudgetTable({ rows }: { rows: BudgetRow[] }) {
   return (
-    <div className="overflow-x-auto data-table">
+    <ScrollableTable hint="옆으로 밀어서 나머지 지표를 볼 수 있어요">
       <table className="min-w-full text-sm">
         <thead>
           <tr>
@@ -186,14 +186,17 @@ function BudgetTable({ rows }: { rows: BudgetRow[] }) {
           })}
         </tbody>
       </table>
-    </div>
+    </ScrollableTable>
   );
 }
 
 // ── 일별 합산 테이블 ───────────────────────────────────────────────────────────
 function DailyTotalTable({ rows }: { rows: DailyTotalRow[] }) {
   return (
-    <div className="overflow-x-auto data-table max-h-80 overflow-y-auto">
+    <ScrollableTable
+      className="max-h-80 overflow-y-auto"
+      hint="옆으로 밀어서 나머지 지표를 볼 수 있어요"
+    >
       <table className="min-w-full text-xs">
         <thead className="sticky top-0 sticky-head">
           <tr>
@@ -222,14 +225,17 @@ function DailyTotalTable({ rows }: { rows: DailyTotalRow[] }) {
           ))}
         </tbody>
       </table>
-    </div>
+    </ScrollableTable>
   );
 }
 
 // ── 매체별 상세 테이블 ─────────────────────────────────────────────────────────
 function MediaTable({ data }: { data: MediaSheetData }) {
   return (
-    <div className="overflow-x-auto data-table max-h-96 overflow-y-auto">
+    <ScrollableTable
+      className="max-h-96 overflow-y-auto"
+      hint="옆으로 밀어서 나머지 지표를 볼 수 있어요"
+    >
       <table className="min-w-full text-xs">
         <thead className="sticky top-0 sticky-head z-10">
           <tr>
@@ -264,7 +270,7 @@ function MediaTable({ data }: { data: MediaSheetData }) {
           ))}
         </tbody>
       </table>
-    </div>
+    </ScrollableTable>
   );
 }
 
@@ -276,12 +282,12 @@ export default function ExcelReportView({
   data: ExcelReport;
   onClose?: () => void;
 }) {
-  const mediaLabels = MEDIA_ORDER.filter((l) => l in data.media);
+  const mediaLabels = orderedMediaKeys(data.media);
   const [activeTab, setActiveTab] = useState<string>('summary');
 
   const TABS = [
     { id: 'summary', label: '📊 요약' },
-    ...mediaLabels.map((l) => ({ id: l, label: MEDIA_DISPLAY[l] ?? l })),
+    ...mediaLabels.map((l) => ({ id: l, label: mediaLabel(l) })),
   ];
 
   return (

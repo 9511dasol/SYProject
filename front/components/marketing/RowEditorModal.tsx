@@ -2,6 +2,13 @@
 
 import { useState } from 'react';
 import type { RowFormData } from '@/types/marketing';
+import Alert from '@/components/ui/Alert';
+import Button from '@/components/ui/Button';
+import { Input } from '@/components/ui/Field';
+import Modal from '@/components/ui/Modal';
+
+/** 푸터의 제출 버튼이 폼 밖에서 폼을 가리키기 위한 id */
+const FORM_ID = 'row-editor-form';
 
 interface Props {
   mode: 'edit' | 'add';
@@ -92,97 +99,55 @@ export default function RowEditorModal({ mode, initialData, year, month, onClose
   }
 
   return (
-    <div className="fixed inset-0 z-400 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={() => { if (!loading) onClose(); }}
-      />
-
-      {/* Modal card */}
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-800">
-              {mode === 'edit' ? '행 편집' : '행 추가'}
-            </h2>
-            <p className="text-xs text-slate-400 mt-0.5">{form.campaign_type}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={loading}
-            className="text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-40"
-            aria-label="닫기"
-          >
-            <i className="bx bx-x text-xl" />
-          </button>
-        </div>
-
-        {/* Form body */}
-        <form id="row-editor-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
-          {/* Date */}
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">날짜</label>
-            <input
-              type="date"
-              value={form.report_date}
-              min={minDate}
-              max={maxDate}
-              onChange={(e) => handleChange('report_date', e.target.value)}
-              disabled={mode === 'edit'}
-              required
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
-            />
-          </div>
-
-          {/* Metric fields */}
-          {fields.map((f) => (
-            <div key={f.key}>
-              <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
-              <input
-                type="number"
-                value={form[f.key]}
-                onChange={(e) => handleChange(f.key, e.target.value)}
-                min="0"
-                step={f.isFloat ? '1' : '1'}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          ))}
-
-          {error && (
-            <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-100 px-3 py-2">
-              <i className="bx bx-error-circle text-red-500 text-sm shrink-0" />
-              <p className="text-xs text-red-600">{error}</p>
-            </div>
-          )}
-        </form>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-100 bg-slate-50/60 shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={loading}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-40"
-          >
+    <Modal
+      open
+      onClose={onClose}
+      busy={loading}
+      size="sm"
+      icon={mode === 'edit' ? 'bx-edit-alt' : 'bx-plus-circle'}
+      title={`${mode === 'edit' ? '행 편집' : '행 추가'} · ${form.campaign_type}`}
+      footer={
+        <>
+          <Button variant="outline" size="md" onClick={onClose} disabled={loading}>
             취소
-          </button>
-          <button
-            type="submit"
-            form="row-editor-form"
-            disabled={loading}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-          >
-            {loading && (
-              <span className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-            )}
+          </Button>
+          {/*
+            제출 버튼이 폼 밖(푸터)에 있다 — 폼이 길어 스크롤되더라도 버튼은 항상
+            보여야 하기 때문이다. form 속성으로 id를 가리키면 폼 밖에서도 제출된다.
+          */}
+          <Button type="submit" form={FORM_ID} size="md" isLoading={loading}>
             저장
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </>
+      }
+    >
+      <form id={FORM_ID} onSubmit={handleSubmit} className="space-y-3">
+        <Input
+          label="날짜"
+          type="date"
+          value={form.report_date}
+          min={minDate}
+          max={maxDate}
+          onChange={(e) => handleChange('report_date', e.target.value)}
+          disabled={mode === 'edit'}
+          required
+        />
+
+        {fields.map((f) => (
+          <Input
+            key={f.key}
+            label={f.label}
+            type="number"
+            value={form[f.key]}
+            onChange={(e) => handleChange(f.key, e.target.value)}
+            min="0"
+            step="1"
+            className="tabular-nums"
+          />
+        ))}
+
+        {error && <Alert>{error}</Alert>}
+      </form>
+    </Modal>
   );
 }

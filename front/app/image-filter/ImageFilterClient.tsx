@@ -154,7 +154,7 @@ export default function ImageFilterClient() {
             <i className="bx bx-magic-wand text-sm" />
             AI Image Edit
           </div>
-          <h1 className="text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">이미지 정제</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-fg tracking-tight">이미지 정제</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
             원하는 대로 프롬프트를 입력하면 Gemini가 이미지를 수정해 돌려드립니다
           </p>
@@ -262,7 +262,8 @@ export default function ImageFilterClient() {
 
                 {/* 실행 버튼 */}
                 <Button
-                  className="w-full bg-indigo-600! hover:bg-indigo-700! rounded-xl!"
+                  tone="indigo"
+                  className="w-full"
                   onClick={handleEdit}
                   isLoading={isProcessing}
                   disabled={!canEdit}

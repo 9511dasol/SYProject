@@ -8,6 +8,15 @@ interface ScrollableTableProps {
   className?: string;
   /** 좁은 화면에서 표 위에 띄우는 안내 문구. 넘칠 때만 보인다. */
   hint?: string;
+  /**
+   * globals.css 의 `.data-table` 스타일(헤더 배경 · 행 테두리 · 셀 색 · hover)을 입힌다.
+   * 기본값 true — 표를 새로 만들 때는 그대로 두세요.
+   *
+   * false 는 헤더 배경 · 행 배경 · 테두리를 이미 스스로 다 정하는 표를 위한 것이다.
+   * 그런 표에 기본 스타일을 겹쳐도 유틸리티가 이겨서 결과는 같지만, 같은 값을 두 군데서
+   * 정하게 되므로 아예 끄는 편이 읽기 쉽다. 대신 스크롤 컨테이너의 테두리는 붙여 준다.
+   */
+  styled?: boolean;
 }
 
 /**
@@ -17,7 +26,12 @@ interface ScrollableTableProps {
  * 표에까지 "미세요" 라고 하면 오히려 헷갈린다. 끝까지 민 방향의 그라디언트는
  * 사라지므로 더 볼 게 남았는지도 같이 알 수 있다.
  */
-export default function ScrollableTable({ children, className = '', hint }: ScrollableTableProps) {
+export default function ScrollableTable({
+  children,
+  className = '',
+  hint,
+  styled = true,
+}: ScrollableTableProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [atStart, setAtStart] = useState(true);
   const [atEnd, setAtEnd] = useState(true);
@@ -61,7 +75,10 @@ export default function ScrollableTable({ children, className = '', hint }: Scro
         </p>
       )}
 
-      <div ref={ref} className={`overflow-x-auto data-table ${className}`}>
+      <div
+        ref={ref}
+        className={`overflow-x-auto ${styled ? 'data-table' : 'rounded-xl border border-border'} ${className}`}
+      >
         {children}
       </div>
 

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import AdminSettingsClient from '@/app/admin/settings/AdminSettingsClient';
+import AdminGate from '@/components/ui/AdminGate';
 
 export const metadata: Metadata = {
   title: '기능 플래그 관리',
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function AdminSettingsPage() {
-  return <AdminSettingsClient />;
+  return (
+    <AdminGate>
+      <AdminSettingsClient />
+    </AdminGate>
+  );
 }

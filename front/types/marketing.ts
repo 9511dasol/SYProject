@@ -1,5 +1,3 @@
-export type TaskStatus = 'pending' | 'processing' | 'completed' | 'failed';
-
 // Excel 불러오기
 export interface BudgetRow {
   category: string;
@@ -125,21 +123,6 @@ export interface ReportData {
   undo_id?: string;
 }
 
-export interface UploadTaskResponse {
-  task_id: string;
-  status: TaskStatus;
-  message: string;
-}
-
-export interface TaskStatusResponse {
-  task_id: string;
-  status: TaskStatus;
-  processed_rows?: number;
-  ai_comment?: string;
-  error?: string;
-}
-
-
 export interface RowFormData {
   report_date: string;         // "YYYY-MM-DD"
   campaign_type: string;
@@ -151,9 +134,4 @@ export interface RowFormData {
   signup: number;
   purchase: number;
   apply: number;
-}
-
-export interface AnalysisResult {
-  processedRows: number;
-  aiComment: string;
 }

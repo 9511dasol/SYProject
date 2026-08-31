@@ -1,7 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { authFetch } from '@/lib/api/authFetch';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { fetchJson, sendJson } from '@/lib/api/authFetch';
+import { formatCount } from '@/lib/format';
+import { queryKeys } from '@/lib/queryKeys';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Spinner from '@/components/ui/Spinner';
@@ -35,37 +38,42 @@ function toDraft(data: MediaBudgetsResponse): Draft {
  * 값이 함께 사라지므로, 다음에 열 때 옛 기간의 값이 잠깐 비치는 일이 없다.
  */
 export default function MediaBudgetModal({ year, month, onClose, onSaved, onError }: Props) {
-  const [data, setData] = useState<MediaBudgetsResponse | null>(null);
+  const budgetsPath = `/api/admin/periods/${year}/${month}/budgets`;
+
+  const budgetsQuery = useQuery({
+    queryKey: queryKeys.adminMediaBudgets(year, month),
+    queryFn: () => fetchJson<MediaBudgetsResponse>(budgetsPath, undefined, '예산 조회 실패'),
+    // 입력 중에 백그라운드 재조회가 들어와 draft 를 흔들지 않도록 창이 열려 있는 동안은 고정한다
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+  const data = budgetsQuery.data ?? null;
+
+  /*
+    입력칸은 서버 값에서 파생시키고, 사용자가 손댄 칸만 draft 로 덮는다.
+    조회 결과를 통째로 state 에 복사하던 예전 방식은 재조회 때 입력이 날아갔다.
+  */
   const [draft, setDraft] = useState<Draft>({});
-  const [saving, setSaving] = useState(false);
+  const values = useMemo(() => (data ? { ...toDraft(data), ...draft } : draft), [data, draft]);
 
   useEffect(() => {
-    let cancelled = false;
+    if (budgetsQuery.error) onError(budgetsQuery.error.message);
+  }, [budgetsQuery.error, onError]);
 
-    authFetch(`/api/admin/periods/${year}/${month}/budgets`)
-      .then(async (res) => {
-        const body = await res.json();
-        if (!res.ok) throw new Error(body.detail ?? body.message ?? '예산 조회 실패');
-        return body as MediaBudgetsResponse;
-      })
-      .then((body) => {
-        if (cancelled) return;
-        setData(body);
-        setDraft(toDraft(body));
-      })
-      .catch((err) => {
-        if (!cancelled) onError(err instanceof Error ? err.message : '예산 조회 실패');
-      });
+  const saveMutation = useMutation({
+    mutationFn: (budgets: Record<string, number>) =>
+      sendJson<MediaBudgetsResponse>(budgetsPath, 'PUT', { budgets }, '예산 저장 실패'),
+    onSuccess: () => {
+      onSaved(`${year}년 ${month}월 매체별 예산을 저장했습니다.`);
+      onClose();
+    },
+    onError: (err) => onError(err.message),
+  });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [year, month, onError]);
-
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(() => {
     // 빈칸은 "설정 안 함" — 0을 저장해 예산소진율을 0으로 만드는 것과 구분한다.
     const budgets = Object.fromEntries(
-      Object.entries(draft)
+      Object.entries(values)
         .filter(([, v]) => v.trim() !== '')
         .map(([k, v]) => [k, Number(v)]),
     );
@@ -74,26 +82,10 @@ export default function MediaBudgetModal({ year, month, onClose, onSaved, onErro
       onError(`예산은 0 이상의 숫자여야 합니다: ${invalid.map(([k]) => k).join(', ')}`);
       return;
     }
+    saveMutation.mutate(budgets);
+  }, [values, onError, saveMutation]);
 
-    setSaving(true);
-    try {
-      const res = await authFetch(`/api/admin/periods/${year}/${month}/budgets`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ budgets }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.detail ?? body.message ?? '예산 저장 실패');
-
-      onSaved(`${year}년 ${month}월 매체별 예산을 저장했습니다.`);
-      onClose();
-    } catch (err) {
-      onError(err instanceof Error ? err.message : '예산 저장 실패');
-    } finally {
-      setSaving(false);
-    }
-  }, [draft, year, month, onClose, onSaved, onError]);
-
+  const saving = saveMutation.isPending;
   const inherited =
     data !== null && data.inherited_from !== null && data.inherited_from !== periodKey(year, month);
 
@@ -130,7 +122,7 @@ export default function MediaBudgetModal({ year, month, onClose, onSaved, onErro
                 <input
                   id={`budget-${media}`}
                   inputMode="numeric"
-                  value={draft[media] ?? ''}
+                  value={values[media] ?? ''}
                   onChange={(e) =>
                     setDraft((prev) => ({ ...prev, [media]: e.target.value.replace(/[^\d.]/g, '') }))
                   }
@@ -139,8 +131,8 @@ export default function MediaBudgetModal({ year, month, onClose, onSaved, onErro
                     text-fg tabular-nums focus:outline-none focus:ring-2 focus:ring-primary"
                 />
                 <span className="w-16 shrink-0 text-right text-xs text-fg-subtle tabular-nums">
-                  {draft[media] && Number.isFinite(Number(draft[media]))
-                    ? Number(draft[media]).toLocaleString('ko-KR')
+                  {values[media] && Number.isFinite(Number(values[media]))
+                    ? formatCount(Number(values[media]))
                     : '—'}
                 </span>
               </div>
@@ -148,10 +140,10 @@ export default function MediaBudgetModal({ year, month, onClose, onSaved, onErro
           </div>
 
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose} className="px-4! py-2!">
+            <Button variant="outline" size="md" onClick={onClose}>
               취소
             </Button>
-            <Button onClick={handleSave} isLoading={saving} className="px-4! py-2!">
+            <Button size="md" onClick={handleSave} isLoading={saving}>
               저장
             </Button>
           </div>

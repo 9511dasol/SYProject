@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import AdminUsersClient from '@/app/admin/users/AdminUsersClient';
+import AdminGate from '@/components/ui/AdminGate';
 
 export const metadata: Metadata = {
   title: '사용자 관리',
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function AdminUsersPage() {
-  return <AdminUsersClient />;
+  return (
+    <AdminGate>
+      <AdminUsersClient />
+    </AdminGate>
+  );
 }

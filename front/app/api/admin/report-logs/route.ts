@@ -1,25 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { isAxiosError } from 'axios';
-import { auth } from '@/auth';
-import { privateApi } from '@/lib/api/privateApi';
-import type { ReportLogListResponse } from '@/types/reportLog';
+import { NextRequest } from 'next/server';
+import { proxyToBackend } from '@/lib/server/bffProxy';
 
-/** BFF: 관리자 페이지에서 리포트 메일 발송 이력을 조회한다. */
+/** BFF: 리포트 메일 발송 이력 목록 (limit · offset · status 쿼리스트링은 그대로 전달된다) */
 export async function GET(request: NextRequest) {
-  const session = await auth();
-  if (!session) {
-    return NextResponse.json({ message: '인증이 필요합니다.' }, { status: 401 });
-  }
-
-  try {
-    const { data } = await privateApi.get<ReportLogListResponse>('/api/admin/report-logs', {
-      params: Object.fromEntries(request.nextUrl.searchParams),
-    });
-    return NextResponse.json(data);
-  } catch (err) {
-    if (isAxiosError(err) && err.response) {
-      return NextResponse.json(err.response.data, { status: err.response.status });
-    }
-    return NextResponse.json({ message: '발송 이력 조회 중 오류가 발생했습니다.' }, { status: 500 });
-  }
+  return proxyToBackend(request, { backendPath: '/api/admin/report-logs' });
 }

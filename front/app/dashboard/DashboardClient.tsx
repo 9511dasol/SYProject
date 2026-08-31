@@ -5,7 +5,7 @@ import { useQueries, useQueryClient } from '@tanstack/react-query';
 import UploadPanel from '@/components/marketing/UploadPanel';
 import ReportDashboard, { type ImportedReport, type PendingLoad } from '@/components/marketing/ReportDashboard';
 import Modal from '@/components/ui/Modal';
-import ToastContainer, { type ToastItem } from '@/components/ui/Toast';
+import { useToast } from '@/components/providers/ToastProvider';
 import BottomTaskBar, { type TaskProgress } from '@/components/ui/BottomTaskBar';
 import { loadExcelReports, startSaveExcelTask, getSaveExcelTaskStatus, undoUpload } from '@/lib/marketingClient';
 import { queryKeys } from '@/lib/queryKeys';
@@ -63,7 +63,7 @@ export default function DashboardClient() {
   // 홈 카드에 떨궈 모달을 연 경우, 그 파일을 모달의 첫 상태로 넘긴다
   const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const { toast: addToast } = useToast();
   const [saveTaskEntries, setSaveTaskEntries] = useState<SaveTaskEntry[]>([]);
   const [importedReports, setImportedReports] = useState<ImportedReport[]>([]);
   const [pendingLoads, setPendingLoads] = useState<PendingLoad[]>([]);
@@ -137,20 +137,6 @@ export default function DashboardClient() {
       message: data.message ?? data.error,
     };
   });
-
-  // ── 토스트 ────────────────────────────────────────────────────────────────────
-
-  const addToast = useCallback(
-    (type: ToastItem['type'], message: string, action?: ToastItem['action']) => {
-      const id = `${Date.now()}-${Math.random()}`;
-      setToasts((prev) => [...prev, { id, type, message, action }]);
-    },
-    [],
-  );
-
-  const removeToast = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
 
   // ── 업로드 핸들러 ─────────────────────────────────────────────────────────────
 
@@ -304,7 +290,6 @@ export default function DashboardClient() {
 
   return (
     <>
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
       <BottomTaskBar
         tasks={saveTasks}
         onRemove={(id) =>
@@ -327,11 +312,18 @@ export default function DashboardClient() {
       {/* 배경 그라디언트 */}
       <div className="fixed inset-0 -z-10 pointer-events-none" aria-hidden>
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(37,99,235,0.10),transparent)]" />
-        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,transparent,rgba(248,250,252,0.8))]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,transparent,var(--bg-veil))]" />
       </div>
 
       {/* 페이지 콘텐츠 */}
       <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-12">
+        {/*
+          이 화면은 눈에 보이는 제목 대신 "무엇을 하시겠어요?" 같은 안내 문구로 시작한다.
+          그래도 문서에는 h1이 하나 있어야 해서(전체 페이지 중 유일하게 없었다) 화면에는
+          안 보이는 제목을 둔다 — 스크린리더와 문서 개요에서 페이지 이름이 읽힌다.
+        */}
+        <h1 className="sr-only">SA 광고 대시보드</h1>
+
         {/* 히어로 · 퀵 액션 */}
         <section aria-label="시작하기">
           <p className="text-xs font-semibold uppercase tracking-wider text-blue-600 mb-2">

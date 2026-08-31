@@ -15,7 +15,7 @@ const ANCHORS = [
 export default function LandingHeader({ isLoggedIn }: LandingHeaderProps) {
   return (
     <header
-      className="sticky top-0 z-30 h-16 border-b border-border/70
+      className="sticky top-0 z-[var(--z-sticky)] h-16 border-b border-border/70
         bg-bg/80 backdrop-blur-md"
     >
       <div className="max-w-6xl mx-auto h-full px-4 sm:px-6 flex items-center gap-3">

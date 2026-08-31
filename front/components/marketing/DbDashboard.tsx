@@ -15,7 +15,8 @@ import { queryKeys } from '@/lib/queryKeys';
 import PeriodPicker, { type Period } from '@/components/marketing/PeriodPicker';
 import ReportView from '@/components/marketing/ReportView';
 import Button from '@/components/ui/Button';
-import ToastContainer, { type ToastItem } from '@/components/ui/Toast';
+import { controlClassName } from '@/components/ui/Field';
+import { useToast } from '@/components/providers/ToastProvider';
 
 // Excel 다운로드 잠금 스위치.
 // 원래 막아둔 이유는 출력 파일이 87MB까지 커져 브라우저 다운로드가 실패했기 때문인데,
@@ -72,35 +73,40 @@ function NewPeriodPopover({
   const [month, setMonth] = useState(now.getMonth() + 1);
   const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
 
-  const selectClass =
-    'flex-1 rounded-lg border border-slate-200 dark:border-border px-2 py-1.5 text-xs text-slate-700 dark:text-fg bg-white dark:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-blue-500';
-
   return (
-    <div className="absolute top-full mt-2 right-0 z-20 w-56 rounded-xl border border-slate-200 dark:border-border bg-white dark:bg-surface shadow-xl p-4 space-y-3">
-      <p className="text-xs font-semibold text-slate-600 dark:text-fg-muted">새 기간 추가</p>
+    <div className="absolute top-full mt-2 right-0 z-[var(--z-popover)] w-56 rounded-xl border border-border bg-surface shadow-overlay p-4 space-y-3">
+      <p className="text-xs font-semibold text-fg-muted">새 기간 추가</p>
+      {/*
+        폭이 좁아 눈에 보이는 레이블을 넣으면 두 칸이 찌그러진다. 옵션 텍스트가
+        "2026년" · "5월" 이라 시각적으로는 자명하므로 aria-label 로만 이름을 준다.
+      */}
       <div className="flex gap-2">
-        <select value={year} onChange={(e) => setYear(Number(e.target.value))} className={selectClass}>
+        <select
+          aria-label="연도"
+          value={year}
+          onChange={(e) => setYear(Number(e.target.value))}
+          className={`${controlClassName} flex-1 px-2 py-1.5 text-xs`}
+        >
           {years.map((y) => <option key={y} value={y}>{y}년</option>)}
         </select>
-        <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className={selectClass}>
+        <select
+          aria-label="월"
+          value={month}
+          onChange={(e) => setMonth(Number(e.target.value))}
+          className={`${controlClassName} flex-1 px-2 py-1.5 text-xs`}
+        >
           {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
             <option key={m} value={m}>{m}월</option>
           ))}
         </select>
       </div>
       <div className="flex gap-2">
-        <button
-          onClick={onClose}
-          className="flex-1 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-fg-muted hover:bg-slate-100 dark:hover:bg-surface-2 transition-colors"
-        >
+        <Button variant="ghost" size="sm" onClick={onClose} className="flex-1">
           취소
-        </button>
-        <button
-          onClick={() => { onSelect(year, month); onClose(); }}
-          className="flex-1 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-        >
+        </Button>
+        <Button size="sm" onClick={() => { onSelect(year, month); onClose(); }} className="flex-1">
           이동
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -135,7 +141,7 @@ function DownloadProgressToast({
     <div
       role="status"
       aria-live="polite"
-      className={`fixed bottom-5 right-5 z-200 w-76 rounded-2xl shadow-xl shadow-black/10 border overflow-hidden transition-all
+      className={`fixed bottom-5 right-5 z-[var(--z-toast)] w-76 rounded-2xl shadow-xl shadow-black/10 border overflow-hidden transition-all
         ${isError ? 'bg-red-600 border-red-500 text-white'
           : isDone ? 'bg-emerald-600 border-emerald-500 text-white'
           : isPaused ? 'bg-slate-700 border-slate-600 text-white'
@@ -246,18 +252,13 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   const [dlTask, setDlTask] = useState<DownloadTask | null>(null);
   const [newPeriodOpen, setNewPeriodOpen] = useState(false);
   const newPeriodRef = useRef<HTMLDivElement>(null);
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const { toast: pushToast } = useToast();
   // 서버에서 받아 저장을 기다리는 파일 (사용자가 저장 위치를 고를 때까지 붙들고 있는다)
   const [readyBlob, setReadyBlob] = useState<Blob | null>(null);
   // 다운로드는 동기 호출이라 '저장 중' 상태가 없다. 같은 프레임 안의 중복 클릭만 ref로 막는다.
   const savingRef = useRef(false);
   // 완료된 export를 두 번 내려받지 않도록 (StrictMode의 이펙트 2회 실행 대비)
   const fetchedTaskRef = useRef<string | null>(null);
-
-  function pushToast(type: ToastItem['type'], message: string) {
-    const id = `${Date.now()}-${Math.random()}`;
-    setToasts((prev) => [...prev, { id, type, message }]);
-  }
 
   // ── 기간 목록 ─────────────────────────────────────────────────────────────
   const {
@@ -450,11 +451,6 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
 
   return (
     <>
-      <ToastContainer
-        toasts={toasts}
-        onRemove={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
-      />
-
       {dlView && (
         <DownloadProgressToast
           task={dlView}
@@ -502,8 +498,8 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
               </div>
 
               <Button
-                variant="ghost"
-                className="border border-slate-200 dark:border-border px-3! py-1.5!"
+                variant="outline"
+                size="sm"
                 onClick={handleDownload}
                 disabled={(!canDownload && !DOWNLOAD_UNDER_MAINTENANCE) || isFetching}
                 title={

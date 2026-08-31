@@ -2,35 +2,23 @@
 
 import { useEffect } from 'react';
 import { SessionProvider, signOut, useSession } from 'next-auth/react';
-import { useAuthStore } from '@/lib/store/useAuthStore';
 
-/** NextAuth 세션 변화를 zustand store(useAuthStore)에 동기화한다. */
-function AuthStoreSync() {
-  const { data: session, status } = useSession();
-  const setUser = useAuthStore((state) => state.setUser);
-  const clearUser = useAuthStore((state) => state.clearUser);
+/**
+ * accessToken 자동 갱신이 실패하면(refresh token 만료 등) 즉시 로그아웃시킨다.
+ *
+ * 세션 쿠키는 남아 있지만 더 이상 API를 호출할 수 없는 상태라, 그대로 두면 사용자는
+ * 화면마다 401 만 만나게 된다. 소개 페이지로 내보내고 다시 로그인하게 한다.
+ *
+ * 예전에는 이 컴포넌트가 세션을 zustand 스토어로 복사하는 일도 했는데, 읽는 쪽(Sidebar ·
+ * SidebarProfile)이 useSession() 을 직접 쓰도록 바꿔서 그 동기화는 없앴다.
+ */
+function RefreshFailureGuard() {
+  const { data: session } = useSession();
+  const refreshFailed = session?.error === 'RefreshAccessTokenError';
 
   useEffect(() => {
-    // accessToken 자동 갱신(refresh token 만료 등으로)이 실패한 경우 —
-    // 세션은 남아있지만 더 이상 API를 호출할 수 없으므로 바로 로그아웃시켜 소개 페이지로 내보낸다.
-    if (session?.error === 'RefreshAccessTokenError') {
-      clearUser();
-      signOut({ callbackUrl: '/' });
-      return;
-    }
-
-    if (status === 'authenticated' && session?.user) {
-      setUser({
-        id: session.user.id,
-        email: session.user.email ?? '',
-        name: session.user.name ?? '',
-        role: session.user.role,
-        image: session.user.image,
-      });
-    } else if (status === 'unauthenticated') {
-      clearUser();
-    }
-  }, [session, status, setUser, clearUser]);
+    if (refreshFailed) signOut({ callbackUrl: '/' });
+  }, [refreshFailed]);
 
   return null;
 }
@@ -38,7 +26,7 @@ function AuthStoreSync() {
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <SessionProvider>
-      <AuthStoreSync />
+      <RefreshFailureGuard />
       {children}
     </SessionProvider>
   );

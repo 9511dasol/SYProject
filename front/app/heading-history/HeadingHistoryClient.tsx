@@ -1,24 +1,20 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import HeadingGrid from '@/components/heading-suggest/HeadingGrid';
 import PlatformTabs from '@/components/heading-suggest/PlatformTabs';
 import Modal from '@/components/ui/Modal';
 import Spinner from '@/components/ui/Spinner';
-import ToastContainer, { type ToastItem } from '@/components/ui/Toast';
+import { useToast } from '@/components/providers/ToastProvider';
+import { formatDateTime } from '@/lib/format';
 import { deleteHeadingSuggestion, fetchHeadingHistoryPage } from '@/lib/headingClient';
 import type { HeadingSuggestionRecord, PlatformFilter } from '@/types/heading';
 
 const PAGE_SIZE = 24;
 
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleString('ko-KR', {
-    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-  });
-}
+/** 목록·상세에 붙는 보조 정보라, 날짜를 못 읽으면 '-' 대신 아무것도 표시하지 않는다 */
+const formatDate = (iso: string) => formatDateTime(iso, '');
 
 /** 저장된 썸네일 URL (BFF 프록시 경유, 세션 쿠키로 인증) */
 function imageUrl(id: number): string {
@@ -46,10 +42,7 @@ export default function HeadingHistoryClient() {
   const [detailTab, setDetailTab] = useState<PlatformFilter>('전체');
   const [pendingDelete, setPendingDelete] = useState<HeadingSuggestionRecord | null>(null);
 
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const pushToast = useCallback((type: ToastItem['type'], message: string) => {
-    setToasts((prev) => [...prev, { id: `${Date.now()}-${Math.random()}`, type, message }]);
-  }, []);
+  const { toast: pushToast } = useToast();
 
   /* ── 첫 페이지 ─────────────────────────────────────────────────────────── */
   useEffect(() => {
@@ -137,8 +130,6 @@ export default function HeadingHistoryClient() {
   /* ── 렌더 ─────────────────────────────────────────────────────────────── */
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-amber-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-amber-950/20 py-10 px-4">
-      <ToastContainer toasts={toasts} onRemove={(id) => setToasts((p) => p.filter((t) => t.id !== id))} />
-
       <div className="max-w-5xl mx-auto space-y-6">
         <header className="space-y-3">
           <div className="inline-flex items-center gap-2 text-xs font-semibold tracking-widest text-amber-500 dark:text-amber-400 uppercase bg-amber-50 dark:bg-amber-950/50 rounded-full px-4 py-1.5 ring-1 ring-amber-100 dark:ring-amber-900">

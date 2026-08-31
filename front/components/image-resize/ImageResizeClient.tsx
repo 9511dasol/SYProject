@@ -169,7 +169,7 @@ export default function ImageResizeClient() {
             <i className="bx bx-crop text-sm" />
             Image Resizer
           </div>
-          <h1 className="text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">이미지 리사이즈</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-fg tracking-tight">이미지 리사이저</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
             JPEG · PNG · WebP 이미지를 원하는 크기로 무료 변환 · 서버에 저장되지 않습니다
           </p>
@@ -277,7 +277,8 @@ export default function ImageResizeClient() {
 
                 {file && (
                   <Button
-                    className="w-full bg-violet-600! hover:bg-violet-700! rounded-xl!"
+                    tone="violet"
+                    className="w-full"
                     onClick={handleResize}
                     isLoading={isProcessing}
                     disabled={!canResize}

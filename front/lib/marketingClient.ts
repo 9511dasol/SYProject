@@ -5,8 +5,6 @@ import type {
   ExcelReportBundle,
   ReportData,
   RowFormData,
-  TaskStatusResponse,
-  UploadTaskResponse,
 } from '@/types/marketing';
 
 // BFF Route Handler(/api/marketing/*)를 거쳐 FastAPI로 전달된다.
@@ -37,27 +35,6 @@ function extractError(err: unknown, fallback: string): string {
     return err.response?.data?.detail ?? fallback;
   }
   return fallback;
-}
-
-export async function uploadMarketingFiles(files: File[]): Promise<UploadTaskResponse> {
-  try {
-    const { data } = await api.post<UploadTaskResponse>(
-      '/api/marketing/upload',
-      toFormData(files)
-    );
-    return data;
-  } catch (err) {
-    throw new Error(extractError(err, `업로드 실패: ${(err as Error).message}`));
-  }
-}
-
-export async function pollTaskStatus(taskId: string): Promise<TaskStatusResponse> {
-  try {
-    const { data } = await api.get<TaskStatusResponse>(`/api/marketing/status/${taskId}`);
-    return data;
-  } catch (err) {
-    throw new Error(extractError(err, `상태 조회 실패: ${(err as Error).message}`));
-  }
 }
 
 export async function exportToExcel(files: File[]): Promise<Blob> {
@@ -138,18 +115,6 @@ export async function getPeriods(): Promise<{ year: number; month: number }[]> {
     return data;
   } catch (err) {
     throw new Error(extractError(err, `기간 조회 실패: ${(err as Error).message}`));
-  }
-}
-
-export async function exportDbToExcel(year: number, month: number): Promise<Blob> {
-  try {
-    const response = await api.get('/api/marketing/export-db', {
-      params: { year, month },
-      responseType: 'blob',
-    });
-    return response.data as Blob;
-  } catch (err) {
-    throw new Error(extractError(err, `Excel 다운로드 실패: ${(err as Error).message}`));
   }
 }
 

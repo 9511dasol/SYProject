@@ -1,87 +1,53 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
-import { authFetch } from '@/lib/api/authFetch';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { fetchJson, sendJson } from '@/lib/api/authFetch';
+import { queryKeys } from '@/lib/queryKeys';
+import Alert from '@/components/ui/Alert';
 import Spinner from '@/components/ui/Spinner';
 import type { AIStatus } from '@/types/aiStatus';
 import type { FeatureFlagItem } from '@/types/featureFlags';
 
 export default function AdminSettingsClient() {
-  const { data: session, status } = useSession();
-  const [flags, setFlags] = useState<FeatureFlagItem[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [togglingKey, setTogglingKey] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const [aiStatus, setAiStatus] = useState<AIStatus | null>(null);
-  const [aiStatusError, setAiStatusError] = useState<string | null>(null);
+  const flagsQuery = useQuery({
+    queryKey: queryKeys.adminSettings(),
+    queryFn: () => fetchJson<FeatureFlagItem[]>('/api/admin/settings', undefined, '설정 조회 실패'),
+  });
 
-  const isAdmin = status === 'authenticated' && session?.user.role === 'admin';
+  const aiStatusQuery = useQuery({
+    queryKey: queryKeys.adminAiStatus(),
+    queryFn: () =>
+      fetchJson<AIStatus>('/api/admin/ai-status', undefined, 'AI 프로바이더 현황 조회 실패'),
+  });
 
-  useEffect(() => {
-    if (!isAdmin) return;
+  const toggle = useMutation({
+    mutationFn: ({ key, value }: { key: string; value: boolean }) =>
+      sendJson<FeatureFlagItem>(`/api/admin/settings/${key}`, 'PATCH', { value }, '설정 변경 실패'),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<FeatureFlagItem[]>(queryKeys.adminSettings(), (prev) =>
+        prev?.map((f) => (f.key === updated.key ? updated : f)),
+      );
+      /*
+        플래그를 끄면 사용자 화면의 FeatureGate 도 즉시 반응해야 한다. 예전에는 앱의
+        플래그가 zustand 스토어에 따로 담겨 있어서 이걸 갱신할 경로가 아예 없었고,
+        관리자가 토글해도 새로고침 전까지는 화면이 예전 상태로 남았다.
+      */
+      queryClient.invalidateQueries({ queryKey: queryKeys.featureFlags() });
+    },
+  });
 
-    authFetch('/api/admin/settings')
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message ?? '설정 조회 실패');
-        return data as FeatureFlagItem[];
-      })
-      .then(setFlags)
-      .catch((err) => setError(err instanceof Error ? err.message : '설정 조회 실패'));
-
-    authFetch('/api/admin/ai-status')
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message ?? 'AI 프로바이더 현황 조회 실패');
-        return data as AIStatus;
-      })
-      .then(setAiStatus)
-      .catch((err) => setAiStatusError(err instanceof Error ? err.message : 'AI 프로바이더 현황 조회 실패'));
-  }, [isAdmin]);
-
-  const handleToggle = async (key: string, value: boolean) => {
-    setTogglingKey(key);
-    setError(null);
-    try {
-      const res = await authFetch(`/api/admin/settings/${key}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message ?? '설정 변경 실패');
-      const updated = data as FeatureFlagItem;
-      setFlags((prev) => prev?.map((f) => (f.key === updated.key ? updated : f)) ?? prev);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '설정 변경 실패');
-    } finally {
-      setTogglingKey(null);
-    }
-  };
-
-  if (status === 'loading') {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Spinner size="lg" />
-      </div>
-    );
-  }
-
-  if (!isAdmin) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-2 min-h-[60vh] px-6 text-center">
-        <i className="bx bx-lock-alt text-3xl text-fg-subtle" />
-        <h2 className="text-lg font-bold text-fg">접근 권한이 없습니다</h2>
-        <p className="text-sm text-fg-subtle">관리자만 접근할 수 있는 페이지입니다.</p>
-      </div>
-    );
-  }
+  const flags = flagsQuery.data ?? null;
+  const aiStatus = aiStatusQuery.data ?? null;
+  const error = flagsQuery.error ?? toggle.error;
+  const aiStatusError = aiStatusQuery.error;
+  const togglingKey = toggle.isPending ? toggle.variables?.key : null;
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-fg">시스템 설정</h1>
+        <h1 className="text-xl font-bold text-fg">기능 플래그 관리</h1>
         <p className="mt-1 text-sm text-fg-subtle">
           AI 프로바이더 현황을 확인하고, 기능을 켜고 끌 수 있습니다.
         </p>
@@ -96,12 +62,7 @@ export default function AdminSettingsClient() {
           </p>
         </div>
 
-        {aiStatusError && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700
-            dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
-            {aiStatusError}
-          </div>
-        )}
+        {aiStatusError && <Alert>{aiStatusError.message}</Alert>}
 
         {!aiStatus && !aiStatusError ? (
           <div className="flex justify-center py-6">
@@ -135,7 +96,7 @@ export default function AdminSettingsClient() {
               ))}
             </ul>
             <p className="text-xs text-fg-subtle">
-              이미지 정제 · 헤딩 문구 추천 기능은 LLM_PROVIDER 설정과 무관하게 항상 Gemini를 사용합니다 (임시 조치).
+              이미지 정제 · 헤딩 문구 추천은 이미지를 다루기 때문에 위 프로바이더 설정과 무관하게 항상 Gemini를 사용합니다.
             </p>
           </>
         ) : null}
@@ -148,12 +109,7 @@ export default function AdminSettingsClient() {
         </p>
       </div>
 
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700
-          dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
-          {error}
-        </div>
-      )}
+      {error && <Alert>{error.message}</Alert>}
 
       {!flags ? (
         <div className="flex justify-center py-10">
@@ -173,7 +129,7 @@ export default function AdminSettingsClient() {
                 aria-checked={flag.value}
                 aria-label={flag.description}
                 disabled={togglingKey === flag.key}
-                onClick={() => handleToggle(flag.key, !flag.value)}
+                onClick={() => toggle.mutate({ key: flag.key, value: !flag.value })}
                 className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50
                   ${flag.value ? 'bg-primary' : 'bg-surface-3'}`}
               >

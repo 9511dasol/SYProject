@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
-import { cookies } from 'next/headers';
 import './globals.css';
 import 'boxicons/css/boxicons.min.css';
 import AppShell from '@/components/layout/AppShell';
@@ -8,8 +7,7 @@ import AuthProvider from '@/components/providers/AuthProvider';
 import FeatureFlagProvider from '@/components/providers/FeatureFlagProvider';
 import QueryProvider from '@/components/providers/QueryProvider';
 import ThemeProvider from '@/components/providers/ThemeProvider';
-import TaskNotificationWidget from '@/components/task-notification/TaskNotificationWidget';
-import { TASK_ID_COOKIE } from '@/lib/taskCookieUtils';
+import ToastProvider from '@/components/providers/ToastProvider';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -29,16 +27,11 @@ export const metadata: Metadata = {
   description: '매체·전환 데이터 분석, 이미지 정제, 헤딩 문구 추천까지 한곳에서',
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // SSR 단계에서 쿠키를 읽어 task_id를 클라이언트 위젯에 주입
-  // → 새로고침 시에도 위젯이 깜빡임 없이 바로 렌더링됨
-  const cookieStore = await cookies();
-  const initialTaskId = cookieStore.get(TASK_ID_COOKIE)?.value ?? null;
-
   return (
     <html
       lang="ko"
@@ -51,10 +44,11 @@ export default async function RootLayout({
           <AuthProvider>
             <QueryProvider>
               <FeatureFlagProvider>
-                <AppShell>{children}</AppShell>
+                {/* 토스트 컨테이너는 페이지 트리 밖에 있어야 화면을 옮겨도 안 사라진다 */}
+                <ToastProvider>
+                  <AppShell>{children}</AppShell>
+                </ToastProvider>
               </FeatureFlagProvider>
-              {/* 우측 하단 고정 백그라운드 태스크 알림창 */}
-              <TaskNotificationWidget initialTaskId={initialTaskId} />
             </QueryProvider>
           </AuthProvider>
         </ThemeProvider>

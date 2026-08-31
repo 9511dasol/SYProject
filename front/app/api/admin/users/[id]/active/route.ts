@@ -1,26 +1,13 @@
-import { NextResponse } from 'next/server';
-import { isAxiosError } from 'axios';
-import { auth } from '@/auth';
-import { privateApi } from '@/lib/api/privateApi';
-import type { AdminUserItem } from '@/types/adminUsers';
+import { NextRequest } from 'next/server';
+import { proxyToBackend } from '@/lib/server/bffProxy';
 
-/** BFF: 관리자 페이지에서 계정의 활성/비활성 상태를 변경한다. */
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await auth();
-  if (!session) {
-    return NextResponse.json({ message: '인증이 필요합니다.' }, { status: 401 });
-  }
-
+/** BFF: 관리자가 계정을 활성 · 비활성으로 전환한다. */
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
   const { id } = await params;
-  const body = (await request.json()) as { is_active: boolean };
-
-  try {
-    const { data } = await privateApi.patch<AdminUserItem>(`/api/admin/users/${id}/active`, body);
-    return NextResponse.json(data);
-  } catch (err) {
-    if (isAxiosError(err) && err.response) {
-      return NextResponse.json(err.response.data, { status: err.response.status });
-    }
-    return NextResponse.json({ message: '계정 상태 변경 중 오류가 발생했습니다.' }, { status: 500 });
-  }
+  return proxyToBackend(request, {
+    backendPath: `/api/admin/users/${encodeURIComponent(id)}/active`,
+  });
 }

@@ -35,9 +35,9 @@ function SingleToast({ toast, onRemove }: { toast: ToastItem; onRemove: () => vo
     <div
       role="alert"
       className={`flex items-start gap-3 px-4 py-3.5 rounded-xl
-        shadow-lg shadow-black/15 dark:shadow-black/50
+        shadow-overlay
         text-sm font-medium
-        animate-in slide-in-from-right-4 fade-in duration-200
+        animate-slide-in-right
         ${TOAST_STYLES[toast.type]}`}
     >
       <i className={`bx ${TOAST_ICONS[toast.type]} text-xl shrink-0 mt-px`} />
@@ -73,7 +73,7 @@ export default function ToastContainer({ toasts, onRemove }: ToastContainerProps
     <div
       aria-live="polite"
       aria-label="알림"
-      className="fixed top-4 right-4 z-200 flex flex-col gap-2 w-full max-w-sm pointer-events-none"
+      className="fixed top-4 right-4 z-[var(--z-toast)] flex flex-col gap-2 w-full max-w-sm pointer-events-none"
     >
       {toasts.map((t) => (
         <div key={t.id} className="pointer-events-auto">

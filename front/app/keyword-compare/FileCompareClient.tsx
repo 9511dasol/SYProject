@@ -1,30 +1,16 @@
 'use client';
 
 import { useCallback, useMemo, useRef, useState } from 'react';
+import {
+  formatCompact as fmtCompact,
+  formatCount,
+  formatNumber as fmt,
+  formatPercentChange as pctChange,
+  formatSigned as fmtDiff,
+} from '@/lib/format';
 import { parseKeywordCompare } from '@/lib/keywordCompareClient';
+import ScrollableTable from '@/components/ui/ScrollableTable';
 import type { CompareResult, CompareRow, CompareSheet, RowStatus } from '@/types/keywordCompare';
-
-// ── 유틸 ──────────────────────────────────────────────────────────────────────
-
-const fmt = (n: number) => Math.round(n).toLocaleString('ko-KR');
-
-function fmtDiff(n: number) {
-  if (n === 0) return '−';
-  return n > 0 ? `+${fmt(n)}` : fmt(n);
-}
-
-function fmtCompact(n: number) {
-  const abs = Math.abs(n);
-  if (abs >= 100_000_000) return `${(n / 100_000_000).toFixed(1)}억`;
-  if (abs >= 10_000) return `${(n / 10_000).toFixed(1)}만`;
-  return fmt(n);
-}
-
-function pctChange(curr: number, prev: number) {
-  if (prev === 0) return null;
-  const p = ((curr - prev) / prev) * 100;
-  return `${p > 0 ? '+' : ''}${p.toFixed(1)}%`;
-}
 
 // ── 상태 메타 ─────────────────────────────────────────────────────────────────
 
@@ -450,9 +436,9 @@ function CompareTable({
   const thProps = { currentSort: sort, onSort };
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-border">
+    <>
       {/* 모바일 카드 뷰 */}
-      <ul className="sm:hidden divide-y divide-slate-100 dark:divide-border">
+      <ul className="sm:hidden rounded-xl border border-border divide-y divide-border">
         {rows.map((row, i) => {
           const m = STATUS_META[row.status];
           return (
@@ -492,8 +478,14 @@ function CompareTable({
         })}
       </ul>
 
-      {/* 데스크톱 테이블 뷰 */}
-      <table className="hidden sm:table w-full min-w-215 border-collapse text-xs">
+      {/*
+        데스크톱 테이블 뷰 — ScrollableTable 로 감싸 태블릿 폭(768px)에서도 표가
+        잘렸다는 걸 알 수 있게 한다. min-w-215(860px)라 sm 에서도 넘친다.
+      */}
+      <div className="hidden sm:block">
+        {/* styled={false} — 이 표는 thead·tbody 배경과 셀 색을 스스로 다 정한다 */}
+        <ScrollableTable styled={false} hint="옆으로 밀어서 나머지 지표를 볼 수 있어요">
+          <table className="w-full min-w-215 border-collapse text-xs">
         <thead className="bg-slate-50 dark:bg-surface-2 border-b border-slate-200 dark:border-border">
           <tr>
             <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-fg-muted uppercase tracking-wide w-16">구분</th>
@@ -534,8 +526,10 @@ function CompareTable({
             );
           })}
         </tbody>
-      </table>
-    </div>
+          </table>
+        </ScrollableTable>
+      </div>
+    </>
   );
 }
 
@@ -663,7 +657,7 @@ function ResultView({
       {/* 결과 카운트 */}
       <div className="flex items-center gap-2">
         <span className="text-xs text-slate-500 dark:text-fg-muted">
-          총 <span className="font-semibold text-slate-700 dark:text-fg">{filteredRows.length.toLocaleString()}</span>건
+          총 <span className="font-semibold text-slate-700 dark:text-fg">{formatCount(filteredRows.length)}</span>건
           {filteredRows.length !== sheet.rows.length && (
             <span className="ml-1 text-slate-400 dark:text-fg-subtle">(전체 {sheet.rows.length}건 중)</span>
           )}

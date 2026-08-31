@@ -63,7 +63,7 @@ export default function ReportDashboard({
             className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all shrink-0 ${
               activeTab === DB_TAB
                 ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
-                : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700'
+                : 'bg-surface-2 text-fg-muted hover:bg-surface-3 hover:text-fg'
             }`}
           >
             <i className="bx bx-data text-sm" />
@@ -77,7 +77,7 @@ export default function ReportDashboard({
               className={`flex items-center rounded-xl text-xs font-semibold whitespace-nowrap transition-all shrink-0 overflow-hidden ${
                 activeTab === r.id
                   ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/20'
-                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700'
+                  : 'bg-surface-2 text-fg-muted hover:bg-surface-3 hover:text-fg'
               }`}
             >
               <button
@@ -99,7 +99,7 @@ export default function ReportDashboard({
                 className={`pr-2 py-2 transition-opacity ${
                   activeTab === r.id
                     ? 'text-white/60 hover:text-white'
-                    : 'text-slate-400 hover:text-red-500'
+                    : 'text-fg-subtle hover:text-badge-danger-fg'
                 }`}
               >
                 <i className="bx bx-x text-sm" />
@@ -111,11 +111,11 @@ export default function ReportDashboard({
           {pendingLoads.map((p) => (
             <div
               key={p.id}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap bg-slate-100 text-slate-400 shrink-0"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap bg-surface-2 text-fg-subtle shrink-0"
             >
-              <span className="w-3 h-3 rounded-full border-2 border-slate-300 border-t-indigo-500 animate-spin shrink-0" />
+              <span className="w-3 h-3 rounded-full border-2 border-border border-t-indigo-500 animate-spin shrink-0" />
               <span className="max-w-27.5 truncate">{p.label}</span>
-              <span className="text-[10px] font-normal text-slate-400">불러오는 중…</span>
+              <span className="text-[10px] font-normal text-fg-subtle">불러오는 중…</span>
             </div>
           ))}
         </div>
@@ -129,11 +129,11 @@ export default function ReportDashboard({
           {/* 액션 바 */}
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-100 text-xs font-medium text-indigo-700 truncate max-w-xs">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 text-xs font-medium text-indigo-700 dark:text-indigo-300 truncate max-w-xs">
                 <i className="bx bx-file text-sm shrink-0" />
                 {activeReport.label}
               </span>
-              <span className="text-xs text-slate-400 shrink-0">{activeReport.data.period}</span>
+              <span className="text-xs text-fg-subtle shrink-0">{activeReport.data.period}</span>
             </div>
 
             {/* DB 저장 버튼 */}
@@ -143,7 +143,7 @@ export default function ReportDashboard({
                 disabled={confirmId === activeReport.id}
                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
                   confirmId === activeReport.id
-                    ? 'bg-amber-100 text-amber-700 cursor-default'
+                    ? 'bg-badge-warn-bg text-badge-warn-fg cursor-default'
                     : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm shadow-emerald-600/20'
                 }`}
               >
@@ -155,11 +155,11 @@ export default function ReportDashboard({
 
           {/* 교체 확인 배너 */}
           {confirmId === activeReport.id && (
-            <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-              <i className="bx bx-error text-amber-500 text-lg shrink-0 mt-0.5" />
+            <div className="flex items-start gap-3 rounded-xl border border-badge-warn-bdr bg-badge-warn-bg px-4 py-3">
+              <i className="bx bx-error text-badge-warn-fg text-lg shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-amber-800">기존 데이터를 교체하시겠습니까?</p>
-                <p className="text-xs text-amber-700 mt-0.5">
+                <p className="text-sm font-semibold text-badge-warn-fg">기존 데이터를 교체하시겠습니까?</p>
+                <p className="text-xs text-badge-warn-fg/80 mt-0.5">
                   <strong>{activeReport.data.period}</strong> 기간의 기존 데이터를 모두 삭제하고
                   현재 파일로 교체합니다. 이 작업은 되돌릴 수 없습니다.
                 </p>
@@ -167,7 +167,7 @@ export default function ReportDashboard({
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => setConfirmId(null)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-surface border border-border text-fg-muted hover:bg-surface-2 transition-colors"
                 >
                   취소
                 </button>

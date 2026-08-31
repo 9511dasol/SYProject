@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import AdminPeriodsClient from '@/app/admin/periods/AdminPeriodsClient';
+import AdminGate from '@/components/ui/AdminGate';
 
 export const metadata: Metadata = {
   title: '업로드 데이터 관리',
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function AdminPeriodsPage() {
-  return <AdminPeriodsClient />;
+  return (
+    <AdminGate>
+      <AdminPeriodsClient />
+    </AdminGate>
+  );
 }

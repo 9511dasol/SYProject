@@ -1,10 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
-import { authFetch } from '@/lib/api/authFetch';
-import Spinner from '@/components/ui/Spinner';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { fetchJson, sendJson } from '@/lib/api/authFetch';
+import { formatCount, formatDateTime } from '@/lib/format';
+import { queryKeys } from '@/lib/queryKeys';
+import Alert from '@/components/ui/Alert';
 import Button from '@/components/ui/Button';
+import DataTable, { type Column } from '@/components/ui/DataTable';
+import { Input, Select } from '@/components/ui/Field';
+import Pagination from '@/components/ui/Pagination';
+import Spinner from '@/components/ui/Spinner';
 import type { AIToolKey, AIToolUsageLogItem, AIToolUsageLogListResponse, AIUsageSummary } from '@/types/aiUsageLog';
 
 const TOOL_LABELS: Record<AIToolKey, string> = {
@@ -17,20 +23,6 @@ const TOOL_LABELS: Record<AIToolKey, string> = {
 
 const PAGE_SIZE = 50;
 
-function formatDate(value: string): string {
-  return new Date(value).toLocaleString('ko-KR', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function formatTokens(value: number): string {
-  return value.toLocaleString('ko-KR');
-}
-
 /** 사용률 구간별 미터 색상 — 텍스트로도 항상 정확한 수치를 함께 보여주므로 색상에만 의존하지 않는다. */
 function meterColor(ratio: number): string {
   if (ratio >= 1) return 'bg-red-500';
@@ -38,52 +30,50 @@ function meterColor(ratio: number): string {
   return 'bg-primary';
 }
 
-function UsageSummaryPanel({ isAdmin }: { isAdmin: boolean }) {
-  const [summary, setSummary] = useState<AIUsageSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [budgetInput, setBudgetInput] = useState('');
-  const [saving, setSaving] = useState(false);
+function UsageSummaryPanel() {
+  const queryClient = useQueryClient();
 
-  const loadSummary = useCallback(() => {
-    if (!isAdmin) return;
-    authFetch('/api/admin/ai-usage-logs/summary')
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message ?? '사용량 요약 조회 실패');
-        return data as AIUsageSummary;
-      })
-      .then((data) => {
-        setSummary(data);
-        setBudgetInput(String(data.monthly_token_budget || ''));
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : '사용량 요약 조회 실패'));
-  }, [isAdmin]);
+  const summaryQuery = useQuery({
+    queryKey: queryKeys.adminAiUsageSummary(),
+    queryFn: () =>
+      fetchJson<AIUsageSummary>(
+        '/api/admin/ai-usage-logs/summary',
+        undefined,
+        '사용량 요약 조회 실패',
+      ),
+  });
 
-  useEffect(() => {
-    loadSummary();
-  }, [loadSummary]);
+  const saveBudget = useMutation({
+    mutationFn: (value: number) =>
+      sendJson<AIUsageSummary>(
+        '/api/admin/ai-usage-logs/budget',
+        'PATCH',
+        { monthly_token_budget: Math.round(value) },
+        '예산 설정 실패',
+      ),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.adminAiUsageSummary(), data);
+      // 저장이 끝나면 다시 서버 값에서 파생되게 되돌린다
+      setDraftBudget(null);
+    },
+  });
 
-  const handleSaveBudget = async (e: React.FormEvent) => {
+  const summary = summaryQuery.data ?? null;
+  const error = summaryQuery.error ?? saveBudget.error;
+  const saving = saveBudget.isPending;
+
+  /*
+    입력칸 값은 서버 값에서 파생시키고, 사용자가 손대면 그때부터 draft 를 쓴다.
+    조회 결과를 state 로 복사해 두면 백그라운드 재조회가 입력 중인 값을 덮어쓴다.
+  */
+  const [draftBudget, setDraftBudget] = useState<string | null>(null);
+  const budgetInput = draftBudget ?? String(summary?.monthly_token_budget || '');
+
+  const handleSaveBudget = (e: React.FormEvent) => {
     e.preventDefault();
     const value = Number(budgetInput);
     if (!Number.isFinite(value) || value < 0) return;
-
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await authFetch('/api/admin/ai-usage-logs/budget', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ monthly_token_budget: Math.round(value) }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message ?? '예산 설정 실패');
-      setSummary(data as AIUsageSummary);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '예산 설정 실패');
-    } finally {
-      setSaving(false);
-    }
+    saveBudget.mutate(value);
   };
 
   if (!summary) {
@@ -107,30 +97,26 @@ function UsageSummaryPanel({ isAdmin }: { isAdmin: boolean }) {
             Gemini 응답의 usage_metadata를 합산한 값입니다. Google 실제 과금과는 무관한 내부 참고용 수치입니다.
           </p>
         </div>
-        <form onSubmit={handleSaveBudget} className="flex items-center gap-2">
-          <label className="text-xs font-semibold text-slate-600 dark:text-fg-muted whitespace-nowrap">
-            월간 예산(토큰)
-          </label>
-          <input
+        <form onSubmit={handleSaveBudget} className="flex items-end gap-2">
+          <Input
+            label="월간 예산(토큰)"
             type="number"
             min={0}
             value={budgetInput}
-            onChange={(e) => setBudgetInput(e.target.value)}
+            onChange={(e) => setDraftBudget(e.target.value)}
             placeholder="미설정"
-            className="w-32 rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-sm text-fg
-              focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-32 px-2.5 py-1.5"
           />
-          <Button type="submit" isLoading={saving} className="px-3! py-1.5! text-xs">
+          <Button type="submit" size="sm" isLoading={saving} className="mb-0.5">
             저장
           </Button>
         </form>
       </div>
 
       {error && (
-        <div className="rounded-lg bg-red-50 border border-red-100 px-3 py-2 text-xs text-red-600
-          dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
-          {error}
-        </div>
+        <Alert icon={false} className="px-3 py-2 text-xs">
+          {error.message}
+        </Alert>
       )}
 
       {budget > 0 ? (
@@ -143,15 +129,15 @@ function UsageSummaryPanel({ isAdmin }: { isAdmin: boolean }) {
           </div>
           <div className="flex items-center justify-between text-xs text-fg-subtle">
             <span>
-              <span className="font-semibold text-fg">{formatTokens(summary.total_tokens)}</span> / {formatTokens(budget)} 토큰 사용
+              <span className="font-semibold text-fg">{formatCount(summary.total_tokens)}</span> / {formatCount(budget)} 토큰 사용
               ({Math.round(ratio * 100)}%)
             </span>
-            <span>{remaining !== null && remaining > 0 ? `${formatTokens(remaining)} 토큰 남음` : '예산 초과'}</span>
+            <span>{remaining !== null && remaining > 0 ? `${formatCount(remaining)} 토큰 남음` : '예산 초과'}</span>
           </div>
         </div>
       ) : (
         <p className="text-sm text-fg">
-          이번 달 사용량: <span className="font-semibold">{formatTokens(summary.total_tokens)}</span> 토큰
+          이번 달 사용량: <span className="font-semibold">{formatCount(summary.total_tokens)}</span> 토큰
           <span className="ml-2 text-xs text-fg-subtle">(월간 예산을 설정하면 잔여량도 함께 표시됩니다)</span>
         </p>
       )}
@@ -160,7 +146,7 @@ function UsageSummaryPanel({ isAdmin }: { isAdmin: boolean }) {
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-subtle border-t border-border-soft pt-3">
           {(Object.entries(summary.by_tool) as [AIToolKey, number][]).map(([key, tokens]) => (
             <span key={key}>
-              {TOOL_LABELS[key]}: <span className="font-medium text-fg">{formatTokens(tokens)}</span>
+              {TOOL_LABELS[key]}: <span className="font-medium text-fg">{formatCount(tokens)}</span>
             </span>
           ))}
         </div>
@@ -170,57 +156,74 @@ function UsageSummaryPanel({ isAdmin }: { isAdmin: boolean }) {
 }
 
 export default function AdminAiUsageLogsClient() {
-  const { data: session, status } = useSession();
-  const isAdmin = status === 'authenticated' && session?.user.role === 'admin';
-
   const [tool, setTool] = useState<AIToolKey | ''>('');
   const [offset, setOffset] = useState(0);
-  const [logs, setLogs] = useState<AIToolUsageLogItem[] | null>(null);
-  const [total, setTotal] = useState(0);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!isAdmin) return;
+  const logsQuery = useQuery({
+    queryKey: queryKeys.adminAiUsageLogs(tool, offset),
+    queryFn: () => {
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
+      if (tool) params.set('tool', tool);
+      return fetchJson<AIToolUsageLogListResponse>(
+        `/api/admin/ai-usage-logs?${params.toString()}`,
+        undefined,
+        '사용 이력 조회 실패',
+      );
+    },
+    // 페이지를 넘길 때 목록이 사라지고 스피너가 뜨는 대신, 이전 페이지를 잠깐 유지한다
+    placeholderData: (prev) => prev,
+  });
 
-    const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
-    if (tool) params.set('tool', tool);
+  const logs = logsQuery.data?.items ?? null;
+  const total = logsQuery.data?.total ?? 0;
+  const error = logsQuery.error;
 
-    authFetch(`/api/admin/ai-usage-logs?${params.toString()}`)
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message ?? '사용 이력 조회 실패');
-        return data as AIToolUsageLogListResponse;
-      })
-      .then((data) => {
-        setLogs(data.items);
-        setTotal(data.total);
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : '사용 이력 조회 실패'));
-  }, [isAdmin, tool, offset]);
-
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
-
-  if (status === 'loading') {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Spinner size="lg" />
-      </div>
-    );
-  }
-
-  if (!isAdmin) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-2 min-h-[60vh] px-6 text-center">
-        <i className="bx bx-lock-alt text-3xl text-fg-subtle" />
-        <h2 className="text-lg font-bold text-fg">접근 권한이 없습니다</h2>
-        <p className="text-sm text-fg-subtle">관리자만 접근할 수 있는 페이지입니다.</p>
-      </div>
-    );
-  }
+  const columns: Column<AIToolUsageLogItem>[] = [
+    {
+      header: '시각',
+      primary: true,
+      className: 'text-fg-subtle whitespace-nowrap',
+      cell: (log) => formatDateTime(log.created_at),
+    },
+    {
+      header: '사용자',
+      primary: true,
+      className: 'text-fg',
+      cell: (log) => log.user_email,
+    },
+    {
+      header: '기능',
+      className: 'whitespace-nowrap',
+      cell: (log) => TOOL_LABELS[log.tool] ?? log.tool,
+    },
+    {
+      // 이미지 도구는 파일명, 코멘트 생성은 대상 기간이 들어온다
+      header: '대상',
+      className: 'max-w-50 truncate',
+      title: (log) => log.image_filename,
+      cell: (log) => log.image_filename,
+    },
+    {
+      header: '프롬프트',
+      className: 'max-w-100 truncate',
+      title: (log) => log.prompt,
+      cell: (log) => log.prompt || <span className="text-fg-subtle">-</span>,
+    },
+    {
+      header: '토큰',
+      align: 'right',
+      className: 'whitespace-nowrap',
+      title: (log) =>
+        log.total_tokens != null
+          ? `입력 ${formatCount(log.prompt_tokens ?? 0)} · 출력 ${formatCount(log.output_tokens ?? 0)}`
+          : undefined,
+      cell: (log) =>
+        log.total_tokens != null ? formatCount(log.total_tokens) : <span className="text-fg-subtle">-</span>,
+    },
+  ];
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
       <div>
         <h1 className="text-xl font-bold text-fg">AI 도구 사용 이력</h1>
         <p className="mt-1 text-sm text-fg-subtle">
@@ -229,108 +232,35 @@ export default function AdminAiUsageLogsClient() {
         </p>
       </div>
 
-      <UsageSummaryPanel isAdmin={isAdmin} />
+      <UsageSummaryPanel />
 
-      <div className="flex items-center gap-2">
-        <label className="text-xs font-semibold text-slate-600 dark:text-fg-muted">기능</label>
-        <select
+      <div className="sm:max-w-64">
+        <Select
+          label="기능"
           value={tool}
           onChange={(e) => {
             setTool(e.target.value as AIToolKey | '');
             setOffset(0);
           }}
-          className="rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-sm text-fg
-            focus:outline-none focus:ring-2 focus:ring-primary"
         >
           <option value="">전체</option>
           {(Object.entries(TOOL_LABELS) as [AIToolKey, string][]).map(([key, label]) => (
             <option key={key} value={key}>{label}</option>
           ))}
-        </select>
+        </Select>
       </div>
 
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700
-          dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
-          {error}
-        </div>
-      )}
+      {error && <Alert>{error.message}</Alert>}
 
-      {!logs ? (
-        <div className="flex justify-center py-10">
-          <Spinner />
-        </div>
-      ) : logs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-          <i className="bx bx-history text-3xl text-fg-subtle" />
-          <p className="text-sm text-fg-subtle">기록된 사용 이력이 없습니다.</p>
-        </div>
-      ) : (
-        <>
-          <div className="overflow-x-auto rounded-xl border border-border bg-surface">
-            <table className="w-full min-w-180 text-sm">
-              <thead>
-                <tr className="border-b border-border-soft text-left text-xs font-semibold uppercase tracking-wide text-fg-subtle">
-                  <th className="px-4 py-3">시각</th>
-                  <th className="px-4 py-3">사용자</th>
-                  <th className="px-4 py-3">기능</th>
-                  {/* 이미지 도구는 파일명, 코멘트 생성은 대상 기간이 들어온다 */}
-                  <th className="px-4 py-3">대상</th>
-                  <th className="px-4 py-3">프롬프트</th>
-                  <th className="px-4 py-3 text-right">토큰</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {logs.map((log) => (
-                  <tr key={log.id}>
-                    <td className="px-4 py-3 text-fg-subtle whitespace-nowrap">{formatDate(log.created_at)}</td>
-                    <td className="px-4 py-3 text-fg">{log.user_email}</td>
-                    <td className="px-4 py-3 text-fg-muted whitespace-nowrap">{TOOL_LABELS[log.tool] ?? log.tool}</td>
-                    <td className="px-4 py-3 text-fg-muted max-w-50 truncate" title={log.image_filename}>
-                      {log.image_filename}
-                    </td>
-                    <td className="px-4 py-3 text-fg-muted max-w-100 truncate" title={log.prompt}>
-                      {log.prompt || <span className="text-fg-subtle">-</span>}
-                    </td>
-                    <td
-                      className="px-4 py-3 text-fg-muted text-right whitespace-nowrap"
-                      title={
-                        log.total_tokens != null
-                          ? `입력 ${formatTokens(log.prompt_tokens ?? 0)} · 출력 ${formatTokens(log.output_tokens ?? 0)}`
-                          : undefined
-                      }
-                    >
-                      {log.total_tokens != null ? formatTokens(log.total_tokens) : <span className="text-fg-subtle">-</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      <DataTable
+        rows={logs}
+        rowKey={(log) => log.id}
+        columns={columns}
+        minWidth="min-w-180"
+        empty={{ icon: 'bx-history', title: '기록된 사용 이력이 없습니다.' }}
+      />
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-3 text-sm text-fg-subtle">
-              <button
-                type="button"
-                onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
-                disabled={currentPage <= 1}
-                className="px-3 py-1.5 rounded-lg border border-border disabled:opacity-40 disabled:cursor-not-allowed hover:bg-surface-2"
-              >
-                이전
-              </button>
-              <span>{currentPage} / {totalPages}</span>
-              <button
-                type="button"
-                onClick={() => setOffset((o) => o + PAGE_SIZE)}
-                disabled={currentPage >= totalPages}
-                className="px-3 py-1.5 rounded-lg border border-border disabled:opacity-40 disabled:cursor-not-allowed hover:bg-surface-2"
-              >
-                다음
-              </button>
-            </div>
-          )}
-        </>
-      )}
+      <Pagination total={total} pageSize={PAGE_SIZE} offset={offset} onOffsetChange={setOffset} />
     </div>
   );
 }

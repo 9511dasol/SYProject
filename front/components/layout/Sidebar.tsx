@@ -4,8 +4,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { NAV_GROUPS } from '@/config/navigation';
 import type { NavBadge, NavItem } from '@/types/navigation';
+import { useSession } from 'next-auth/react';
 import SidebarProfile from '@/components/layout/SidebarProfile';
-import { useAuthStore } from '@/lib/store/useAuthStore';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -92,22 +92,23 @@ function NavItemRow({
 
 export default function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
-  const role = useAuthStore((state) => state.user?.role);
+  const { data: session } = useSession();
+  const role = session?.user.role;
   const visibleGroups = NAV_GROUPS.filter((group) => !group.adminOnly || role === 'admin');
 
   return (
     <>
-      {/* 모바일 딤드 오버레이 */}
+      {/* 모바일 딤드 오버레이 — 아래 aside 와 같은 층이지만 DOM 상 먼저 오므로 뒤에 깔린다 */}
       <div
         aria-hidden
         onClick={onClose}
-        className={`fixed inset-0 z-30 bg-black/50 backdrop-blur-sm transition-opacity duration-300 lg:hidden
+        className={`fixed inset-0 z-[var(--z-drawer)] bg-black/50 backdrop-blur-sm transition-opacity duration-300 lg:hidden
           ${open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
       />
 
       {/* 사이드바 본체 */}
       <aside
-        className={`fixed top-0 left-0 z-40 h-full w-64
+        className={`fixed top-0 left-0 z-[var(--z-drawer)] h-full w-64
           bg-surface border-r border-border
           flex flex-col transition-transform duration-300 ease-in-out
           ${open ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import AdminAiUsageLogsClient from '@/app/admin/ai-usage-logs/AdminAiUsageLogsClient';
+import AdminGate from '@/components/ui/AdminGate';
 
 export const metadata: Metadata = {
   title: 'AI 도구 사용 이력',
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function AdminAiUsageLogsPage() {
-  return <AdminAiUsageLogsClient />;
+  return (
+    <AdminGate>
+      <AdminAiUsageLogsClient />
+    </AdminGate>
+  );
 }

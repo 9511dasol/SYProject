@@ -2,10 +2,14 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react'; // useRef는 EmailTagInput 내부에서 사용
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { formatDateTime } from '@/lib/format';
 import { getPeriods } from '@/lib/marketingClient';
 import { getReportLogs, sendReportMail } from '@/lib/reportMailClient';
 import type { ReportLog } from '@/lib/reportMailClient';
 import { queryKeys } from '@/lib/queryKeys';
+import { Input, Select } from '@/components/ui/Field';
+import ScrollableTable from '@/components/ui/ScrollableTable';
+import { useToast } from '@/components/providers/ToastProvider';
 
 // ── 유틸 ──────────────────────────────────────────────────────────────────────
 
@@ -20,14 +24,13 @@ function parsePeriodKey(key: string): Period {
   return { year: Number(y), month: Number(m) };
 }
 
-function fmtDate(str: string) {
-  try {
-    const d = new Date(str);
-    return d.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return str;
-  }
-}
+/**
+ * 발송 로그의 시각 표시.
+ * 예전 구현은 toLocaleDateString 에 hour·minute 옵션을 넘겼는데, 날짜 전용 함수라
+ * 시각이 나올지 말지가 엔진에 달려 있었다. 파싱 실패 시에는 원문을 그대로 보여준다 —
+ * 발송 이력이라 값을 감추기보다 원본을 드러내는 편이 낫다.
+ */
+const fmtDate = (str: string) => formatDateTime(str, str);
 
 // ── 이메일 태그 입력 ─────────────────────────────────────────────────────────
 
@@ -64,19 +67,19 @@ function EmailTagInput({
 
   return (
     <div
-      className="flex flex-wrap gap-1.5 min-h-10 w-full rounded-xl border border-slate-200 dark:border-border bg-white dark:bg-surface-2 px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-400 cursor-text transition-shadow"
+      className="flex flex-wrap gap-1.5 min-h-10 w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-primary focus-within:border-primary cursor-text transition-shadow"
       onClick={() => inputRef.current?.focus()}
     >
       {value.map((email) => (
         <span
           key={email}
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-100 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-xs font-medium"
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-badge-info-bg border border-badge-info-bdr text-badge-info-fg text-xs font-medium"
         >
           {email}
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onChange(value.filter((v) => v !== email)); }}
-            className="text-blue-400 dark:text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+            className="opacity-70 hover:opacity-100 transition-opacity"
             aria-label={`${email} 삭제`}
           >
             <i className="bx bx-x text-sm" />
@@ -85,12 +88,13 @@ function EmailTagInput({
       ))}
       <input
         ref={inputRef}
+        aria-label="수신자 이메일"
         value={raw}
         onChange={(e) => setRaw(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={() => commit(raw)}
         placeholder={value.length === 0 ? '이메일 입력 후 Enter 또는 쉼표' : ''}
-        className="flex-1 min-w-32 bg-transparent outline-none text-sm text-slate-700 dark:text-fg placeholder:text-slate-400 dark:placeholder:text-fg-subtle"
+        className="flex-1 min-w-32 bg-transparent outline-none text-sm text-fg placeholder:text-fg-subtle"
       />
     </div>
   );
@@ -118,14 +122,19 @@ function PeriodSelect({
   const options = excludeKey ? periods.filter((p) => periodKey(p) !== excludeKey) : periods;
   const selectedKey = value ? periodKey(value) : '';
 
+  // 레이블 옆에 배지가 붙는 자리라 헤더는 직접 그리고, 아래 컨트롤만 상황에 따라 바꾼다.
+  const header = (
+    <div className="flex items-center gap-2">
+      <span className="text-xs font-semibold text-fg-muted">{label}</span>
+      {badge}
+    </div>
+  );
+
   if (loading) {
     return (
       <div className="space-y-1.5">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-slate-600 dark:text-fg-muted">{label}</span>
-          {badge}
-        </div>
-        <div className="h-10 rounded-xl border border-slate-200 dark:border-border bg-slate-50 dark:bg-surface-2 animate-pulse" />
+        {header}
+        <div className="h-10 rounded-xl border border-border bg-surface-2 animate-pulse" />
       </div>
     );
   }
@@ -133,11 +142,8 @@ function PeriodSelect({
   if (periods.length === 0) {
     return (
       <div className="space-y-1.5">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-slate-600 dark:text-fg-muted">{label}</span>
-          {badge}
-        </div>
-        <div className="flex items-center gap-2 h-10 rounded-xl border border-dashed border-slate-200 dark:border-border bg-slate-50/50 dark:bg-surface-2/30 px-3 text-xs text-slate-400 dark:text-fg-subtle">
+        {header}
+        <div className="flex items-center gap-2 h-10 rounded-xl border border-dashed border-border bg-surface-2/40 px-3 text-xs text-fg-subtle">
           <i className="bx bx-data text-sm" />
           DB에 저장된 기간이 없습니다
         </div>
@@ -147,15 +153,13 @@ function PeriodSelect({
 
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold text-slate-600 dark:text-fg-muted">{label}</span>
-        {badge}
-      </div>
-      <select
+      {header}
+      <Select
+        label={label}
+        srOnlyLabel
         value={selectedKey}
         onChange={(e) => onChange(parsePeriodKey(e.target.value))}
-        className="w-full rounded-xl border border-slate-200 dark:border-border px-3.5 py-2.5 text-sm text-slate-700 dark:text-fg bg-white dark:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 transition-shadow appearance-none cursor-pointer"
-        style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: '36px' }}
+        className="cursor-pointer"
       >
         {options.length === 0 ? (
           <option value="" disabled>선택 가능한 기간 없음</option>
@@ -166,7 +170,7 @@ function PeriodSelect({
             </option>
           ))
         )}
-      </select>
+      </Select>
     </div>
   );
 }
@@ -204,7 +208,7 @@ function LogTable({ logs }: { logs: ReportLog[] }) {
   }
 
   return (
-    <div className="overflow-x-auto data-table">
+    <ScrollableTable hint="옆으로 밀어서 나머지 항목을 볼 수 있어요">
       <table className="min-w-full text-sm">
         <thead>
           <tr>
@@ -242,7 +246,7 @@ function LogTable({ logs }: { logs: ReportLog[] }) {
           ))}
         </tbody>
       </table>
-    </div>
+    </ScrollableTable>
   );
 }
 
@@ -262,48 +266,6 @@ function SectionHeader({ step, title, description }: { step: string; title: stri
   );
 }
 
-// ── 설정 안내 배너 ────────────────────────────────────────────────────────────
-
-function ConfigBanner() {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="rounded-xl border border-blue-100 dark:border-blue-900/50 bg-blue-50/60 dark:bg-blue-950/30 px-4 py-3">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between text-sm font-semibold text-blue-800 dark:text-blue-300"
-      >
-        <span className="flex items-center gap-2">
-          <i className="bx bx-info-circle text-base text-blue-500 dark:text-blue-400" />
-          API 키 · 메일 설정 안내
-        </span>
-        <i className={`bx ${open ? 'bx-chevron-up' : 'bx-chevron-down'} text-blue-400 dark:text-blue-500`} />
-      </button>
-      {open && (
-        <div className="mt-3 text-xs text-blue-700 dark:text-blue-300 space-y-1.5 leading-relaxed border-t border-blue-100 dark:border-blue-900/50 pt-3">
-          <p>백엔드 서버 실행 전 <code className="bg-blue-100 dark:bg-blue-900/50 px-1 py-0.5 rounded font-mono">.env</code> 파일에 아래 환경변수를 설정하세요.</p>
-          <pre className="bg-white/70 dark:bg-surface-2/70 border border-blue-100 dark:border-blue-900/50 rounded-lg p-3 font-mono text-[11px] overflow-x-auto leading-5">{`# LLM
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o-mini
-
-# 메일 (SMTP / Gmail)
-MAIL_PROVIDER=smtp
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=465
-SMTP_USERNAME=you@gmail.com
-SMTP_PASSWORD=앱비밀번호
-SMTP_FROM=you@gmail.com
-
-# 또는 Resend
-# MAIL_PROVIDER=resend
-# RESEND_API_KEY=re_...
-# RESEND_FROM=noreply@domain.com`}</pre>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
 
 export default function ReportEmailClient() {
@@ -313,7 +275,7 @@ export default function ReportEmailClient() {
   const [prevPeriod, setPrevPeriod] = useState<Period | null>(null);
   const [recipients, setRecipients] = useState<string[]>([]);
   const [subject, setSubject] = useState('');
-  const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const { toast } = useToast();
 
   // DB 저장 기간 목록 (최신순 정렬)
   const { data: periods = [], isLoading: periodsLoading } = useQuery({
@@ -348,22 +310,22 @@ export default function ReportEmailClient() {
   const sendMutation = useMutation({
     mutationFn: sendReportMail,
     onSuccess: (data) => {
-      setToast({ type: 'success', msg: data.message ?? '리포트 메일 발송이 시작되었습니다.' });
+      toast('success', data.message ?? '리포트 메일 발송이 시작되었습니다.');
       setTimeout(() => queryClient.invalidateQueries({ queryKey: queryKeys.reportLogs() }), 3000);
     },
     onError: (err: Error) => {
-      setToast({ type: 'error', msg: err.message });
+      toast('error', err.message);
     },
   });
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     if (!currPeriod || !prevPeriod) {
-      setToast({ type: 'error', msg: 'DB에 저장된 기간이 2개 이상 있어야 비교 발송이 가능합니다.' });
+      toast('error', 'DB에 저장된 기간이 2개 이상 있어야 비교 발송이 가능합니다.');
       return;
     }
     if (recipients.length === 0) {
-      setToast({ type: 'error', msg: '수신자 이메일을 1개 이상 입력하세요.' });
+      toast('error', '수신자 이메일을 1개 이상 입력하세요.');
       return;
     }
     sendMutation.mutate({
@@ -374,7 +336,7 @@ export default function ReportEmailClient() {
       recipients,
       subject: subject.trim(),
     });
-  }, [currPeriod, prevPeriod, recipients, subject, sendMutation]);
+  }, [currPeriod, prevPeriod, recipients, subject, sendMutation, toast]);
 
   const defaultSubjectPreview = useMemo(
     () => currPeriod
@@ -388,23 +350,8 @@ export default function ReportEmailClient() {
       {/* 배경 그라디언트 */}
       <div className="fixed inset-0 -z-10 pointer-events-none" aria-hidden>
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(37,99,235,0.10),transparent)]" />
-        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,transparent,rgba(248,250,252,0.8))]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,transparent,var(--bg-veil))]" />
       </div>
-
-      {/* 토스트 */}
-      {toast && (
-        <div
-          role="alert"
-          className={`fixed top-5 right-5 z-50 flex items-start gap-3 rounded-2xl px-4 py-3 shadow-xl text-sm font-medium w-80 transition-all
-            ${toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}
-        >
-          <i className={`bx ${toast.type === 'success' ? 'bx-check-circle' : 'bx-error-circle'} text-xl shrink-0`} />
-          <span className="flex-1 leading-snug">{toast.msg}</span>
-          <button onClick={() => setToast(null)} className="opacity-70 hover:opacity-100 transition-opacity shrink-0">
-            <i className="bx bx-x text-lg" />
-          </button>
-        </div>
-      )}
 
       <div className="max-w-4xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-8">
         {/* 페이지 헤더 */}
@@ -419,9 +366,6 @@ export default function ReportEmailClient() {
             DB에 저장된 광고 데이터를 기간 비교 분석하고, AI가 자동으로 코멘트를 작성해 이메일로 발송합니다.
           </p>
         </div>
-
-        {/* 설정 안내 */}
-        <ConfigBanner />
 
         {/* 리포트 발송 폼 */}
         <section>
@@ -463,27 +407,25 @@ export default function ReportEmailClient() {
                 />
               </div>
 
-              {/* 수신자 */}
+              {/* 수신자 — 태그 입력은 여러 요소로 이뤄져 있어 Input 프리미티브를 쓸 수 없다 */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-600 dark:text-fg-muted">
-                  수신자 <span className="text-red-500">*</span>
-                </label>
+                <span className="block text-xs font-semibold text-fg-muted">
+                  수신자
+                  <span className="text-badge-danger-fg ml-0.5" aria-hidden>*</span>
+                </span>
                 <EmailTagInput value={recipients} onChange={setRecipients} />
-                <p className="text-xs text-slate-400 dark:text-fg-subtle">이메일을 입력하고 Enter 또는 쉼표로 추가합니다. 여러 명 등록 가능.</p>
+                <p className="text-xs text-fg-subtle">이메일을 입력하고 Enter 또는 쉼표로 추가합니다. 여러 명 등록 가능.</p>
               </div>
 
               {/* 제목 */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-600 dark:text-fg-muted">메일 제목 (선택)</label>
-                <input
-                  type="text"
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  placeholder={defaultSubjectPreview}
-                  className="w-full rounded-xl border border-slate-200 dark:border-border px-3.5 py-2.5 text-sm text-slate-700 dark:text-fg bg-white dark:bg-surface-2 placeholder:text-slate-400 dark:placeholder:text-fg-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 transition-shadow"
-                />
-                <p className="text-xs text-slate-400 dark:text-fg-subtle">비우면 자동 생성: {defaultSubjectPreview}</p>
-              </div>
+              <Input
+                label="메일 제목 (선택)"
+                type="text"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder={defaultSubjectPreview}
+                hint={`비우면 자동 생성: ${defaultSubjectPreview}`}
+              />
 
               {/* 발송 버튼 */}
               <div className="flex items-center justify-between gap-4 pt-1">
@@ -533,26 +475,29 @@ export default function ReportEmailClient() {
         {/* 자동 발송 안내 */}
         <section>
           <div className="rounded-2xl border border-slate-200/80 dark:border-border bg-white/90 dark:bg-surface shadow-sm shadow-slate-200/50 dark:shadow-black/20 p-5 sm:p-7">
+            {/*
+              예전에는 여기에 환경변수 이름(REPORT_CRON_HOUR 등)과 .env 예시를 그대로
+              노출했다. 이 페이지는 로그인한 사용자 누구나 들어오는 화면이라 설치 문서를
+              둘 자리가 아니다 — 설정 방법은 back/README.md에 있고, 여기서는 사용자가
+              알아야 할 사실(언제 나가는지, 누가 받는지, 어디서 바꾸는지)만 남긴다.
+            */}
             <SectionHeader
               step="03"
               title="자동 발송 스케줄"
-              description="APScheduler를 통해 매월 자동으로 리포트가 발송됩니다. 환경변수로 설정합니다."
+              description="매월 정해진 날짜에 지난달 리포트가 자동으로 발송됩니다."
             />
             <div className="grid sm:grid-cols-3 gap-3">
               {[
-                { icon: 'bx-calendar-event', title: '기본 스케줄', desc: '매월 1일 오전 9시', var: 'REPORT_CRON_HOUR / DAY' },
-                { icon: 'bx-envelope', title: '자동 수신자', desc: '쉼표로 구분한 이메일 목록', var: 'REPORT_AUTO_RECIPIENTS' },
-                { icon: 'bx-cog', title: '비활성화 방법', desc: 'REPORT_AUTO_RECIPIENTS를 비우면 건너뜀', var: '' },
+                { icon: 'bx-calendar-event', title: '발송 시점', desc: '매월 1일 오전 9시' },
+                { icon: 'bx-envelope', title: '자동 수신자', desc: '운영팀이 등록한 이메일 목록으로 발송됩니다' },
+                { icon: 'bx-cog', title: '변경 · 중지', desc: '수신자와 발송 여부는 관리자에게 문의해 주세요' },
               ].map((item) => (
-                <div key={item.title} className="rounded-xl border border-slate-100 dark:border-border bg-slate-50/60 dark:bg-surface-2 p-4 space-y-1.5">
+                <div key={item.title} className="rounded-xl border border-border-soft bg-surface-2 p-4 space-y-1.5">
                   <div className="flex items-center gap-2">
-                    <i className={`bx ${item.icon} text-blue-500 dark:text-blue-400 text-lg`} />
-                    <span className="text-xs font-semibold text-slate-700 dark:text-fg">{item.title}</span>
+                    <i className={`bx ${item.icon} text-primary text-lg`} />
+                    <span className="text-xs font-semibold text-fg">{item.title}</span>
                   </div>
-                  <p className="text-xs text-slate-600 dark:text-fg-muted">{item.desc}</p>
-                  {item.var && (
-                    <code className="text-[10px] font-mono bg-slate-200/60 dark:bg-surface-3/60 text-slate-600 dark:text-fg-muted px-1.5 py-0.5 rounded">{item.var}</code>
-                  )}
+                  <p className="text-xs text-fg-muted">{item.desc}</p>
                 </div>
               ))}
             </div>

@@ -98,7 +98,7 @@ export default function HeadingSuggestClient() {
             <i className="bx bx-bulb text-sm" />
             AI Copywriter
           </div>
-          <h1 className="text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">헤딩 문구 추천</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-fg tracking-tight">헤딩 문구 추천</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
             이미지를 업로드하면 Gemini가 매체별 마케팅 헤딩 문구 10개를 제안합니다
           </p>
@@ -131,7 +131,8 @@ export default function HeadingSuggestClient() {
 
           {file && (
             <Button
-              className="w-full bg-amber-500! hover:bg-amber-600! rounded-xl!"
+              tone="amber"
+              className="w-full"
               onClick={handleAnalyze}
               isLoading={isLoading}
               disabled={!file || isLoading}

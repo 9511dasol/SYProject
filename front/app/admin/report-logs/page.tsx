@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import AdminReportLogsClient from '@/app/admin/report-logs/AdminReportLogsClient';
+import AdminGate from '@/components/ui/AdminGate';
 
 export const metadata: Metadata = {
   title: '리포트 발송 로그',
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function AdminReportLogsPage() {
-  return <AdminReportLogsClient />;
+  return (
+    <AdminGate>
+      <AdminReportLogsClient />
+    </AdminGate>
+  );
 }
