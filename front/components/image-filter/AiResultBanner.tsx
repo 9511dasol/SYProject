@@ -12,9 +12,9 @@ const PROVIDER_META: Record<string, { icon: string; color: string }> = {
 function ProviderBadge({ provider }: { provider: string }) {
   if (!provider) return null;
   const key = Object.keys(PROVIDER_META).find((k) => provider.startsWith(k));
-  const meta = (key && PROVIDER_META[key]) || { icon: 'bx-chip', color: 'text-slate-400' };
+  const meta = (key && PROVIDER_META[key]) || { icon: 'bx-chip', color: 'text-fg-subtle' };
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 rounded-md px-1.5 py-0.5">
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-fg-muted bg-surface-3 rounded-md px-1.5 py-0.5">
       <i className={`bx ${meta.icon} text-xs ${meta.color}`} />
       {provider}
     </span>

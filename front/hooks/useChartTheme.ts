@@ -1,121 +1,65 @@
-'use client';
-
-import { useTheme } from 'next-themes';
-import { useMemo } from 'react';
+/**
+ * 차트가 색을 얻는 입구 — 단 하나.
+ *
+ * 예전 구현은 라이트/다크 팔레트를 hex 로 통째로 들고 `next-themes` 의
+ * resolvedTheme 을 보고 골라 줬다. 문제가 세 가지였다.
+ *
+ *   1. 같은 색이 globals.css 와 여기 두 군데에 있었고 이미 어긋나 있었다 —
+ *      다크 툴팁 배경이 --surface 는 #0f172a 인데 훅에는 #1e293b 였다.
+ *   2. resolvedTheme 은 서버 렌더 시 undefined 라 다크 모드에서도 첫 프레임이
+ *      라이트 팔레트로 그려졌다(하이드레이션 후 번쩍임).
+ *   3. 테마를 바꿀 때마다 차트가 통째로 리렌더됐다.
+ *
+ * 지금은 값이 전부 `var(--chart-*)` 문자열이다. 실제 색은 globals.css 의 토큰
+ * 하나뿐이고 모드 전환은 CSS 가 처리한다 — 리렌더도, 번쩍임도 없다.
+ *
+ * 그래서 이 훅은 React 훅을 호출하지 않는다. 그래도 훅 자리에 두는 이유는,
+ * 나중에 canvas 나 이미지 내보내기처럼 **계산된 실제 색**이 필요해지면
+ * (getComputedStyle 이 필요하고 상태가 생긴다) 호출부를 그대로 두고 여기만
+ * 바꾸면 되기 때문이다.
+ *
+ * 색이 고정된 축·격자는 이 훅을 거치지 않는다. `stroke-chart-grid` ·
+ * `text-chart-label` 유틸리티로 칠하고, **JS 가 골라야 하는 색만** 여기서 받는다.
+ *
+ * @example
+ * const chart = useChartTheme();
+ * <path style={{ stroke: chart.seriesColor(mediaIndex) }} />
+ */
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
-export interface ChartAxisTheme {
-  stroke: string;   /* 축 선 색 */
-  tick: string;     /* 눈금 레이블 색 */
-  grid: string;     /* 격자선 색 */
-}
-
-export interface ChartTooltipTheme {
-  bg: string;
-  border: string;
-  text: string;
-  mutedText: string;
-}
-
 export interface ChartTheme {
-  isDark: boolean;
-  axis: ChartAxisTheme;
-  tooltip: ChartTooltipTheme;
-  /** 시리즈 색상 — recharts fill/stroke에 그대로 전달 */
-  colors: string[];
-  /** 단일 지표 차트용 대표 색 */
-  primary: string;
-  /** 양수/음수 비교 색 */
-  positive: string;
-  negative: string;
-  /** recharts CartesianGrid의 strokeDasharray 기본값 */
-  gridDash: string;
-  /** recharts Bar cornerRadius 기본값 */
-  barRadius: number;
+  /**
+   * 시리즈 색. 인덱스는 매체 순서(MEDIA_ORDER)를 그대로 쓴다 — 순위나 기간이
+   * 바뀌어도 매체 색이 따라 바뀌지 않아야 여러 기간을 눈으로 비교할 수 있다.
+   * 팔레트를 넘어가는 인덱스는 앞에서부터 다시 돈다.
+   */
+  seriesColor(index: number): string;
+  /** 격자선 dash 패턴 — `strokeDasharray` 에 그대로 넣는다 */
+  readonly gridDash: string;
 }
 
 // ── 팔레트 ────────────────────────────────────────────────────────────────────
 
-const LIGHT: ChartTheme = {
-  isDark: false,
-  axis: {
-    stroke: '#e2e8f0',   /* slate-200 */
-    tick:   '#64748b',   /* slate-500  — 4.6:1 on white ✓ */
-    grid:   '#f1f5f9',   /* slate-100 */
-  },
-  tooltip: {
-    bg:        '#ffffff',
-    border:    '#e2e8f0',
-    text:      '#0f172a',
-    mutedText: '#64748b',
-  },
-  /* 라이트 모드 시리즈 — 채도 높게 */
-  colors: ['#2563eb','#10b981','#f59e0b','#ec4899','#8b5cf6','#06b6d4','#f97316'],
-  primary:  '#2563eb',  /* blue-600  */
-  positive: '#10b981',  /* emerald-500 */
-  negative: '#ef4444',  /* red-500    */
-  gridDash: '3 3',
-  barRadius: 4,
-};
+/* globals.css 의 --chart-1 … --chart-7. 색값이 아니라 참조라서 여기에 복사본이
+   생기지 않는다 — 팔레트를 늘리려면 globals.css 와 이 배열을 함께 늘린다. */
+const SERIES = [
+  'var(--chart-1)',
+  'var(--chart-2)',
+  'var(--chart-3)',
+  'var(--chart-4)',
+  'var(--chart-5)',
+  'var(--chart-6)',
+  'var(--chart-7)',
+] as const;
 
-const DARK: ChartTheme = {
-  isDark: true,
-  axis: {
-    stroke: '#1e293b',   /* slate-800 */
-    tick:   '#94a3b8',   /* slate-400  — 8.0:1 on slate-900 ✓ */
-    grid:   '#1e293b',   /* slate-800 */
-  },
-  tooltip: {
-    bg:        '#1e293b',
-    border:    '#334155',
-    text:      '#f1f5f9',
-    mutedText: '#94a3b8',
-  },
-  /* 다크 모드 시리즈 — 밝기 올려서 어두운 배경에서 선명하게 */
-  colors: ['#60a5fa','#34d399','#fbbf24','#f472b6','#a78bfa','#22d3ee','#fb923c'],
-  primary:  '#3b82f6',  /* blue-500  */
-  positive: '#34d399',  /* emerald-400 */
-  negative: '#f87171',  /* red-400    */
+const THEME: ChartTheme = {
+  seriesColor: (index) => SERIES[((index % SERIES.length) + SERIES.length) % SERIES.length],
   gridDash: '3 3',
-  barRadius: 4,
 };
 
 // ── 훅 ───────────────────────────────────────────────────────────────────────
 
-/**
- * 현재 테마에 맞는 차트 색상 팔레트를 반환한다.
- * recharts의 XAxis, YAxis, CartesianGrid, Tooltip, Bar, Line 등에 직접 전달한다.
- *
- * @example
- * const chart = useChartTheme();
- * <XAxis stroke={chart.axis.stroke} tick={{ fill: chart.axis.tick }} />
- * <Bar fill={chart.colors[0]} radius={chart.barRadius} />
- * <Tooltip contentStyle={{ background: chart.tooltip.bg, border: `1px solid ${chart.tooltip.border}` }} />
- */
 export function useChartTheme(): ChartTheme {
-  const { resolvedTheme } = useTheme();
-  // resolvedTheme은 SSR 시 undefined → LIGHT 기본값, 클라이언트 hydration 후 자동 반응
-  return useMemo(() => (resolvedTheme === 'dark' ? DARK : LIGHT), [resolvedTheme]);
-}
-
-// ── 색상 보간 유틸 ────────────────────────────────────────────────────────────
-
-/**
- * 값의 비율(0~1)에 따라 danger → neutral → success 색으로 보간.
- * 예산 소진율 게이지, KPI 달성률 등에 활용.
- */
-export function burnRateColor(rate: number, isDark: boolean): string {
-  if (rate >= 0.8) return isDark ? '#4ade80' : '#16a34a';  /* green */
-  if (rate >= 0.5) return isDark ? '#fbbf24' : '#d97706';  /* amber */
-  return isDark ? '#f87171' : '#dc2626';                   /* red   */
-}
-
-/**
- * 증감률 숫자에 따라 색상 반환 (양수=green, 음수=red, 0=neutral).
- */
-export function changeColor(value: number, isDark: boolean): string {
-  if (value > 0) return isDark ? '#34d399' : '#10b981';
-  if (value < 0) return isDark ? '#f87171' : '#ef4444';
-  return isDark ? '#94a3b8' : '#64748b';
+  return THEME;
 }

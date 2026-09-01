@@ -419,8 +419,8 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
   // ── 로딩 ─────────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-200 dark:border-border bg-slate-50/50 dark:bg-surface-2/30 p-10 flex items-center justify-center gap-3 text-slate-400 dark:text-fg-subtle">
-        <span className="w-4 h-4 rounded-full border-2 border-slate-200 dark:border-border border-t-blue-500 animate-spin" />
+      <div className="rounded-xl border border-dashed border-border bg-surface-2/50 p-10 flex items-center justify-center gap-3 text-fg-subtle">
+        <span className="w-4 h-4 rounded-full border-2 border-border border-t-blue-500 animate-spin" />
         <span className="text-sm">저장된 기간 목록을 불러오는 중…</span>
       </div>
     );
@@ -428,14 +428,14 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
 
   if (!periods.length && !selected) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-200 dark:border-border bg-slate-50/50 dark:bg-surface-2/30 p-10 flex flex-col items-center gap-3 text-center">
-        <span className="w-12 h-12 rounded-full bg-slate-100 dark:bg-surface-2 flex items-center justify-center">
-          <i className="bx bx-data text-2xl text-slate-300 dark:text-fg-subtle" />
+      <div className="rounded-xl border border-dashed border-border bg-surface-2/50 p-10 flex flex-col items-center gap-3 text-center">
+        <span className="w-12 h-12 rounded-full bg-surface-2 flex items-center justify-center">
+          <i className="bx bx-data text-2xl text-fg-disabled" />
         </span>
         <div>
-          <p className="text-sm font-medium text-slate-600 dark:text-fg-muted">아직 저장된 데이터가 없습니다</p>
-          <p className="text-xs text-slate-400 dark:text-fg-subtle mt-1">
-            아래 <strong className="font-medium text-slate-500 dark:text-fg-muted">데이터 업로드</strong>에서 CSV 또는 Excel을
+          <p className="text-sm font-medium text-fg-muted">아직 저장된 데이터가 없습니다</p>
+          <p className="text-xs text-fg-subtle mt-1">
+            아래 <strong className="font-medium text-fg-muted">데이터 업로드</strong>에서 CSV 또는 Excel을
             저장한 뒤 다시 확인하세요.
           </p>
         </div>
@@ -465,17 +465,17 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
 
       <div className="space-y-4">
         {/* 기간 선택 바 */}
-        <div className="rounded-xl bg-slate-50/80 dark:bg-surface-2 border border-slate-200/60 dark:border-border px-4 py-3 sm:px-5 sm:py-4 space-y-3">
+        <div className="rounded-xl bg-surface-2 border border-border px-4 py-3 sm:px-5 sm:py-4 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-xs font-medium text-slate-500 dark:text-fg-muted shrink-0">조회 기간</span>
+              <span className="text-xs font-medium text-fg-muted shrink-0">조회 기간</span>
               {selected && (
-                <span className="text-sm font-semibold text-slate-800 dark:text-fg tabular-nums truncate">
+                <span className="text-sm font-semibold text-fg tabular-nums truncate">
                   {selected.year}년 {selected.month}월
                 </span>
               )}
               {isFetching && (
-                <span className="w-3.5 h-3.5 rounded-full border-2 border-slate-200 border-t-blue-500 animate-spin shrink-0" aria-label="불러오는 중" />
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-border border-t-primary animate-spin shrink-0" aria-label="불러오는 중" />
               )}
             </div>
 
@@ -485,7 +485,7 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
                   onClick={() => setNewPeriodOpen((v) => !v)}
                   title="목록에 없는 기간으로 이동"
                   className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm transition-colors border
-                    ${newPeriodOpen ? 'bg-blue-50 dark:bg-blue-950 border-blue-300 dark:border-blue-700 text-blue-600' : 'border-slate-200 dark:border-border text-slate-500 dark:text-fg-muted hover:bg-slate-100 dark:hover:bg-surface-3'}`}
+                    ${newPeriodOpen ? 'bg-blue-50 dark:bg-blue-950 border-blue-300 dark:border-blue-700 text-blue-600' : 'border-border text-fg-muted hover:bg-surface-3'}`}
                 >
                   <i className="bx bx-plus" />
                 </button>
@@ -510,7 +510,7 @@ export default function DbDashboard({ onOpenUpload }: DbDashboardProps = {}) {
                 }
               >
                 {dlTask
-                  ? <span className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-slate-500 animate-spin" />
+                  ? <span className="w-4 h-4 rounded-full border-2 border-border border-t-fg-subtle animate-spin" />
                   : <i className="bx bx-download text-lg" />}
                 <span className="hidden sm:inline text-xs">다운로드</span>
               </Button>

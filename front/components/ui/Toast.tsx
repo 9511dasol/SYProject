@@ -11,6 +11,8 @@ export interface ToastItem {
   action?: { label: string; onClick: () => void };
 }
 
+// 토스트는 모드와 무관하게 늘 어두운 칩이다 — 의미 토큰(bg-surface 등)을 쓰면
+// 라이트 모드에서 흰 배경에 흰 글씨가 된다. 여기서는 원색이 맞다.
 const TOAST_STYLES: Record<ToastType, string> = {
   success: 'bg-emerald-600 text-white',
   error:   'bg-red-600 text-white',

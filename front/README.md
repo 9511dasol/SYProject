@@ -219,6 +219,8 @@ const value = draft ?? serverValue;   // 손대기 전에는 서버 값을 그�
 | 표 모양 | [report/SummaryTable](components/marketing/report/SummaryTable.tsx) · [report/DailyTable](components/marketing/report/DailyTable.tsx) |
 | 행 상세 모달 | [report/RowDetailModal](components/marketing/report/RowDetailModal.tsx) |
 | 배지 · KPI 카드 | [report/Badges.tsx](components/marketing/report/Badges.tsx) |
+| 차트 모양 | [components/charts/](components/charts) |
+| 차트에 넣을 값 계산 | [lib/chartData.ts](lib/chartData.ts) |
 
 ### 미저장 편집은 `usePendingRows` 가 전부 관리합니다
 
@@ -237,6 +239,27 @@ const value = draft ?? serverValue;   // 손대기 전에는 서버 값을 그�
 둘은 엔드포인트도 절차도 다릅니다 — CSV 는 서버가 분석해 바로 저장하고, 엑셀은 담긴 기간을
 먼저 읽어 저장할 달·방식·코멘트 여부를 고릅니다.
 
+### 차트는 직접 그린 SVG 입니다 — 차트 라이브러리가 없습니다
+
+요약 탭의 **일별 추이**·**매체별 비중**, 매체 탭의 **일별 추이**가 전부입니다. 선 하나와 눈금
+정도라 recharts(gzip 약 100KB)를 얹을 이유가 없었습니다.
+
+| 컴포넌트 | 무엇 |
+|---|---|
+| [`TrendChart`](components/charts/TrendChart.tsx) | 일별 추이 (면적 + 선, 지표 토글, 호버 툴팁) |
+| [`MediaShareBars`](components/charts/MediaShareBars.tsx) | 매체별 비중 가로 막대 — SVG 가 아니라 `div` 입니다 |
+| [`ChartCard`](components/charts/ChartCard.tsx) | 제목 · 도구 · 빈 상태 껍데기 |
+| [`MetricToggle`](components/charts/MetricToggle.tsx) | 지표 선택 알약 버튼 (`radiogroup`) |
+
+`TrendChart` 의 SVG 는 `viewBox="0 0 100 100"` + `preserveAspectRatio="none"` 입니다. 좌표를
+그대로 퍼센트로 쓰고 컨테이너 폭에 알아서 맞춰지지만, **가로세로가 다른 비율로 늘어납니다.**
+그래서 SVG 안에는 찌그러져도 되는 것(선·면적)만 두고 선 굵기는 `vector-effect="non-scaling-stroke"`
+로 고정합니다. 글자·점·툴팁은 SVG 밖에서 HTML 로 그리고 `%` 로 얹습니다 — 이 구조 덕분에
+ResizeObserver 로 폭을 재지 않아도 첫 렌더부터 정확합니다.
+
+**요약 탭 차트는 미저장 편집을 반영하지 않습니다.** 옆의 매체별 현황 표(`by_media`)와 같은
+서버 원본을 보기 때문입니다. 매체 탭 차트는 표와 같은 `mergedRows` 를 쓰되 삭제 예정 행만 뺍니다.
+
 ---
 
 ## 9. 스타일 시스템
@@ -245,6 +268,11 @@ const value = draft ?? serverValue;   // 손대기 전에는 서버 값을 그�
 - **다크모드는 class 전략** — `next-themes`가 `<html>`에 `.dark`를 붙이고, `@variant dark (&:where(.dark, .dark *))`로 연결됩니다.
 - 색은 `bg-slate-900` 같은 원색 대신 **의미 토큰**(`bg-surface`, `text-fg-muted`, `border-border`)을 쓰세요. 라이트/다크 대비가 WCAG AA 기준으로 맞춰져 있습니다.
   `dark:` 변형을 붙이고 있다면 대개 토큰을 안 쓰고 있다는 신호입니다 — 토큰은 모드에 따라 알아서 바뀝니다.
+
+- 차트 색은 `--chart-1` … `--chart-7`(시리즈) · `--chart-grid` · `--chart-label` 입니다.
+  축·격자처럼 색이 고정된 부분은 `stroke-chart-grid` · `text-chart-label` 유틸리티로 칠하고,
+  **매체 인덱스처럼 JS 가 골라야 하는 색만** [`useChartTheme()`](hooks/useChartTheme.ts) 이 `var(--chart-N)` 문자열로 넘깁니다.
+  훅이 hex 를 들고 있으면 안 됩니다 — 예전 구현이 그랬고, 다크 툴팁 배경이 토큰과 이미 어긋나 있었습니다.
 - 테이블은 `.data-table`, 배지는 `.badge badge-success` 같은 공용 클래스가 준비돼 있습니다.
 - **그림자는 `shadow-card` · `shadow-raised` · `shadow-overlay`** 를 쓰세요. Tailwind 기본 `shadow-sm/md/lg`는 값이 빌드 시점에 박혀서 다크모드에 반응하지 않습니다.
   (기본 그림자는 `shadow-blue-600/30` 처럼 색상 유틸리티와 조합할 때만 쓰세요.)
@@ -252,6 +280,38 @@ const value = draft ?? serverValue;   // 손대기 전에는 서버 값을 그�
 - **z-index는 스케일을 쓰세요** — `z-[var(--z-sticky)]`(20) · `--z-drawer`(40) · `--z-popover`(60) · `--z-modal`(100) · `--z-toast`(200).
   숫자를 직접 붙이면 층이 어긋납니다. 예전에 공용 Modal(z-50)이 손으로 만든 모달(z-300/z-400) 아래에 깔리고, 토스트가 그 모달에 가려지는 버그가 있었습니다.
   (Tailwind v4에는 z-index 테마 네임스페이스가 없어서 `@theme` 대신 평범한 CSS 변수로 둡니다.)
+
+### 하이브리드는 쓰지 마세요 — 라이트만 원색, 다크만 토큰
+
+```tsx
+❌ text-slate-500 dark:text-fg-muted     // 같은 색을 두 체계로 두 번 적는다
+❌ bg-white       dark:bg-surface
+✅ text-fg-muted                         // 한 번만 적으면 모드 전환은 CSS 가 한다
+✅ bg-surface
+```
+
+화면 260곳이 이 모양이었습니다. 두 번 적으니 값이 어긋나기 시작했고(라이트는 `slate-500`,
+같은 토큰의 라이트 값은 `slate-600`), 색 하나를 바꾸려면 두 군데를 고쳐야 했습니다.
+
+무채색을 고를 때는 **다크 쪽에 적혀 있던 토큰 이름**을 그대로 쓰면 됩니다. 원래 그게 의도였고,
+라이트 값도 토큰 쪽이 대비가 더 좋습니다.
+
+| 텍스트 | 라이트 · 다크 | | 면 · 테두리 | 라이트 · 다크 |
+|---|---|---|---|---|
+| `text-fg` | 900 · 100 | | `bg-bg` 페이지 바탕 | 50 · 950 |
+| `text-fg-body` | 800 · 200 | | `bg-surface` 카드 | white · 900 |
+| `text-fg-muted` | 600 · 400 | | `bg-surface-2` 카드 위 패널 · 입력칸 | 100 · 800 |
+| `text-fg-subtle` | 500 · 500 | | `bg-surface-3` 칩 · 트랙 | 200 · 700 |
+| `text-fg-disabled` | 400 · 600 | | `border-border` · `border-border-soft` | 200 · 800 |
+
+**`dark:` 를 남겨도 되는 경우**는 세 가지뿐입니다.
+
+1. **포인트 색** — `bg-amber-100 dark:bg-amber-900/40` 처럼 토큰이 없는 유채색.
+   (상태를 뜻하는 색이면 먼저 `badge-*` 토큰이 있는지 보세요)
+2. **모드마다 농도가 달라야 할 때** — `bg-primary-soft/50 dark:bg-primary-soft/15`.
+   색은 하나고 알파만 다릅니다.
+3. **모드와 무관하게 늘 어두운 것** — 다운로드 진행 토스트, `BottomTaskBar` 의 칩.
+   여기서는 `text-white` · `bg-white/20` 이 맞습니다.
 
 ### 공용 UI 컴포넌트를 먼저 찾으세요 — [components/ui/](components/ui)
 
@@ -316,6 +376,7 @@ front/
 ├── components/
 │   ├── layout/               AppShell · Sidebar · Header
 │   ├── landing/              랜딩 페이지 전용
+│   ├── charts/               직접 그린 SVG 차트 (라이브러리 없음)
 │   ├── marketing/            대시보드 · 업로드 · 리포트
 │   │   ├── report/           ReportView 를 이루는 표 · 모달 · 배지
 │   │   └── upload/           CSV · Excel 두 업로드 흐름
@@ -324,6 +385,7 @@ front/
 ├── hooks/                    useFeatureFlags · usePendingRows · useChartTheme
 ├── lib/
 │   ├── api/                  HTTP 클라이언트 (authFetch · browserApi · publicApi)
+│   ├── chartData.ts          리포트 데이터 → 차트 좌표 (일별 합계 · 매체 비중)
 │   ├── format.ts             날짜 · 숫자 표시 포맷 (단일 소스)
 │   ├── marketingMeta.ts      매체 표시 이름 · 탭 순서 (단일 소스)
 │   ├── marketingMetrics.ts   CTR · CPC · 전환율 · ROAS 계산 (단일 소스)

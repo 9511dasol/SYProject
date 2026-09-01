@@ -69,7 +69,7 @@ export default function ScrollableTable({
   return (
     <div className="relative">
       {hint && overflowing && (
-        <p className="flex items-center gap-1 mb-1.5 text-[11px] text-slate-400 dark:text-fg-subtle sm:hidden">
+        <p className="flex items-center gap-1 mb-1.5 text-[11px] text-fg-subtle sm:hidden">
           <i className="bx bx-left-right-arrow-alt text-sm" />
           {hint}
         </p>

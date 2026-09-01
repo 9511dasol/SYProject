@@ -89,7 +89,7 @@ export default function HeadingSuggestClient() {
 
   /* ── 렌더 ───────────────────────────────────────────────────── */
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-amber-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-amber-950/20 py-10 px-4">
+    <div className="min-h-screen bg-linear-to-br from-bg via-surface to-amber-50/30 dark:to-amber-950/20 py-10 px-4">
       <div className="max-w-3xl mx-auto space-y-6">
 
         {/* 헤더 */}
@@ -99,18 +99,18 @@ export default function HeadingSuggestClient() {
             AI Copywriter
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-fg tracking-tight">헤딩 문구 추천</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-sm text-fg-muted">
             이미지를 업로드하면 Gemini가 매체별 마케팅 헤딩 문구 10개를 제안합니다
           </p>
         </header>
 
         {/* 업로드 카드 */}
-        <div className="rounded-2xl border border-slate-200/70 dark:border-slate-700/70 bg-white dark:bg-slate-900 shadow-sm shadow-slate-200/50 dark:shadow-slate-950/50 p-6 space-y-5">
+        <div className="rounded-2xl border border-border bg-surface shadow-card p-6 space-y-5">
           <div className="flex items-center gap-2">
             <span className="w-5 h-5 rounded-full bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-400 flex items-center justify-center text-xs font-bold shrink-0">
               1
             </span>
-            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">마케팅 이미지 업로드</span>
+            <span className="text-sm font-semibold text-fg-body">마케팅 이미지 업로드</span>
           </div>
 
           <DropZone
@@ -177,7 +177,7 @@ export default function HeadingSuggestClient() {
                     className={
                       headings.length < 10
                         ? 'text-xs font-medium text-amber-600 dark:text-amber-400'
-                        : 'text-xs text-slate-400 dark:text-slate-500'
+                        : 'text-xs text-fg-subtle'
                     }
                   >
                     총 {headings.length}개 문구 생성됨
@@ -195,9 +195,9 @@ export default function HeadingSuggestClient() {
           </div>
         )}
 
-        <p className="text-center text-xs text-slate-400 dark:text-slate-500">
+        <p className="text-center text-xs text-fg-subtle">
           AI 분석용 512×512 썸네일과 생성된 문구는 계정에 저장되며,{' '}
-          <Link href="/heading-history" className="underline hover:text-slate-600 dark:hover:text-slate-300">
+          <Link href="/heading-history" className="underline hover:text-fg-muted">
             헤딩 문구 기록
           </Link>
           에서 다시 볼 수 있습니다.

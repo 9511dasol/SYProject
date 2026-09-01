@@ -18,7 +18,7 @@ interface SidebarProps {
 
 const BADGE_STYLES: Record<NavBadge, string> = {
   NEW:  'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
-  SOON: 'bg-surface-2 text-fg-subtle dark:bg-surface-3/30 dark:text-fg-subtle',
+  SOON: 'bg-surface-2 text-fg-subtle',
   BETA: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
 };
 

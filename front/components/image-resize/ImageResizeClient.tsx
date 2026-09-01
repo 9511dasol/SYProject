@@ -161,7 +161,7 @@ export default function ImageResizeClient() {
 
   /* ── 렌더 ───────────────────────────────────────────────────── */
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-violet-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-violet-950/20 py-10 px-4">
+    <div className="min-h-screen bg-linear-to-br from-bg via-surface to-violet-50/30 dark:to-violet-950/20 py-10 px-4">
       <div className="max-w-xl mx-auto space-y-6">
         {/* 헤더 */}
         <header className="text-center space-y-3">
@@ -170,13 +170,13 @@ export default function ImageResizeClient() {
             Image Resizer
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-fg tracking-tight">이미지 리사이저</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-sm text-fg-muted">
             JPEG · PNG · WebP 이미지를 원하는 크기로 무료 변환 · 서버에 저장되지 않습니다
           </p>
         </header>
 
         {/* 메인 카드 */}
-        <div className="rounded-2xl border border-slate-200/70 dark:border-slate-700/70 bg-white dark:bg-slate-900 shadow-sm shadow-slate-200/50 dark:shadow-slate-950/50 overflow-hidden">
+        <div className="rounded-2xl border border-border bg-surface shadow-card overflow-hidden">
           {/* 섹션 1: 업로드 */}
           <section className="p-6">
             <SectionLabel number={1} label="이미지 업로드" />
@@ -236,16 +236,16 @@ export default function ImageResizeClient() {
                   <Divider />
                   <section className="p-6">
                     <SectionLabel number={4} label="AI 업스케일" />
-                    <label className="mt-3 flex items-start gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-4 py-3.5 cursor-pointer has-disabled:cursor-not-allowed has-disabled:opacity-50">
+                    <label className="mt-3 flex items-start gap-3 rounded-xl border border-border bg-surface-2/50 px-4 py-3.5 cursor-pointer has-disabled:cursor-not-allowed has-disabled:opacity-50">
                       <input
                         type="checkbox"
                         checked={useAiUpscale}
                         onChange={(e) => setForm((prev) => ({ ...prev, useAiUpscale: e.target.checked }))}
                         disabled={isProcessing}
-                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                        className="mt-0.5 h-4 w-4 rounded border-border text-violet-600 focus:ring-violet-500"
                       />
-                      <span className="text-sm text-slate-600 dark:text-slate-300">
-                        <span className="font-medium text-slate-800 dark:text-slate-100">AI로 디테일 보강</span>
+                      <span className="text-sm text-fg-muted">
+                        <span className="font-medium text-fg">AI로 디테일 보강</span>
                         <br />
                         원본보다 큰 사이즈로 확대합니다. 일반 리사이즈는 흐려질 수 있어 AI 모델이 디테일을
                         보강한 뒤 리사이즈합니다. 처리 시간이 조금 더 걸릴 수 있어요.
@@ -293,7 +293,7 @@ export default function ImageResizeClient() {
         </div>
 
         {/* 안내 문구 */}
-        <p className="text-center text-xs text-slate-400 dark:text-slate-500">
+        <p className="text-center text-xs text-fg-subtle">
           업로드된 이미지는 서버에 저장되지 않으며, 메모리에서 즉시 처리 후 반환됩니다.
         </p>
       </div>
@@ -309,11 +309,11 @@ function SectionLabel({ number, label }: { number: number; label: string }) {
       <span className="w-5 h-5 rounded-full bg-violet-100 dark:bg-violet-900/50 text-violet-600 dark:text-violet-400 flex items-center justify-center text-xs font-bold shrink-0">
         {number}
       </span>
-      <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{label}</span>
+      <span className="text-sm font-semibold text-fg-body">{label}</span>
     </div>
   );
 }
 
 function Divider() {
-  return <div className="border-t border-slate-100 dark:border-slate-800" />;
+  return <div className="border-t border-border" />;
 }

@@ -69,13 +69,13 @@ export default function PeriodPicker({ periods, selected, onSelect }: PeriodPick
               className={`shrink-0 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold
                 transition-colors
                 ${active
-                  ? 'bg-slate-900 dark:bg-fg text-white dark:text-surface'
-                  : 'bg-slate-100 dark:bg-surface-3 text-slate-500 dark:text-fg-muted hover:bg-slate-200 dark:hover:bg-surface-3/70'}`}
+                  ? 'bg-fg text-surface'
+                  : 'bg-surface-3 text-fg-muted hover:bg-surface-3/70'}`}
             >
               {year}년
               <span
                 className={`text-[10px] leading-none px-1.5 py-0.5 rounded-full tabular-nums
-                  ${active ? 'bg-white/20 dark:bg-surface/25' : 'bg-white dark:bg-surface/60'}`}
+                  ${active ? 'bg-surface/20' : 'bg-surface/60'}`}
               >
                 {count}
               </span>
@@ -102,8 +102,8 @@ export default function PeriodPicker({ periods, selected, onSelect }: PeriodPick
                 ${isSelected
                   ? 'bg-blue-600 text-white'
                   : hasData
-                    ? 'bg-white dark:bg-surface-3 text-slate-600 dark:text-fg-muted border border-slate-200 dark:border-border hover:bg-slate-100 dark:hover:bg-surface-3/70'
-                    : 'text-slate-300 dark:text-fg-subtle/60 border border-dashed border-slate-200/70 dark:border-border/50 cursor-not-allowed'}`}
+                    ? 'bg-surface-3 text-fg-muted border border-border hover:bg-surface-3/70'
+                    : 'text-fg-disabled/60 border border-dashed border-border cursor-not-allowed'}`}
             >
               {month}월
               {isNew && (

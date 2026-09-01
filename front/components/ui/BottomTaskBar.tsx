@@ -28,8 +28,9 @@ function TaskItem({ task, onRemove }: { task: TaskProgress; onRemove: () => void
   }, [isDone, onRemove]);
 
   return (
+    /* 토스트와 같은 이유로 늘 어두운 칩이다 — 의미 토큰이 아니라 원색을 쓴다 */
     <div
-      className={`rounded-xl shadow-lg dark:shadow-black/50 text-sm font-medium overflow-hidden transition-colors
+      className={`rounded-xl shadow-raised text-sm font-medium overflow-hidden transition-colors
         ${isDone  ? 'bg-emerald-600 text-white'
         : isError ? 'bg-red-600 text-white'
         :           'bg-slate-800 text-white dark:bg-slate-700'}`}

@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
+import MediaShareBars from '@/components/charts/MediaShareBars';
+import TrendChart from '@/components/charts/TrendChart';
 import CommentSection from '@/components/marketing/CommentSection';
 import RowEditorModal from '@/components/marketing/RowEditorModal';
 import DailyTable from '@/components/marketing/report/DailyTable';
@@ -11,6 +13,7 @@ import SummaryTable from '@/components/marketing/report/SummaryTable';
 import Alert from '@/components/ui/Alert';
 import Button from '@/components/ui/Button';
 import { usePendingRows } from '@/hooks/usePendingRows';
+import { mergeDailyTotals, toTrendPoints } from '@/lib/chartData';
 import { updateComment } from '@/lib/marketingClient';
 import { MEDIA_ORDER, orderedMediaKeys } from '@/lib/marketingMeta';
 import { displayRowToForm, emptyRowForm, hasAnyMetric } from '@/lib/marketingMetrics';
@@ -53,6 +56,10 @@ export default function ReportView({
   const [editor, setEditor] = useState<EditorState>(null);
 
   const pendingRows = usePendingRows(data.daily, onRefresh);
+
+  // 요약 탭 추이는 서버가 준 원본만 본다 — 옆의 매체별 현황 표(by_media)와 같은 기준이라
+  // 미저장 편집 때문에 그래프와 표의 합계가 서로 어긋나는 일이 없다
+  const totalTrend = useMemo(() => mergeDailyTotals(data.daily), [data.daily]);
 
   const comment = useMutation({
     mutationFn: () => updateComment(year!, month!),
@@ -150,6 +157,11 @@ export default function ReportView({
             <>
               <KpiGrid total={data.total} />
 
+              <div className="grid gap-4 xl:grid-cols-2">
+                <TrendChart points={totalTrend} title="일별 추이" />
+                <MediaShareBars rows={data.by_media} />
+              </div>
+
               <div>
                 <h3 className="text-sm font-medium text-fg-muted mb-2">매체별 현황</h3>
                 <SummaryTable rows={data.by_media} />
@@ -217,6 +229,10 @@ function MediaTabPanel({
   // 머리말은 "0일" 이라고 말하게 된다
   const visibleCount = rows.filter((r) => r.pendingStatus !== undefined || hasAnyMetric(r)).length;
 
+  // 삭제 예정 행은 뺀다 — 표에서는 취소선으로 남지만 그래프에서는 이미 없는 값이다.
+  // (mergedRows 가 매 렌더 새 배열을 만들어서 useMemo 를 걸어도 어차피 다시 돈다)
+  const trendPoints = toTrendPoints(rows.filter((r) => r.pendingStatus !== 'deleted'));
+
   return (
     <div>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -246,6 +262,10 @@ function MediaTabPanel({
             행 추가
           </Button>
         )}
+      </div>
+
+      <div className="mb-4">
+        <TrendChart points={trendPoints} title="일별 추이" />
       </div>
 
       <DailyTable

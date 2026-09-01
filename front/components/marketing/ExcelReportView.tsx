@@ -98,7 +98,7 @@ function SaTotalTable({ data }: { data: SaTotal }) {
                   isCurrent
                     ? 'tr-current'
                     : isRatio
-                      ? 'bg-amber-50/60 dark:bg-amber-950/20 border-b border-slate-100 dark:border-border'
+                      ? 'bg-amber-50/60 dark:bg-amber-950/20 border-b border-border'
                       : ''
                 }
               >
@@ -291,15 +291,15 @@ export default function ExcelReportView({
   ];
 
   return (
-    <div className="rounded-2xl bg-white dark:bg-surface shadow-sm border border-slate-100 dark:border-border overflow-hidden">
+    <div className="rounded-2xl bg-surface shadow-sm border border-border overflow-hidden">
       {/* 헤더 */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-border">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
         <div className="flex items-center gap-2">
           <i className="bx bx-file text-blue-500 dark:text-blue-400 text-xl" />
-          <span className="font-semibold text-slate-800 dark:text-fg">Excel 리포트</span>
+          <span className="font-semibold text-fg">Excel 리포트</span>
         </div>
         {onClose && (
-          <button onClick={onClose} className="text-slate-400 dark:text-fg-subtle hover:text-slate-600 dark:hover:text-fg transition-colors">
+          <button onClick={onClose} className="text-fg-subtle hover:text-fg transition-colors">
             <i className="bx bx-x text-xl" />
           </button>
         )}
@@ -311,7 +311,7 @@ export default function ExcelReportView({
       </div>
 
       {/* 탭 */}
-      <div className="flex gap-1 px-4 pt-3 border-b border-slate-100 dark:border-border overflow-x-auto">
+      <div className="flex gap-1 px-4 pt-3 border-b border-border overflow-x-auto">
         {TABS.map((tab) => (
           <button
             key={tab.id}
@@ -319,7 +319,7 @@ export default function ExcelReportView({
             className={`px-3 py-1.5 text-sm font-medium rounded-t-lg whitespace-nowrap transition-colors shrink-0 ${
               activeTab === tab.id
                 ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 dark:border-blue-400'
-                : 'text-slate-500 dark:text-fg-muted hover:text-slate-700 dark:hover:text-fg hover:bg-slate-50 dark:hover:bg-surface-2'
+                : 'text-fg-muted hover:text-fg hover:bg-surface-2'
             }`}
           >
             {tab.label}
@@ -333,16 +333,16 @@ export default function ExcelReportView({
           <>
             {data.sa_total?.rows?.length > 0 && (
               <div>
-                <h3 className="text-sm font-semibold text-slate-600 dark:text-fg-muted mb-2">■ SA 전체 비교 (전년/전월/당월/YOY/MOM/전주/금주/WoW)</h3>
+                <h3 className="text-sm font-semibold text-fg-muted mb-2">■ SA 전체 비교 (전년/전월/당월/YOY/MOM/전주/금주/WoW)</h3>
                 <SaTotalTable data={data.sa_total} />
               </div>
             )}
             <div>
-              <h3 className="text-sm font-semibold text-slate-600 dark:text-fg-muted mb-2">■ 매체별 예산 현황</h3>
+              <h3 className="text-sm font-semibold text-fg-muted mb-2">■ 매체별 예산 현황</h3>
               <BudgetTable rows={data.budget_table} />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-600 dark:text-fg-muted mb-2">■ SA 일별 합산</h3>
+              <h3 className="text-sm font-semibold text-fg-muted mb-2">■ SA 일별 합산</h3>
               <DailyTotalTable rows={data.daily_total} />
             </div>
             <CommentSection text={data.comment} />
@@ -353,8 +353,8 @@ export default function ExcelReportView({
         {mediaLabels.includes(activeTab) && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold text-slate-600 dark:text-fg-muted">■ {activeTab} 일별 데이터</h3>
-              <span className="text-xs text-slate-400 dark:text-fg-subtle">{data.media[activeTab].daily.length}일</span>
+              <h3 className="text-sm font-semibold text-fg-muted">■ {activeTab} 일별 데이터</h3>
+              <span className="text-xs text-fg-subtle">{data.media[activeTab].daily.length}일</span>
             </div>
             <MediaTable data={data.media[activeTab]} />
           </div>

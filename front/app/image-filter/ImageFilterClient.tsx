@@ -146,7 +146,7 @@ export default function ImageFilterClient() {
 
   /* ── 렌더 ───────────────────────────────────────────────────── */
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-indigo-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/20 py-10 px-4">
+    <div className="min-h-screen bg-linear-to-br from-bg via-surface to-indigo-50/30 dark:to-indigo-950/20 py-10 px-4">
       <div className="max-w-xl mx-auto space-y-6">
         {/* 헤더 */}
         <header className="text-center space-y-3">
@@ -155,13 +155,13 @@ export default function ImageFilterClient() {
             AI Image Edit
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-fg tracking-tight">이미지 정제</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-sm text-fg-muted">
             원하는 대로 프롬프트를 입력하면 Gemini가 이미지를 수정해 돌려드립니다
           </p>
         </header>
 
         {/* 메인 카드 */}
-        <div className="rounded-2xl border border-slate-200/70 dark:border-slate-700/70 bg-white dark:bg-slate-900 shadow-sm shadow-slate-200/50 dark:shadow-slate-950/50 overflow-hidden">
+        <div className="rounded-2xl border border-border bg-surface shadow-card overflow-hidden">
 
           {/* 섹션 1: 업로드 */}
           <section className="p-6">
@@ -189,7 +189,7 @@ export default function ImageFilterClient() {
                   label="편집 프롬프트"
                   badge="Gemini"
                 />
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 mb-3">
+                <p className="text-xs text-fg-subtle mt-1 mb-3">
                   이미지를 어떻게 바꾸고 싶은지 자유롭게 입력하세요.
                 </p>
                 <PromptInput
@@ -206,7 +206,7 @@ export default function ImageFilterClient() {
                   {/* 섹션 3: 크기 설정 */}
                   <section className="p-6">
                     <SectionLabel number={3} label="리사이즈 크기" />
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 mb-3">
+                    <p className="text-xs text-fg-subtle mt-1 mb-3">
                       편집 완료 후 이 크기로 리사이즈됩니다.
                     </p>
                     <DimensionInputs
@@ -273,7 +273,7 @@ export default function ImageFilterClient() {
                 </Button>
 
                 {!form.prompt.trim() && !isProcessing && (
-                  <p className="text-center text-xs text-slate-400 dark:text-slate-500">
+                  <p className="text-center text-xs text-fg-subtle">
                     편집 프롬프트를 입력해야 시작할 수 있습니다.
                   </p>
                 )}
@@ -283,7 +283,7 @@ export default function ImageFilterClient() {
         </div>
 
         {/* 안내 문구 */}
-        <p className="text-center text-xs text-slate-400 dark:text-slate-500">
+        <p className="text-center text-xs text-fg-subtle">
           이미지는 서버에 저장되지 않으며, AI 편집 처리 후 즉시 반환됩니다.
         </p>
       </div>
@@ -307,7 +307,7 @@ function SectionLabel({
       <span className="w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-xs font-bold shrink-0">
         {number}
       </span>
-      <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{label}</span>
+      <span className="text-sm font-semibold text-fg-body">{label}</span>
       {badge && (
         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 tracking-wide">
           {badge}
@@ -318,7 +318,7 @@ function SectionLabel({
 }
 
 function Divider() {
-  return <div className="border-t border-slate-100 dark:border-slate-800" />;
+  return <div className="border-t border-border" />;
 }
 
 function ProcessingIndicator({ state }: { state: FilterProcessingState }) {
@@ -329,19 +329,19 @@ function ProcessingIndicator({ state }: { state: FilterProcessingState }) {
       className={`flex items-center gap-3 rounded-xl px-4 py-3.5 border ${
         isAI
           ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800'
-          : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+          : 'bg-surface-2 border-border'
       }`}
     >
       {/* 펄스 애니메이션 */}
       <div className="relative shrink-0">
         <span
           className={`absolute inset-0 rounded-full animate-ping opacity-60 ${
-            isAI ? 'bg-indigo-400' : 'bg-slate-400'
+            isAI ? 'bg-indigo-400' : 'bg-fg-disabled'
           }`}
         />
         <span
           className={`relative w-3 h-3 rounded-full block ${
-            isAI ? 'bg-indigo-500' : 'bg-slate-400'
+            isAI ? 'bg-indigo-500' : 'bg-fg-disabled'
           }`}
         />
       </div>
@@ -349,7 +349,7 @@ function ProcessingIndicator({ state }: { state: FilterProcessingState }) {
       <div>
         <p
           className={`text-sm font-semibold ${
-            isAI ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-600 dark:text-slate-400'
+            isAI ? 'text-indigo-700 dark:text-indigo-300' : 'text-fg-muted'
           }`}
         >
           {isAI ? 'Gemini가 이미지를 편집하는 중...' : PROCESSING_LABELS[state]}

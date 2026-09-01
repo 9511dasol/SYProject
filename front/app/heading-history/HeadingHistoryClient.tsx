@@ -129,7 +129,7 @@ export default function HeadingHistoryClient() {
 
   /* ── 렌더 ─────────────────────────────────────────────────────────────── */
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-amber-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-amber-950/20 py-10 px-4">
+    <div className="min-h-screen bg-linear-to-br from-bg via-surface to-amber-50/30 dark:to-amber-950/20 py-10 px-4">
       <div className="max-w-5xl mx-auto space-y-6">
         <header className="space-y-3">
           <div className="inline-flex items-center gap-2 text-xs font-semibold tracking-widest text-amber-500 dark:text-amber-400 uppercase bg-amber-50 dark:bg-amber-950/50 rounded-full px-4 py-1.5 ring-1 ring-amber-100 dark:ring-amber-900">
@@ -138,10 +138,10 @@ export default function HeadingHistoryClient() {
           </div>
           <div className="flex items-end justify-between gap-4 flex-wrap">
             <div>
-              <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
+              <h1 className="text-2xl font-bold text-fg tracking-tight">
                 헤딩 문구 기록
               </h1>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              <p className="mt-1 text-sm text-fg-muted">
                 지금까지 생성한 문구를 모아 봅니다. 생성 페이지의 썸네일 스트립은 최근 것만 보여주지만,
                 여기서는 오래된 기록까지 이어서 찾을 수 있습니다.
               </p>
@@ -161,18 +161,18 @@ export default function HeadingHistoryClient() {
         {records !== null && records.length > 0 && (
           <div className="flex items-center gap-3 flex-wrap">
             <div className="relative flex-1 min-w-60">
-              <i className="bx bx-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <i className="bx bx-search absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="파일명 또는 문구 내용으로 검색"
                 aria-label="기록 검색"
-                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900
-                  py-2.5 pl-9 pr-3 text-sm text-slate-700 dark:text-slate-200
+                className="w-full rounded-xl border border-border bg-surface
+                  py-2.5 pl-9 pr-3 text-sm text-fg-body
                   focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
             </div>
-            <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
+            <span className="text-xs text-fg-subtle whitespace-nowrap">
               {query.trim()
                 ? `${visible.length}건 검색됨 (불러온 ${records.length}건 중)`
                 : `${records.length} / ${total}건`}
@@ -193,10 +193,10 @@ export default function HeadingHistoryClient() {
           </div>
         ) : records.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-            <i className="bx bx-image-alt text-4xl text-slate-300 dark:text-slate-600" />
+            <i className="bx bx-image-alt text-4xl text-fg-disabled" />
             <div>
-              <p className="text-sm font-medium text-slate-600 dark:text-slate-300">아직 생성한 문구가 없습니다</p>
-              <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+              <p className="text-sm font-medium text-fg-muted">아직 생성한 문구가 없습니다</p>
+              <p className="mt-1 text-xs text-fg-subtle">
                 이미지를 업로드하면 매체별 헤딩 문구를 만들어 드립니다.
               </p>
             </div>
@@ -205,7 +205,7 @@ export default function HeadingHistoryClient() {
             </Link>
           </div>
         ) : visible.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-16 text-slate-400 dark:text-slate-500">
+          <div className="flex flex-col items-center gap-3 py-16 text-fg-subtle">
             <i className="bx bx-search-alt text-4xl" />
             <p className="text-sm">검색 결과가 없습니다.</p>
           </div>
@@ -215,8 +215,8 @@ export default function HeadingHistoryClient() {
               {visible.map((record) => (
                 <div
                   key={record.id}
-                  className="group relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700
-                    bg-white dark:bg-slate-900 shadow-sm transition-all hover:border-amber-300 hover:shadow-md"
+                  className="group relative rounded-2xl overflow-hidden border border-border
+                    bg-surface shadow-sm transition-all hover:border-amber-300 hover:shadow-md"
                 >
                   <button
                     type="button"
@@ -228,20 +228,20 @@ export default function HeadingHistoryClient() {
                       <img
                         src={imageUrl(record.id)}
                         alt={record.image_filename || '생성 이미지'}
-                        className="w-full h-32 object-cover bg-slate-100 dark:bg-slate-800"
+                        className="w-full h-32 object-cover bg-surface-2"
                         loading="lazy"
                       />
                     ) : (
-                      <div className="w-full h-32 flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-300 dark:text-slate-600">
+                      <div className="w-full h-32 flex items-center justify-center bg-surface-2 text-fg-disabled">
                         <i className="bx bx-image text-3xl" />
                       </div>
                     )}
                     <div className="px-3 py-2.5">
-                      <p className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate"
+                      <p className="text-xs font-medium text-fg-body truncate"
                         title={record.image_filename || '무제'}>
                         {record.image_filename || '무제'}
                       </p>
-                      <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                      <p className="mt-0.5 text-[11px] text-fg-subtle">
                         {formatDate(record.created_at)}
                       </p>
                       <p className="mt-1 text-[11px] font-semibold text-amber-600 dark:text-amber-400">
@@ -271,8 +271,8 @@ export default function HeadingHistoryClient() {
                   type="button"
                   onClick={handleLoadMore}
                   disabled={loadingMore}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700
-                    bg-white dark:bg-slate-900 px-5 py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300
+                  className="inline-flex items-center gap-2 rounded-xl border border-border
+                    bg-surface px-5 py-2.5 text-sm font-semibold text-fg-muted
                     transition-all hover:border-amber-300 disabled:opacity-50 disabled:pointer-events-none"
                 >
                   {loadingMore ? (
@@ -286,7 +286,7 @@ export default function HeadingHistoryClient() {
             )}
 
             {hasMore && query.trim() && (
-              <p className="text-center text-xs text-slate-400 dark:text-slate-500">
+              <p className="text-center text-xs text-fg-subtle">
                 검색은 지금까지 불러온 {records.length}건에서만 이뤄집니다. 더 보기로 기록을 추가하면 검색 범위도 넓어집니다.
               </p>
             )}
@@ -305,14 +305,14 @@ export default function HeadingHistoryClient() {
         {detail && (
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <p className="text-xs text-slate-400 dark:text-slate-500">
+              <p className="text-xs text-fg-subtle">
                 {formatDate(detail.created_at)} · 문구 {detail.headings.length}개
               </p>
               <button
                 type="button"
                 onClick={() => handleCopyAll(detail)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700
-                  px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border
+                  px-3 py-1.5 text-xs font-semibold text-fg-muted hover:bg-surface-2"
               >
                 <i className="bx bx-copy text-sm" />
                 전체 복사
@@ -334,8 +334,8 @@ export default function HeadingHistoryClient() {
       >
         {pendingDelete && (
           <div className="space-y-4">
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              <span className="font-semibold text-slate-800 dark:text-slate-100">
+            <p className="text-sm text-fg-muted">
+              <span className="font-semibold text-fg">
                 {pendingDelete.image_filename || '무제'}
               </span>{' '}
               기록과 저장된 썸네일을 삭제합니다. 되돌릴 수 없습니다.
@@ -344,8 +344,8 @@ export default function HeadingHistoryClient() {
               <button
                 type="button"
                 onClick={() => setPendingDelete(null)}
-                className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2 text-sm font-semibold
-                  text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                className="rounded-xl border border-border px-4 py-2 text-sm font-semibold
+                  text-fg-muted hover:bg-surface-2"
               >
                 취소
               </button>

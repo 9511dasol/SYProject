@@ -77,6 +77,27 @@
   --badge-neutral-bg:  #f1f5f9; --badge-neutral-fg:  #475569; --badge-neutral-bdr: #e2e8f0;
   --badge-amber-bg:    #fef3c7; --badge-amber-fg:    #92400e; --badge-amber-bdr:   #fde68a;
 
+  /* ──────────────────────────────────────────────────────────
+     차트 토큰
+
+     hooks/useChartTheme.ts 가 이 색들을 hex 로 복사해 들고 있었다. 값이 두
+     군데에 있으니 이미 어긋나 있었다 — 다크 툴팁 배경은 --surface 가 #0f172a
+     인데 훅에는 #1e293b 로 박혀 있었다. 색의 단일 소스는 여기다.
+
+     시리즈 색은 매체 인덱스로 골라 쓴다(MEDIA_ORDER 순서). 라이트는 채도를
+     높이고 다크는 명도를 올려, 각각의 배경 위에서 같은 세기로 읽히게 맞췄다.
+     ────────────────────────────────────────────────────────── */
+  --chart-1: #2563eb;   /* blue-600    */
+  --chart-2: #10b981;   /* emerald-500 */
+  --chart-3: #f59e0b;   /* amber-500   */
+  --chart-4: #ec4899;   /* pink-500    */
+  --chart-5: #8b5cf6;   /* violet-500  */
+  --chart-6: #06b6d4;   /* cyan-500    */
+  --chart-7: #f97316;   /* orange-500  */
+
+  --chart-grid:     #f1f5f9;   /* slate-100 — 격자선 */
+  --chart-label:    #64748b;   /* slate-500 — 눈금 레이블, 4.6:1 on white ✓ */
+
   /* 레거시 호환 */
   --background:   var(--bg);
   --foreground:   var(--fg);
@@ -148,6 +169,21 @@
   --badge-neutral-bg:  #1e293b; --badge-neutral-fg:  #94a3b8; --badge-neutral-bdr: #334155;
   --badge-amber-bg:    #451a03; --badge-amber-fg:    #fcd34d; --badge-amber-bdr:   #78350f;
 
+  /* ──────────────────────────────────────────────────────────
+     차트 — 다크 모드
+     ────────────────────────────────────────────────────────── */
+  --chart-1: #60a5fa;   /* blue-400    */
+  --chart-2: #34d399;   /* emerald-400 */
+  --chart-3: #fbbf24;   /* amber-400   */
+  --chart-4: #f472b6;   /* pink-400    */
+  --chart-5: #a78bfa;   /* violet-400  */
+  --chart-6: #22d3ee;   /* cyan-400    */
+  --chart-7: #fb923c;   /* orange-400  */
+
+  --chart-grid:     #1e293b;   /* slate-800 */
+  /* 눈금은 작은 글씨라 --fg-subtle(3.4:1) 로는 모자란다 — --fg-muted 와 같은 밝기 */
+  --chart-label:    #94a3b8;   /* slate-400 — 8.0:1 on slate-900 ✓ */
+
   --background:   var(--bg);
   --foreground:   var(--fg);
 }
@@ -209,6 +245,21 @@
   --color-badge-amber-bg:    var(--badge-amber-bg);
   --color-badge-amber-fg:    var(--badge-amber-fg);
   --color-badge-amber-bdr:   var(--badge-amber-bdr);
+
+  /* ──────────────────────────────────────────────────────────
+     차트 — --color-* 로 등록하면 fill-* · stroke-* · text-* 유틸리티가 함께 생긴다.
+     축·격자처럼 색이 고정된 부분은 클래스로 칠하고(stroke-chart-grid),
+     시리즈처럼 JS 가 인덱스로 골라야 하는 색만 useChartTheme 이 var() 로 넘긴다.
+     ────────────────────────────────────────────────────────── */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-7: var(--chart-7);
+  --color-chart-grid:     var(--chart-grid);
+  --color-chart-label:    var(--chart-label);
 
   /* ──────────────────────────────────────────────────────────
      그림자(elevation) — shadow-card · shadow-raised · shadow-overlay

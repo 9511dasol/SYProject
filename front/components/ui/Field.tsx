@@ -22,7 +22,7 @@ import { cx } from '@/lib/cx';
  */
 
 // ── 공통 입력칸 스타일 ────────────────────────────────────────────────────────
-// 의미 토큰만 쓴다. 예전 INPUT_CLASS 는 `border-slate-200 dark:border-border`
+// 의미 토큰만 쓴다. 예전 INPUT_CLASS 는 `border-slate-200` + `dark:border-border`
 // 처럼 라이트는 원색 · 다크는 토큰을 섞어 써서 색을 두 번 적어야 했다.
 const CONTROL = cx(
   'w-full rounded-xl border border-border bg-surface-2 px-3.5 py-2.5 text-sm text-fg',

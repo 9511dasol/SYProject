@@ -42,9 +42,9 @@ export default function HeadingCard({ item }: HeadingCardProps) {
   return (
     <div
       className={[
-        'group relative bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/70 dark:border-slate-700/70 border-l-4',
+        'group relative bg-surface-2 rounded-2xl border border-border border-l-4',
         style.border,
-        'p-5 shadow-sm shadow-slate-100 dark:shadow-slate-900 hover:shadow-md hover:shadow-slate-200 dark:hover:shadow-slate-800',
+        'p-5 shadow-card hover:shadow-raised',
         'transition-all duration-200 hover:-translate-y-0.5',
       ].join(' ')}
     >
@@ -57,12 +57,12 @@ export default function HeadingCard({ item }: HeadingCardProps) {
       </span>
 
       {/* 헤딩 텍스트 */}
-      <p className="text-base font-bold text-slate-800 dark:text-slate-100 leading-snug wrap-break-word pr-8">
+      <p className="text-base font-bold text-fg leading-snug wrap-break-word pr-8">
         {item.text}
       </p>
 
       {/* 추천 이유 */}
-      <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+      <p className="text-xs text-fg-muted mt-2 leading-relaxed">
         {item.desc}
       </p>
 
@@ -75,7 +75,7 @@ export default function HeadingCard({ item }: HeadingCardProps) {
           'opacity-0 group-hover:opacity-100 transition-all duration-150',
           copied
             ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400'
-            : 'bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-500 hover:bg-amber-100 dark:hover:bg-amber-900/50 hover:text-amber-600 dark:hover:text-amber-400',
+            : 'bg-surface-3 text-fg-subtle hover:bg-amber-100 dark:hover:bg-amber-900/50 hover:text-amber-600 dark:hover:text-amber-400',
         ].join(' ')}
       >
         <i className={`bx ${copied ? 'bx-check' : 'bx-copy'} text-sm`} />

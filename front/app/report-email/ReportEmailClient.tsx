@@ -195,13 +195,13 @@ function LogBadge({ status }: { status: ReportLog['status'] }) {
 function LogTable({ logs }: { logs: ReportLog[] }) {
   if (logs.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-200 dark:border-border bg-slate-50/50 dark:bg-surface-2/30 py-12 flex flex-col items-center gap-3 text-center">
-        <span className="w-12 h-12 rounded-full bg-slate-100 dark:bg-surface-2 flex items-center justify-center">
-          <i className="bx bx-mail-send text-2xl text-slate-300 dark:text-fg-subtle" />
+      <div className="rounded-xl border border-dashed border-border bg-surface-2/50 py-12 flex flex-col items-center gap-3 text-center">
+        <span className="w-12 h-12 rounded-full bg-surface-2 flex items-center justify-center">
+          <i className="bx bx-mail-send text-2xl text-fg-disabled" />
         </span>
         <div>
-          <p className="text-sm font-medium text-slate-600 dark:text-fg-muted">아직 발송 이력이 없습니다</p>
-          <p className="text-xs text-slate-400 dark:text-fg-subtle mt-1">리포트 발송 후 이곳에 이력이 표시됩니다.</p>
+          <p className="text-sm font-medium text-fg-muted">아직 발송 이력이 없습니다</p>
+          <p className="text-xs text-fg-subtle mt-1">리포트 발송 후 이곳에 이력이 표시됩니다.</p>
         </div>
       </div>
     );
@@ -223,7 +223,7 @@ function LogTable({ logs }: { logs: ReportLog[] }) {
             <tr key={log.id}>
               <td className="px-4 py-3 whitespace-nowrap">
                 <span className="font-medium">{log.curr_year}년 {log.curr_month}월</span>
-                <span className="text-slate-400 dark:text-fg-subtle mx-1.5">vs</span>
+                <span className="text-fg-subtle mx-1.5">vs</span>
                 <span>{log.prev_year}년 {log.prev_month}월</span>
               </td>
               <td className="px-4 py-3 max-w-48 truncate" title={log.recipients}>
@@ -259,8 +259,8 @@ function SectionHeader({ step, title, description }: { step: string; title: stri
         {step}
       </span>
       <div>
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-fg tracking-tight">{title}</h2>
-        <p className="text-sm text-slate-500 dark:text-fg-muted mt-0.5 leading-relaxed">{description}</p>
+        <h2 className="text-lg font-semibold text-fg tracking-tight">{title}</h2>
+        <p className="text-sm text-fg-muted mt-0.5 leading-relaxed">{description}</p>
       </div>
     </div>
   );
@@ -359,17 +359,17 @@ export default function ReportEmailClient() {
           <p className="text-xs font-semibold uppercase tracking-wider text-blue-600 mb-2">
             Report Mail System
           </p>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-fg tracking-tight mb-2">
+          <h1 className="text-2xl sm:text-3xl font-bold text-fg tracking-tight mb-2">
             코멘트 & 리포트 메일
           </h1>
-          <p className="text-sm text-slate-500 dark:text-fg-muted leading-relaxed max-w-xl">
+          <p className="text-sm text-fg-muted leading-relaxed max-w-xl">
             DB에 저장된 광고 데이터를 기간 비교 분석하고, AI가 자동으로 코멘트를 작성해 이메일로 발송합니다.
           </p>
         </div>
 
         {/* 리포트 발송 폼 */}
         <section>
-          <div className="rounded-2xl border border-slate-200/80 dark:border-border bg-white/90 dark:bg-surface shadow-sm shadow-slate-200/50 dark:shadow-black/20 p-5 sm:p-7">
+          <div className="rounded-2xl border border-border bg-surface shadow-card p-5 sm:p-7">
             <SectionHeader
               step="01"
               title="리포트 발송"
@@ -395,7 +395,7 @@ export default function ReportEmailClient() {
                 <PeriodSelect
                   label="전월 (비교 대상)"
                   badge={
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-md">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-fg-muted bg-surface-2 border border-border px-1.5 py-0.5 rounded-md">
                       <i className="bx bx-history text-xs" /> 이전 기간
                     </span>
                   }
@@ -429,7 +429,7 @@ export default function ReportEmailClient() {
 
               {/* 발송 버튼 */}
               <div className="flex items-center justify-between gap-4 pt-1">
-                <div className="flex items-center gap-2 text-xs text-slate-400 dark:text-fg-subtle">
+                <div className="flex items-center gap-2 text-xs text-fg-subtle">
                   <i className="bx bx-time-five text-sm" />
                   <span>AI 코멘트 생성 후 백그라운드로 발송됩니다 (30초~2분 소요)</span>
                 </div>
@@ -457,7 +457,7 @@ export default function ReportEmailClient() {
 
         {/* 발송 이력 */}
         <section>
-          <div className="rounded-2xl border border-slate-200/80 dark:border-border bg-white/90 dark:bg-surface shadow-sm shadow-slate-200/50 dark:shadow-black/20 p-5 sm:p-7">
+          <div className="rounded-2xl border border-border bg-surface shadow-card p-5 sm:p-7">
             <div className="flex items-center justify-between mb-6">
               <SectionHeader
                 step="02"
@@ -465,7 +465,7 @@ export default function ReportEmailClient() {
                 description="최근 30건의 리포트 메일 발송 이력입니다. 10초마다 자동 갱신됩니다."
               />
               {logsFetching && (
-                <span className="w-4 h-4 rounded-full border-2 border-slate-200 dark:border-border border-t-blue-500 animate-spin shrink-0 mt-0.5" aria-label="갱신 중" />
+                <span className="w-4 h-4 rounded-full border-2 border-border border-t-blue-500 animate-spin shrink-0 mt-0.5" aria-label="갱신 중" />
               )}
             </div>
             <LogTable logs={logs} />
@@ -474,7 +474,7 @@ export default function ReportEmailClient() {
 
         {/* 자동 발송 안내 */}
         <section>
-          <div className="rounded-2xl border border-slate-200/80 dark:border-border bg-white/90 dark:bg-surface shadow-sm shadow-slate-200/50 dark:shadow-black/20 p-5 sm:p-7">
+          <div className="rounded-2xl border border-border bg-surface shadow-card p-5 sm:p-7">
             {/*
               예전에는 여기에 환경변수 이름(REPORT_CRON_HOUR 등)과 .env 예시를 그대로
               노출했다. 이 페이지는 로그인한 사용자 누구나 들어오는 화면이라 설치 문서를
