@@ -75,6 +75,17 @@ export interface ExcelReportBundle {
   reports: ExcelReport[];
 }
 
+/**
+ * /excel-periods 응답의 한 줄 — 기간 선택 화면이 쓰는 값만 담긴 가벼운 요약.
+ * 전체 리포트(ExcelReport)를 받으면 매체 시트까지 파싱하느라 큰 파일에서 수 분이 걸린다.
+ */
+export interface ExcelPeriodSummary {
+  period: string;
+  /** 실적이 들어 있는 일수 — 목록의 "N일" 배지 */
+  days: number;
+  comment: string;
+}
+
 export interface MediaDailyRow {
   date: string;
   impressions: number;

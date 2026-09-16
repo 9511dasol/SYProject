@@ -179,8 +179,9 @@ export default function DashboardClient() {
   // ── Excel 리포트 불러오기 ─────────────────────────────────────────────────────
 
   // 한 파일에 5월·6월처럼 여러 달이 들어 있으면 달마다 탭을 하나씩 만든다.
+  // periods 는 업로드 모달에서 고른 기간 — 그 달만 읽는다. 생략하면 파일 전체를 읽는다.
   const handleRequestLoad = useCallback(
-    (file: File, fileName: string) => {
+    (file: File, fileName: string, periods?: string[]) => {
       const pendingId = `report-${Date.now()}`;
       const label = fileName.replace(/\.xlsx?$/i, '');
 
@@ -188,7 +189,7 @@ export default function DashboardClient() {
       setUploadOpen(false);
       setDroppedFiles([]);
 
-      loadExcelReports(file)
+      loadExcelReports(file, periods)
         .then((reports) => {
           if (reports.length === 0) {
             addToast('error', `"${label}"에서 읽을 수 있는 기간을 찾지 못했습니다.`);

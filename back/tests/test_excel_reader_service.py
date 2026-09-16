@@ -205,3 +205,68 @@ class TestMultiPeriod:
         # 단일 리포트 API는 기존 동작(마지막 기간)을 유지한다
         assert ExcelReaderService().read_report(two_month_xlsx)["period"] == "26년 6월"
         assert ExcelReaderService().read_report(two_month_xlsx, "26년 5월")["period"] == "26년 5월"
+
+
+class TestListPeriodSummaries:
+    """기간 선택 화면 전용 경로 — 매체 시트를 열지 않고 요약만 읽는다.
+
+    read_reports() 와 같은 값을 줘야 한다는 것이 이 경로의 유일한 계약이다. 빨라진 대신
+    값이 달라지면 목록의 "N일" 배지와 코멘트 안내가 조용히 틀어지기 때문에, 두 경로를
+    직접 맞대어 본다.
+    """
+
+    def _cells(self, month: int, *, comment: str, days: int):
+        summary = {(3, 2): 1, (3, 3): 2, (3, 4): 3, (32, 2): comment}
+        # daily_total 은 row 70 부터. 노출·클릭이 둘 다 0인 행은 빈 행으로 세지 않는다.
+        for i in range(days):
+            summary[(70 + i, 2)] = datetime(2026, month, i + 1)
+            summary[(70 + i, 3)] = 100 * (i + 1)
+            summary[(70 + i, 4)] = 10 * (i + 1)
+        return {f"summary_26년 {month}월": summary}
+
+    @pytest.fixture
+    def xlsx(self, make_report_xlsx):
+        return make_report_xlsx(
+            period="",
+            cells={
+                **self._cells(5, comment="5월 코멘트", days=3),
+                **self._cells(6, comment="", days=1),
+            },
+        )
+
+    def test_returns_period_days_and_comment(self, xlsx):
+        assert ExcelReaderService().list_period_summaries(xlsx) == [
+            {"period": "26년 5월", "days": 3, "comment": "5월 코멘트"},
+            {"period": "26년 6월", "days": 1, "comment": ""},
+        ]
+
+    def test_matches_read_reports(self, xlsx):
+        svc = ExcelReaderService()
+        summaries = svc.list_period_summaries(xlsx)
+        full = {r["period"]: r for r in svc.read_reports(xlsx)}
+
+        assert [s["period"] for s in summaries] == list(full)
+        for s in summaries:
+            assert s["days"] == len(full[s["period"]]["daily_total"])
+            assert s["comment"] == full[s["period"]]["comment"]
+
+    def test_skips_blank_rows_like_read_reports(self, make_report_xlsx):
+        # 날짜는 있지만 노출·클릭이 0인 행 — 양쪽 다 세지 않아야 한다
+        xlsx = make_report_xlsx(
+            period="",
+            cells={
+                "summary_26년 7월": {
+                    (32, 2): "",
+                    (70, 2): datetime(2026, 7, 1), (70, 3): 500, (70, 4): 20,
+                    (71, 2): datetime(2026, 7, 2), (71, 3): 0, (71, 4): 0,
+                }
+            },
+        )
+        svc = ExcelReaderService()
+        assert svc.list_period_summaries(xlsx)[0]["days"] == 1
+        assert len(svc.read_reports(xlsx)[0]["daily_total"]) == 1
+
+    def test_without_summary_sheet_raises(self, make_report_xlsx):
+        xlsx = make_report_xlsx(period="x", cells={"관계없는시트": {(1, 1): "x"}})
+        with pytest.raises(ValueError):
+            ExcelReaderService().list_period_summaries(xlsx)

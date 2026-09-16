@@ -1,9 +1,9 @@
 'use client';
 
-import type { ExcelReport } from '@/types/marketing';
+import type { ExcelPeriodSummary } from '@/types/marketing';
 
 interface PeriodSelectListProps {
-  reports: ExcelReport[];
+  periods: ExcelPeriodSummary[];
   selected: string[];
   onChange: (selected: string[]) => void;
   /** 그 기간에 이미 DB 데이터가 있는지 — '기존 있음' 표시용 */
@@ -17,12 +17,12 @@ interface PeriodSelectListProps {
  * 늘어나면 아래 저장 버튼이 화면 밖으로 밀린다.
  */
 export default function PeriodSelectList({
-  reports,
+  periods,
   selected,
   onChange,
   hasExistingData,
 }: PeriodSelectListProps) {
-  const allSelected = selected.length === reports.length;
+  const allSelected = selected.length === periods.length;
 
   const toggle = (period: string) => {
     onChange(
@@ -38,13 +38,13 @@ export default function PeriodSelectList({
         <p className="text-xs font-semibold text-fg">
           저장할 기간
           <span className="ml-1.5 font-normal text-fg-subtle">
-            {reports.length}개 중 {selected.length}개 선택
+            {periods.length}개 중 {selected.length}개 선택
           </span>
         </p>
-        {reports.length > 1 && (
+        {periods.length > 1 && (
           <button
             type="button"
-            onClick={() => onChange(allSelected ? [] : reports.map((r) => r.period))}
+            onClick={() => onChange(allSelected ? [] : periods.map((p) => p.period))}
             className="text-xs font-medium text-primary hover:brightness-110"
           >
             {allSelected ? '전체 해제' : '전체 선택'}
@@ -53,12 +53,12 @@ export default function PeriodSelectList({
       </div>
 
       <div className="max-h-56 overflow-y-auto -mx-1 px-1 grid sm:grid-cols-2 gap-1.5">
-        {reports.map((r) => {
-          const checked = selected.includes(r.period);
-          const exists = hasExistingData(r.period);
+        {periods.map((p) => {
+          const checked = selected.includes(p.period);
+          const exists = hasExistingData(p.period);
           return (
             <label
-              key={r.period}
+              key={p.period}
               className={`flex items-center gap-2 px-2.5 py-2 rounded-lg border text-xs cursor-pointer transition-colors
                 ${checked
                   ? 'border-primary/60 bg-primary-soft/50 dark:bg-primary-soft/15'
@@ -67,11 +67,11 @@ export default function PeriodSelectList({
               <input
                 type="checkbox"
                 checked={checked}
-                onChange={() => toggle(r.period)}
+                onChange={() => toggle(p.period)}
                 className="w-3.5 h-3.5 rounded accent-primary"
               />
-              <span className="font-semibold text-fg">{r.period}</span>
-              <span className="text-fg-subtle tabular-nums">{r.daily_total.length}일</span>
+              <span className="font-semibold text-fg">{p.period}</span>
+              <span className="text-fg-subtle tabular-nums">{p.days}일</span>
               {exists && (
                 <span
                   className="ml-auto text-[10px] font-medium text-badge-warn-fg"

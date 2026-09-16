@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import Alert from '@/components/ui/Alert';
 import Button from '@/components/ui/Button';
-import { getPeriods, loadExcelReports, saveExcelData } from '@/lib/marketingClient';
+import { getExcelPeriods, getPeriods, saveExcelData } from '@/lib/marketingClient';
 import { queryKeys } from '@/lib/queryKeys';
 import { parsePeriodLabel } from './fileKind';
 import PeriodSelectList from './PeriodSelectList';
@@ -13,8 +13,8 @@ interface ExcelUploadFlowProps {
   file: File;
   onSaved: (message: string) => void;
   onError?: (message: string) => void;
-  /** 저장하지 않고 대시보드 탭으로 열어보는 경로 */
-  onRequestLoad?: (file: File, fileName: string) => void;
+  /** 저장하지 않고 대시보드 탭으로 열어보는 경로 — 고른 기간만 읽는다 */
+  onRequestLoad?: (file: File, fileName: string, periods?: string[]) => void;
 }
 
 /**
@@ -35,20 +35,25 @@ export default function ExcelUploadFlow({
   const [confirming, setConfirming] = useState(false);
 
   /*
-    파일에 담긴 기간을 먼저 읽는다. 파일 자체를 키로 쓰므로(name+size+lastModified)
+    파일에 담긴 기간 '목록' 만 먼저 읽는다. 파일 자체를 키로 쓰므로(name+size+lastModified)
     같은 파일을 다시 열면 캐시가 재사용되고, 다른 파일이면 새로 읽는다.
+
+    예전에는 여기서 리포트 전체(loadExcelReports)를 받았다. 기간마다 매체 시트까지
+    파싱하느라 86MB·18기간짜리 실제 파일에서 236초가 걸렸는데, 이 화면이 그중 쓰는 값은
+    기간 이름·일수·코멘트뿐이었다 — 사용자에게는 "기간을 읽는 중…"에서 4분간 멈춘 것으로
+    보인다. 목록 전용 엔드포인트로 바꿔 같은 파일이 약 5초에 끝난다.
   */
   const analysis = useQuery({
-    queryKey: ['excelAnalysis', file.name, file.size, file.lastModified],
-    queryFn: () => loadExcelReports(file),
+    queryKey: ['excelPeriods', file.name, file.size, file.lastModified],
+    queryFn: () => getExcelPeriods(file),
     staleTime: Infinity,
     retry: false,
   });
 
-  const reports = analysis.data ?? null;
+  const periods = analysis.data ?? null;
 
-  // 분석 결과가 처음 도착하면 전체 선택으로 시작한다. 이후 선택은 사용자 것이다.
-  const effectiveSelected = selected ?? reports?.map((r) => r.period) ?? [];
+  // 목록이 처음 도착하면 전체 선택으로 시작한다. 이후 선택은 사용자 것이다.
+  const effectiveSelected = selected ?? periods?.map((p) => p.period) ?? [];
 
   // 이미 DB에 있는 기간 — 저장 전에 "덮어쓰게 되는지"를 알려준다
   const { data: dbPeriods = [] } = useQuery({
@@ -67,15 +72,15 @@ export default function ExcelUploadFlow({
     파일에 코멘트(summary B32)가 담긴 기간. 엑셀 내보내기가 이 값을 다시 써 넣으므로,
     저장하지 않으면 업로드 → 내보내기를 한 바퀴 돌 때마다 코멘트가 사라진다.
   */
-  const withComment = (reports ?? []).filter(
-    (r) => effectiveSelected.includes(r.period) && r.comment?.trim(),
+  const withComment = (periods ?? []).filter(
+    (p) => effectiveSelected.includes(p.period) && p.comment?.trim(),
   );
 
   const save = useMutation({
     mutationFn: () => {
       // 기간을 못 읽었으면 undefined 를 보내 파일 전체를 저장한다
-      const periods = reports && reports.length > 0 ? effectiveSelected : undefined;
-      return saveExcelData(file, replace, periods, saveComment);
+      const scope = periods && periods.length > 0 ? effectiveSelected : undefined;
+      return saveExcelData(file, replace, scope, saveComment);
     },
     onSuccess: (result) => onSaved(result.message),
     onError: (err) => onError?.(err.message),
@@ -97,7 +102,7 @@ export default function ExcelUploadFlow({
   };
 
   const nothingSelected =
-    reports !== null && reports.length > 0 && effectiveSelected.length === 0;
+    periods !== null && periods.length > 0 && effectiveSelected.length === 0;
   const error = analysis.error ?? save.error;
 
   return (
@@ -108,10 +113,10 @@ export default function ExcelUploadFlow({
             <span className="w-3.5 h-3.5 rounded-full border-2 border-border border-t-primary animate-spin" />
             파일에 담긴 기간을 읽는 중…
           </div>
-        ) : reports && reports.length > 0 ? (
+        ) : periods && periods.length > 0 ? (
           <>
             <PeriodSelectList
-              reports={reports}
+              periods={periods}
               selected={effectiveSelected}
               onChange={updateSelection}
               hasExistingData={hasExistingData}
@@ -170,7 +175,7 @@ export default function ExcelUploadFlow({
                     </span>
                   </span>
                   <span className="block text-[11px] text-fg-subtle mt-0.5 leading-relaxed">
-                    {withComment.map((r) => r.period).join(', ')} — 이미 저장된 코멘트가 있으면
+                    {withComment.map((p) => p.period).join(', ')} — 이미 저장된 코멘트가 있으면
                     덮어씁니다. 끄면 실적만 저장합니다.
                   </span>
                 </span>
@@ -214,8 +219,12 @@ export default function ExcelUploadFlow({
           <Button
             variant="outline"
             className="sm:flex-1"
-            onClick={() => onRequestLoad(file, file.name)}
-            disabled={save.isPending}
+            // 고른 기간만 넘긴다 — 18개 담긴 파일에서 한 달만 보려고 나머지 17개를
+            // 파싱하느라 몇 분씩 기다릴 이유가 없다. 목록을 못 읽었으면 전체를 연다.
+            onClick={() =>
+              onRequestLoad(file, file.name, effectiveSelected.length > 0 ? effectiveSelected : undefined)
+            }
+            disabled={save.isPending || analysis.isPending}
           >
             <i className="bx bx-bar-chart-alt-2 text-lg" />
             리포트로 열기

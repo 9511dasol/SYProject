@@ -93,6 +93,48 @@ class ExcelReaderService:
         finally:
             wb.close()
 
+    def list_period_summaries(self, excel_bytes: bytes) -> list[dict]:
+        """업로드 모달의 기간 선택 목록용 — summary 시트만 읽고 매체 시트는 열지 않는다.
+
+        read_reports() 는 기간마다 매체 시트까지 전부 파싱한다. 86MB·18기간짜리 실제
+        리포트에서 236초가 걸렸는데, 그중 기간 하나당 7.9초 가운데 7.4초(93%)가 매체 시트
+        파싱이었다. 정작 고르는 화면이 쓰는 값은 기간 이름·일수·코멘트뿐이라 그 비용이
+        통째로 낭비였다 — 사용자에게는 "파일에 담긴 기간을 읽는 중…"에서 4분간 멈춘 것으로
+        보인다.
+
+        매체 시트를 건너뛰는 것만으로는 9초까지밖에 못 줄인다. read_only 모드의 ws.cell()
+        은 호출마다 시트 XML을 다시 훑어서, 셀 하나하나 집는 _parse_daily_total 방식이
+        기간마다 시트를 수백 번 스캔하기 때문이다. 필요한 범위를 iter_rows 로 한 번만
+        흘려 읽으면 같은 파일이 0.28초에 끝난다(같은 값이 나오는 것은 대조 확인).
+        """
+        wb = self._open(excel_bytes)
+        try:
+            summaries = []
+            for period in self._detect_periods(wb):
+                ws = wb[f"summary_{period}"]
+                comment, days = "", 0
+                # 코멘트(B32)와 일별 행(B70:D101)을 한 번의 스캔으로 함께 집는다.
+                # 일수 세는 조건은 _parse_daily_total 과 같아야 한다 — 날짜가 있고,
+                # 노출·클릭이 둘 다 0인 행은 빈 행으로 보고 세지 않는다.
+                #
+                # read_only 모드의 iter_rows 는 빈 행을 채워 주지 않으므로(70행을 요청해도
+                # 값이 있는 행만 온다) 순번으로 행 번호를 세면 어긋난다. 또 값이 없는 칸은
+                # 행 번호가 없는 EmptyCell 이라 .row 를 그냥 읽으면 터진다. B열이 빈 행은
+                # 코멘트도 일별 행도 아니므로 그대로 건너뛴다.
+                for row in ws.iter_rows(min_row=32, max_row=101, min_col=2, max_col=4):
+                    r = getattr(row[0], "row", None)
+                    if r is None:
+                        continue
+                    if r == 32:
+                        comment = str(row[0].value) if row[0].value else ""
+                    elif r >= 70 and row[0].value is not None and len(row) >= 3:
+                        if _safe(row[1].value) != 0 or _safe(row[2].value) != 0:
+                            days += 1
+                summaries.append({"period": period, "days": days, "comment": comment})
+            return summaries
+        finally:
+            wb.close()
+
     # ── 내부 헬퍼 ─────────────────────────────────────────────────────────────
 
     @staticmethod

@@ -1,6 +1,7 @@
 import { isAxiosError } from 'axios';
 import { browserApi as api } from '@/lib/api/browserApi';
 import type {
+  ExcelPeriodSummary,
   ExcelReport,
   ExcelReportBundle,
   ReportData,
@@ -58,17 +59,45 @@ export async function previewReport(files: File[]): Promise<ReportData> {
 }
 
 /**
- * 엑셀 파일 안의 모든 기간(달)을 각각 리포트로 받아온다.
+ * 파일에 담긴 기간 목록만 받아온다 — 업로드 모달의 기간 선택 화면용.
+ *
+ * loadExcelReports 는 기간마다 매체 시트까지 전부 파싱해서, 기간이 많은 파일이면
+ * 응답까지 수 분이 걸린다(실측: 86MB·18기간 236초). 고르는 단계에 필요한 값은
+ * 기간 이름·일수·코멘트뿐이라 전용 엔드포인트로 가볍게 받는다.
+ */
+export async function getExcelPeriods(file: File): Promise<ExcelPeriodSummary[]> {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await api.post<{ periods: ExcelPeriodSummary[] }>(
+      '/api/marketing/excel-periods',
+      formData,
+    );
+    return data?.periods ?? [];
+  } catch (err) {
+    throw new Error(extractError(err, `기간 목록을 읽지 못했습니다: ${(err as Error).message}`));
+  }
+}
+
+/**
+ * 엑셀 파일을 리포트로 받아온다. periods 를 주면 그 달만, 없으면 파일 안의 모든 달을 읽는다.
  *
  * 예전 백엔드는 리포트 객체 하나를 그대로 돌려줬다. 배포가 프론트 먼저 나가는 순간
  * data.reports가 undefined가 되어 화면이 깨지므로, 두 응답 형태를 모두 받아 준다.
  */
-export async function loadExcelReports(file: File): Promise<ExcelReport[]> {
+export async function loadExcelReports(
+  file: File,
+  periods?: string[],
+): Promise<ExcelReport[]> {
   try {
     const formData = new FormData();
     formData.append('file', file);
+    // 기간은 같은 키를 반복해야 FastAPI가 list로 받는다 (axios 기본 직렬화는 period[]=)
+    const qs = new URLSearchParams();
+    periods?.forEach((p) => qs.append('period', p));
+    const query = qs.toString();
     const { data } = await api.post<ExcelReportBundle | ExcelReport>(
-      '/api/marketing/load-excel',
+      query ? `/api/marketing/load-excel?${query}` : '/api/marketing/load-excel',
       formData,
     );
     if (data && Array.isArray((data as ExcelReportBundle).reports)) {

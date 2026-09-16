@@ -889,19 +889,42 @@ async def undo_upload(undo_id: str) -> dict:
     return {"message": msg}
 
 
-@router.post("/load-excel")
-async def load_excel(
+@router.post("/excel-periods")
+async def list_excel_periods(
     request: Request,
     file: UploadFile = File(...),
 ) -> dict:
-    """Excel 파일(.xlsx)을 읽어 기간별 리포트 데이터 JSON 반환.
+    """파일에 담긴 기간 목록만 돌려준다 — 업로드 모달의 기간 선택 화면 전용.
 
-    한 파일에 5월·6월처럼 여러 달이 들어 있으면 달마다 하나씩 reports 에 담아 준다.
+    /load-excel 은 기간마다 매체 시트까지 전부 파싱하느라 큰 파일에서 수 분이 걸린다.
+    고르는 단계에는 기간 이름·일수·코멘트만 있으면 되므로 그 비용을 치르지 않는다.
     """
     check_content_length(request)
     content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
     try:
-        reports = ExcelReaderService().read_reports(content)
+        return {"periods": ExcelReaderService().list_period_summaries(content)}
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post("/load-excel")
+async def load_excel(
+    request: Request,
+    file: UploadFile = File(...),
+    period: list[str] | None = Query(
+        None, description="읽을 기간 시트 (예: period=26년 5월&period=26년 6월). 생략 시 전체"
+    ),
+) -> dict:
+    """Excel 파일(.xlsx)을 읽어 기간별 리포트 데이터 JSON 반환.
+
+    한 파일에 5월·6월처럼 여러 달이 들어 있으면 달마다 하나씩 reports 에 담아 준다.
+    period 를 주면 그 달만 읽는다 — 기간이 18개 담긴 파일에서 한 달만 열어 보려고
+    나머지 17개를 파싱할 이유가 없다.
+    """
+    check_content_length(request)
+    content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
+    try:
+        reports = ExcelReaderService().read_reports(content, periods=period or None)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
