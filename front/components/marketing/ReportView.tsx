@@ -64,9 +64,13 @@ export default function ReportView({
   const totalTrend = useMemo(() => mergeDailyTotals(data.daily), [data.daily]);
 
   const comment = useMutation({
-    mutationFn: () => updateComment(year!, month!),
+    mutationFn: (force: boolean = false) => updateComment(year!, month!, force),
     onSuccess: () => onRefresh?.(),
   });
+
+  // 서버가 저장된 코멘트를 그대로 돌려줬다 = 실적이 그대로라 AI 를 부르지 않았다.
+  // 버튼을 눌렀는데 아무 일도 안 일어난 것처럼 보이면 사용자는 계속 다시 누른다.
+  const reusedExisting = comment.data?.cached === true;
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
@@ -192,16 +196,33 @@ export default function ReportView({
 
               <div className="space-y-2">
                 {editable && year && month && (
-                  <div className="flex justify-end">
+                  <div className="flex items-center justify-end gap-2">
+                    {reusedExisting && (
+                      <span className="text-xs text-fg-subtle">
+                        실적이 그대로라 기존 코멘트를 유지했습니다.
+                      </span>
+                    )}
                     <Button
                       tone="amber"
                       size="sm"
-                      onClick={() => comment.mutate()}
+                      onClick={() => comment.mutate(false)}
                       isLoading={comment.isPending}
                     >
                       {!comment.isPending && <i className="bx bx-comment-detail text-sm" />}
                       코멘트 업데이트
                     </Button>
+                    {/* 재사용했을 때만 보여준다 — 평소에는 선택지를 늘리지 않는다 */}
+                    {reusedExisting && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => comment.mutate(true)}
+                        isLoading={comment.isPending}
+                      >
+                        {!comment.isPending && <i className="bx bx-refresh text-sm" />}
+                        새로 생성
+                      </Button>
+                    )}
                   </div>
                 )}
                 {comment.error && <Alert>{comment.error.message}</Alert>}

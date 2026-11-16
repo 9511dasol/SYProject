@@ -57,20 +57,27 @@ class TestUsagePassthrough:
 
     def test_usage_is_returned_alongside_the_comment(self):
         usage = TokenUsage(prompt_tokens=1200, output_tokens=300, total_tokens=1500)
-        comment, got = CommentService(llm=_StubLLM(usage)).generate_with_usage(
+        result = CommentService(llm=_StubLLM(usage)).generate_with_usage(
             _comparison(has_prev2=True)
         )
 
-        assert comment == "코멘트"
-        assert got == usage
+        assert result.text == "코멘트"
+        assert result.usage == usage
 
     def test_missing_usage_does_not_break_generation(self):
-        comment, got = CommentService(llm=_StubLLM(None)).generate_with_usage(
+        result = CommentService(llm=_StubLLM(None)).generate_with_usage(
             _comparison(has_prev2=True)
         )
 
-        assert comment == "코멘트"
-        assert got is None
+        assert result.text == "코멘트"
+        assert result.usage is None
+
+    def test_a_freshly_generated_comment_is_not_marked_as_reused(self):
+        """재사용 여부는 호출부가 판단한다 — 서비스가 직접 부른 건 항상 새 코멘트다."""
+        result = CommentService(llm=_StubLLM(None)).generate_with_usage(
+            _comparison(has_prev2=True)
+        )
+        assert result.cached is False
 
 
 class TestThreeMonthPrompt:

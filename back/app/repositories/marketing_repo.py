@@ -425,9 +425,17 @@ class MarketingRepository:
         month: int,
         *,
         comment: str | None = None,
+        comment_prompt_hash: str | None = None,
         excel_content: bytes | None = None,
-    ) -> None:
-        """엑셀 원본은 Supabase Storage에 업로드하고, DB에는 object path만 저장한다."""
+    ) -> datetime | None:
+        """엑셀 원본은 Supabase Storage에 업로드하고, DB에는 object path만 저장한다.
+
+        comment_prompt_hash 는 AI 가 그 코멘트를 만들 때 쓴 프롬프트의 지문이다.
+        코멘트를 쓰면서 지문을 주지 않으면 **지문을 비운다** — 사람이 엑셀에서 넣은
+        코멘트를 AI 산출물로 착각해 재사용하면 안 되기 때문이다.
+
+        코멘트를 저장했으면 그 시각을 돌려준다(화면이 "n분 전 생성"을 표시한다).
+        """
         excel_path = (
             storage_service.upload_excel(year, month, excel_content)
             if excel_content is not None
@@ -441,6 +449,7 @@ class MarketingRepository:
             if comment is not None:
                 row.comment = comment
                 row.comment_updated_at = comment_updated_at
+                row.comment_prompt_hash = comment_prompt_hash
             if excel_path is not None:
                 row.excel_path = excel_path
         else:
@@ -450,9 +459,18 @@ class MarketingRepository:
                     month=month,
                     comment=comment or "",
                     comment_updated_at=comment_updated_at,
+                    comment_prompt_hash=comment_prompt_hash if comment is not None else None,
                     excel_path=excel_path,
                 )
             )
+        return comment_updated_at
+
+    def get_comment_for_prompt(self, year: int, month: int, prompt_hash: str) -> str | None:
+        """같은 프롬프트로 이미 받아 둔 코멘트. 없거나 지문이 다르면 None."""
+        row = self._get_period_meta(year, month)
+        if row is None or not row.comment or row.comment_prompt_hash != prompt_hash:
+            return None
+        return row.comment
 
     def list_period_overview(self) -> list[dict]:
         """관리자 화면용 연월별 요약 — 행 수, 데이터 기간, 코멘트/엑셀 보유 여부.

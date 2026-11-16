@@ -156,14 +156,29 @@ export async function getSummary(year: number, month: number): Promise<ReportDat
   }
 }
 
-/** 직전월 대비 누적 DB 데이터를 기반으로 AI 코멘트를 새로 생성하고 저장 */
+export interface CommentResponse {
+  comment: string;
+  comment_updated_at: string | null;
+  /** 실적이 그대로라 저장된 코멘트를 그대로 쓴 경우 — AI 를 부르지 않았다 */
+  cached: boolean;
+}
+
+/**
+ * 직전월 대비 누적 DB 데이터를 기반으로 AI 코멘트를 생성하고 저장.
+ *
+ * 실적이 바뀌지 않았으면 서버가 저장된 코멘트를 그대로 돌려준다(`cached: true`).
+ * 같은 질문을 다시 사지 않으려는 것이라, 문구를 바꿔 보고 싶을 때만 force 를 쓴다.
+ */
 export async function updateComment(
   year: number,
   month: number,
-): Promise<{ comment: string; comment_updated_at: string | null }> {
+  force = false,
+): Promise<CommentResponse> {
   try {
-    const { data } = await api.post('/api/marketing/comment', null, { params: { year, month } });
-    return data as { comment: string; comment_updated_at: string | null };
+    const { data } = await api.post('/api/marketing/comment', null, {
+      params: { year, month, ...(force ? { force: true } : {}) },
+    });
+    return data as CommentResponse;
   } catch (err) {
     throw new Error(extractError(err, `코멘트 생성 실패: ${(err as Error).message}`));
   }

@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import JSON, UniqueConstraint, and_
+from sqlalchemy import JSON, String, UniqueConstraint, and_
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,6 +21,11 @@ class MarketingPeriodMeta(Base):
     month: Mapped[int] = mapped_column(index=True)
     comment: Mapped[str] = mapped_column(default="")
     comment_updated_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    # 이 코멘트를 만들 때 AI 에 보낸 프롬프트의 지문.
+    # 같은 질문이면 같은 답이 나오므로, 지문이 일치하면 다시 묻지 않고 재사용한다.
+    # 데이터가 바뀌거나 프롬프트 템플릿을 고치면 지문이 달라져 자동으로 다시 묻는다.
+    # 사람이 엑셀에서 넣은 코멘트는 AI 가 만든 게 아니므로 NULL 로 둔다.
+    comment_prompt_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Supabase Storage 내 엑셀 원본의 object path (예: "2026/06/report.xlsx")
     excel_path: Mapped[str | None] = mapped_column(nullable=True)
     # summary 시트 ■ 매체별 예산 — {"네이버SA": 19000000, "카카오SA": 50000, ...}.

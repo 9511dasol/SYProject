@@ -3,6 +3,7 @@ import logging
 from app.core.database import SessionLocal
 from app.models.report_log_model import ReportLog
 from app.models.user_model import User
+from app.services import comment_cache
 from app.services.ai_usage import AI_TOOL_REPORT_MAIL, log_ai_usage
 from app.services.analysis_service import AnalysisService
 from app.services.comment_service import CommentService
@@ -53,6 +54,31 @@ class ReportOrchestrator:
         # 사용량 로그에 남길 실행 주체. 월간 크론처럼 사람이 없으면 None.
         self.user = user
 
+    def _comment_for(self, comparison, curr_year: int, curr_month: int) -> str:
+        """이 달의 코멘트. 같은 질문이면 저장된 답을 재사용한다.
+
+        같은 달을 반복해 보내는 경로가 둘이다 — 관리자의 "재발송" 과 월간 자동 발송.
+        실적이 그대로인데 매번 LLM 을 부르면 같은 답을 돈 주고 다시 사는 꼴이고,
+        받는 사람 입장에서도 문구가 조금씩 달라져 혼란스럽다.
+        """
+        prompt_hash = comment_cache.fingerprint(self.comment.build_prompt(comparison))
+
+        cached = comment_cache.lookup(curr_year, curr_month, prompt_hash)
+        if cached is not None:
+            logger.info("코멘트 재사용 (%d-%02d) — LLM 호출 생략", curr_year, curr_month)
+            return cached
+
+        result = self.comment.generate_with_usage(comparison)
+        # 코멘트가 나온 시점에 바로 남긴다 — 뒤의 메일 발송이 실패해도 토큰은 이미 썼다.
+        log_ai_usage(
+            user=self.user,
+            tool=AI_TOOL_REPORT_MAIL,
+            label=f"{curr_year}년 {curr_month}월",
+            usage=result.usage,
+        )
+        comment_cache.save(curr_year, curr_month, prompt_hash, result.text)
+        return result.text
+
     def run(
         self,
         curr_year: int,
@@ -76,14 +102,7 @@ class ReportOrchestrator:
         )
         try:
             comparison = self.analysis.compare(curr_year, curr_month, prev_year, prev_month)
-            comment, usage = self.comment.generate_with_usage(comparison)
-            # 코멘트가 나온 시점에 바로 남긴다 — 뒤의 메일 발송이 실패해도 토큰은 이미 썼다.
-            log_ai_usage(
-                user=self.user,
-                tool=AI_TOOL_REPORT_MAIL,
-                label=f"{curr_year}년 {curr_month}월",
-                usage=usage,
-            )
+            comment = self._comment_for(comparison, curr_year, curr_month)
             html = self.builder.build(comparison, comment)
             self.mail.send(recipients, subject, html)
             log.status = "sent"

@@ -75,8 +75,13 @@ class TestReportOrchestratorLogsUsage:
     def _orchestrator(mocker, user=None, mail_fails=False):
         from app.services.report_orchestrator import ReportOrchestrator
 
+        from app.services.comment_service import CommentResult
+
         comment_svc = mocker.MagicMock()
-        comment_svc.generate_with_usage.return_value = ("코멘트", _USAGE)
+        comment_svc.build_prompt.return_value = "프롬프트"
+        comment_svc.generate_with_usage.return_value = CommentResult(
+            text="코멘트", usage=_USAGE, cached=False
+        )
         mail = mocker.MagicMock()
         if mail_fails:
             mail.send.side_effect = RuntimeError("smtp down")
@@ -84,6 +89,9 @@ class TestReportOrchestratorLogsUsage:
         # 발송 기록은 전용 세션으로 남기므로(=_save_report_log) 오케스트레이터는
         # 세션을 들고 있지 않는다. 테스트에서는 그 기록을 끈다.
         mocker.patch("app.services.report_orchestrator._save_report_log")
+        # 코멘트 캐시는 DB 를 쓴다 — 여기서는 항상 "저장된 코멘트 없음"으로 둔다.
+        mocker.patch("app.services.comment_cache.lookup", return_value=None)
+        mocker.patch("app.services.comment_cache.save")
 
         return ReportOrchestrator(
             analysis_svc=mocker.MagicMock(),

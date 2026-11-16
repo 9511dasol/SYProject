@@ -1,6 +1,7 @@
 import logging
 import math
 import re
+from datetime import datetime
 from urllib.parse import quote
 
 import pandas as pd
@@ -46,10 +47,11 @@ from app.schemas.marketing_schema import (
     TaskStatusResponse,
     UploadTaskResponse,
 )
-from app.services import storage_service, task_store
+from app.services import comment_cache, storage_service, task_store
 from app.services.ai_usage import AI_TOOL_MARKETING_COMMENT, log_ai_usage
 from app.services.analysis_service import AnalysisService
 from app.services.comment_service import CommentService
+from app.services.token_usage import TokenUsage
 from app.services.excel_service import ExcelService, resolve_period
 from app.services.excel_reader_service import ExcelReaderService
 from app.services.llm import build_llm
@@ -856,44 +858,69 @@ def get_summary(
 async def update_comment(
     year: int = Query(...),
     month: int = Query(...),
+    force: bool = Query(False, description="데이터가 그대로여도 새로 생성한다"),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """해당 연월 vs 직전월 누적 DB 데이터를 비교해 AI 코멘트를 새로 생성하고 저장.
+    """해당 연월 vs 직전월 누적 DB 데이터를 비교해 AI 코멘트를 생성하고 저장.
 
     LLM 호출이므로 다른 AI 도구와 똑같이 월 예산 게이트를 지나고, 쓴 토큰을
     ai_tool_usage_logs 에 남긴다. 예전에는 둘 다 없어서 이 버튼으로 쓴 토큰이
     관리자 화면의 사용량과 예산 집계에서 통째로 빠져 있었다.
+
+    실적이 그대로인데 버튼을 다시 누르면 AI 에게 글자 하나까지 같은 질문을 하는
+    셈이라, 저장된 코멘트를 그대로 돌려준다(`cached: true`). 문구가 마음에 들지
+    않아 다른 답을 받고 싶을 때는 force=true 로 다시 뽑는다.
     """
     prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
 
-    def _generate():
+    def _resolve() -> tuple[str, TokenUsage | None, datetime | None, bool]:
         db = SessionLocal()
         try:
             comparison = AnalysisService(db).compare(year, month, prev_year, prev_month)
-            comment, usage = CommentService(llm=build_llm()).generate_with_usage(comparison)
-            repo = MarketingRepository(db)
-            repo.upsert_period_meta(year, month, comment=comment)
-            db.commit()
-            _, comment_updated_at = repo.get_comment_meta(year, month)
-            return comment, usage, comment_updated_at
+            service = CommentService(llm=build_llm())
+            prompt_hash = comment_cache.fingerprint(service.build_prompt(comparison))
         except Exception as exc:
-            db.rollback()
-            raise server_error("코멘트를 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.", exc)
+            raise server_error("리포트를 집계하지 못했습니다. 잠시 후 다시 시도해 주세요.", exc)
         finally:
             db.close()
 
-    # LLM 호출은 수 초가 걸리는 블로킹 작업이라 이벤트 루프에서 돌리면 안 된다.
-    comment, usage, comment_updated_at = await run_in_threadpool(_generate)
+        if not force:
+            cached = comment_cache.lookup(year, month, prompt_hash)
+            if cached is not None:
+                _, updated_at = _read_comment_meta(year, month)
+                return cached, None, updated_at, True
 
-    # 사용량 기록도 자체 세션으로 커밋하는 DB 쓰기라 이벤트 루프 밖에서 처리한다.
-    await run_in_threadpool(
-        log_ai_usage,
-        user=current_user,
-        tool=AI_TOOL_MARKETING_COMMENT,
-        label=_period_label(year, month),
-        usage=usage,
-    )
-    return {"comment": comment, "comment_updated_at": comment_updated_at}
+        try:
+            result = service.generate_with_usage(comparison)
+        except Exception as exc:
+            raise server_error("코멘트를 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.", exc)
+
+        saved_at = comment_cache.save(year, month, prompt_hash, result.text)
+        return result.text, result.usage, saved_at, False
+
+    # LLM 호출은 수 초가 걸리는 블로킹 작업이라 이벤트 루프에서 돌리면 안 된다.
+    comment, usage, comment_updated_at, cached = await run_in_threadpool(_resolve)
+
+    # 재사용한 코멘트는 토큰을 쓰지 않았다 — 사용량 로그에 호출로 남기면 집계가 부풀고
+    # 월 예산이 쓰지도 않은 분량만큼 줄어든다.
+    if not cached:
+        await run_in_threadpool(
+            log_ai_usage,
+            user=current_user,
+            tool=AI_TOOL_MARKETING_COMMENT,
+            label=_period_label(year, month),
+            usage=usage,
+        )
+
+    return {"comment": comment, "comment_updated_at": comment_updated_at, "cached": cached}
+
+
+def _read_comment_meta(year: int, month: int) -> tuple[str, datetime | None]:
+    db = SessionLocal()
+    try:
+        return MarketingRepository(db).get_comment_meta(year, month)
+    finally:
+        db.close()
 
 
 @router.post("/upload", response_model=UploadTaskResponse)
