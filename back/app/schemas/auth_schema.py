@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 
 class UserCreate(BaseModel):
@@ -15,14 +15,14 @@ class UserLogin(BaseModel):
 
 
 class UserOut(BaseModel):
+    # Pydantic v2 에서 `class Config` 는 폐기 예정 — 프로젝트 전체를 ConfigDict 로 맞춘다
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     email: EmailStr
     name: str
     role: str
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class TokenResponse(BaseModel):

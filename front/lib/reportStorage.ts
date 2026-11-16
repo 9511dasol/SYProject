@@ -47,6 +47,44 @@ function idbTx(tx: IDBTransaction): Promise<void> {
   });
 }
 
+/** 보관할 최대 리포트 수 — 넘으면 오래된 것부터 지운다. */
+const MAX_STORED_REPORTS = 10;
+
+/** 저장 용량이 꽉 찼을 때 던지는 오류 — 화면이 안내 문구를 고를 수 있게 구분한다. */
+export class ReportStorageFullError extends Error {
+  constructor() {
+    super('브라우저 저장 공간이 가득 찼습니다. 불러온 리포트를 일부 삭제한 뒤 다시 시도해 주세요.');
+    this.name = 'ReportStorageFullError';
+  }
+}
+
+function isQuotaError(err: unknown): boolean {
+  return err instanceof DOMException && (err.name === 'QuotaExceededError' || err.code === 22);
+}
+
+/** 보관 개수를 넘는 오래된 항목을 지운다. */
+async function pruneOldest(db: IDBDatabase, keepId: string): Promise<void> {
+  const readTx = db.transaction(STORE_NAME, 'readonly');
+  const all = await idbRequest<StoredReport[]>(readTx.objectStore(STORE_NAME).getAll());
+
+  const stale = all
+    .filter((s) => s.id !== keepId)
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .slice(0, Math.max(0, all.length - MAX_STORED_REPORTS));
+  if (stale.length === 0) return;
+
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
+  stale.forEach((s) => store.delete(s.id));
+  await idbTx(tx);
+}
+
+/**
+ * 불러온 리포트를 브라우저에 보관한다 (새로고침 후 복원용).
+ *
+ * 예전에는 저장 실패를 아무도 잡지 않아, 용량이 꽉 차면 조용히 실패하고 다음 방문에
+ * 리포트가 사라져 있었다. 또 지우는 사람이 없어 보관본이 무한정 쌓였다.
+ */
 export async function persistReport(report: ImportedReport): Promise<void> {
   const db = await openDb();
   const fileBuffer = await report.file.arrayBuffer();
@@ -60,9 +98,28 @@ export async function persistReport(report: ImportedReport): Promise<void> {
     fileBuffer,
     createdAt: Date.now(),
   };
-  const tx = db.transaction(STORE_NAME, 'readwrite');
-  tx.objectStore(STORE_NAME).put(stored);
-  await idbTx(tx);
+
+  try {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).put(stored);
+    await idbTx(tx);
+  } catch (err) {
+    if (!isQuotaError(err)) throw err;
+
+    // 오래된 보관본을 비우고 한 번만 다시 시도한다
+    await pruneOldest(db, stored.id);
+    try {
+      const retryTx = db.transaction(STORE_NAME, 'readwrite');
+      retryTx.objectStore(STORE_NAME).put(stored);
+      await idbTx(retryTx);
+      return;
+    } catch (retryErr) {
+      if (isQuotaError(retryErr)) throw new ReportStorageFullError();
+      throw retryErr;
+    }
+  }
+
+  await pruneOldest(db, stored.id);
 }
 
 export async function loadPersistedReports(): Promise<ImportedReport[]> {

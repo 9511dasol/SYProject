@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchJson, sendJson } from '@/lib/api/authFetch';
+import { fetchJson, NO_TIMEOUT, sendJson } from '@/lib/api/authFetch';
 import { queryKeys } from '@/lib/queryKeys';
 import MediaBudgetModal from '@/components/admin/MediaBudgetModal';
 import Alert from '@/components/ui/Alert';
@@ -79,6 +79,9 @@ export default function AdminPeriodsClient() {
         'DELETE',
         undefined,
         '삭제 실패',
+        // 행이 많은 달은 삭제가 30초를 넘을 수 있다. 상한에 걸려도 서버 트랜잭션은
+        // 커밋되므로, 되돌릴 수 없는 작업이 "실패했다"고 잘못 보이면 안 된다.
+        { timeoutMs: NO_TIMEOUT },
       ),
     onSuccess: (data) => {
       pushToast('success', data.message);

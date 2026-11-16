@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Button from '@/components/ui/Button';
 import type { BackgroundVariant } from '@/types/imageFilter';
+import { isUserCancel } from '@/lib/api/authFetch';
 import { suggestBackgrounds } from '@/lib/imageFilterClient';
 
 /**
@@ -19,17 +20,31 @@ export default function BackgroundSuggest({ file }: { file: File }) {
   // 다른 파일로 바뀌면 이전 시안은 무효다 — 부모가 key 로 묶어 두어 이 컴포넌트가
   // 통째로 새로 마운트되므로 여기서 따로 비울 필요가 없다.
 
+  // 시안 생성은 이미지 모델을 여러 번 부르는 작업이라 상한을 두지 않는다.
+  // 대신 끊을 수단이 없으면 응답이 오지 않을 때 새로고침 말고는 방법이 없다.
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => abortRef.current?.abort(), []);
+
   const handleGenerate = async () => {
     setLoading(true);
     setError(null);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      setVariants(await suggestBackgrounds(file));
+      setVariants(await suggestBackgrounds(file, controller.signal));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '배경 시안 생성에 실패했습니다.');
+      // 사용자가 직접 끊은 건 실패가 아니다
+      if (!isUserCancel(err)) {
+        setError(err instanceof Error ? err.message : '배경 시안 생성에 실패했습니다.');
+      }
     } finally {
+      abortRef.current = null;
       setLoading(false);
     }
   };
+
+  const handleCancel = () => abortRef.current?.abort();
 
   const download = (v: BackgroundVariant) => {
     const anchor = document.createElement('a');
@@ -57,10 +72,18 @@ export default function BackgroundSuggest({ file }: { file: File }) {
         </p>
 
         {variants === null && (
-          <Button variant="outline" size="sm" onClick={handleGenerate} isLoading={loading}>
-            {!loading && <i className="bx bx-images text-base" />}
-            {loading ? '배경 시안을 만드는 중... (수십 초 소요)' : '배경 시안 만들기'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleGenerate} isLoading={loading}>
+              {!loading && <i className="bx bx-images text-base" />}
+              {loading ? '배경 시안을 만드는 중... (수십 초 소요)' : '배경 시안 만들기'}
+            </Button>
+            {loading && (
+              <Button variant="outline" size="sm" onClick={handleCancel}>
+                <i className="bx bx-x text-base" />
+                취소
+              </Button>
+            )}
+          </div>
         )}
 
         {error && (
@@ -91,10 +114,18 @@ export default function BackgroundSuggest({ file }: { file: File }) {
                 </figure>
               ))}
             </div>
-            <Button variant="outline" size="sm" onClick={handleGenerate} isLoading={loading}>
-              {!loading && <i className="bx bx-refresh text-base" />}
-              {loading ? '배경 시안을 만드는 중...' : '다시 만들기'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handleGenerate} isLoading={loading}>
+                {!loading && <i className="bx bx-refresh text-base" />}
+                {loading ? '배경 시안을 만드는 중...' : '다시 만들기'}
+              </Button>
+              {loading && (
+                <Button variant="outline" size="sm" onClick={handleCancel}>
+                  <i className="bx bx-x text-base" />
+                  취소
+                </Button>
+              )}
+            </div>
           </>
         )}
       </div>

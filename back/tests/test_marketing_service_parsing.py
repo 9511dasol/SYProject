@@ -208,6 +208,30 @@ def test_period_does_not_cut_two_digits_out_of_a_longer_number(svc):
     assert svc.current_period == before
 
 
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "네이버_05.01~05.31.csv",        # 날짜 범위 — 연도로 읽으면 "5년 1월"
+        "네이버SA_05.01-05.31_실적.csv",
+        "카카오_1차_10.05_수정본.csv",     # 10월 5일 — "10년 5월"이 아니다
+        "네이버_파워링크_11.03_최종.csv",
+    ],
+)
+def test_date_tokens_are_not_mistaken_for_a_period(svc, filename):
+    """MM.DD 날짜를 연·월로 읽으면 2005년·2010년짜리 빈 리포트가 나온다.
+
+    파일명에서 못 찾으면 CSV 제목행에서 찾는 경로가 남아 있고, 그쪽이 더 믿을 만하다.
+    """
+    svc._extract_period(filename)
+    assert svc.current_period == "26년 5월"  # 기본값 — 파일명에서 읽지 않았다
+
+
+def test_date_range_filename_falls_back_to_the_title_row(svc):
+    """날짜 범위 이름이어도 CSV 제목행이 있으면 거기서 기간을 읽어야 한다."""
+    svc._extract_period("네이버_05.01~05.31.csv", _naver_csv())
+    assert svc.current_period == "26년 6월"
+
+
 def test_invalid_month_in_filename_is_ignored(svc):
     """26_13 은 월이 아니다 — 잘못 읽으면 13월짜리 기간이 만들어진다."""
     before = svc.current_period

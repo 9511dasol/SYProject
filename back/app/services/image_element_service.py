@@ -87,7 +87,7 @@ def _thumbnail(file_bytes: bytes) -> bytes:
 
 def _parse_response(raw: str) -> ElementAnalysis:
     cleaned = strip_code_fence(raw)
-    data = parse_json_object(raw, error=ImageAnalyzeError, excerpt=200)
+    data = parse_json_object(cleaned, error=ImageAnalyzeError, excerpt=200)
 
     items = data.get("elements")
     if not isinstance(items, list):

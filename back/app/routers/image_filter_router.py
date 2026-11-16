@@ -5,12 +5,11 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
 
 from app.core.ai_budget import require_ai_budget
 from app.core.feature_flags import require_feature_flag
 from app.core.rate_limit import limiter
-from app.core.security import get_current_user, get_db
+from app.core.security import get_current_user
 from app.core.settings import settings
 from app.models.user_model import User
 from app.schemas.image_filter_schema import EditInput, get_edit_input
@@ -43,7 +42,6 @@ router = APIRouter(
 async def analyze_endpoint(
     request: Request,
     file: UploadFile = File(..., description="분석할 이미지"),
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ElementAnalysis:
     """이미지 속 구성 요소(텍스트·로고·제품 등)를 bounding box 와 함께 추출.
@@ -74,7 +72,6 @@ async def analyze_endpoint(
 async def backgrounds_endpoint(
     request: Request,
     file: UploadFile = File(..., description="배경 시안을 만들 이미지"),
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> BackgroundSuggestion:
     """피사체는 유지하고 배경만 바꾼 시안 여러 장을 생성해 돌려준다."""
@@ -102,7 +99,6 @@ async def backgrounds_endpoint(
 async def edit_endpoint(
     request: Request,
     inp: EditInput = Depends(get_edit_input),
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     try:

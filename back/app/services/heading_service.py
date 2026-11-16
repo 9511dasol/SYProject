@@ -122,7 +122,7 @@ def _fit_desc(desc: str) -> str:
 def _parse_response(raw: str) -> HeadingResponse:
     """AI 응답 텍스트 → HeadingResponse (엄격 검증)."""
     cleaned = strip_code_fence(raw)
-    data = parse_json_object(raw, error=RuntimeError, excerpt=300)
+    data = parse_json_object(cleaned, error=RuntimeError, excerpt=300)
 
     if not isinstance(data.get("headings"), list):
         raise RuntimeError(f"AI 응답 형식이 예상과 다릅니다: {cleaned[:300]!r}")

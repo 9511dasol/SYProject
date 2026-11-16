@@ -161,6 +161,10 @@ function PeriodSelect({
         onChange={(e) => onChange(parsePeriodKey(e.target.value))}
         className="cursor-pointer"
       >
+        {/* 고른 값이 없을 때 빈 항목을 하나 둔다. 없으면 브라우저가 첫 옵션을
+            선택된 것처럼 보여줘서, 실제로는 비어 있는데 고른 것처럼 읽힌다
+            (가장 오래된 달을 당월로 고르면 전월이 비는 경우). */}
+        {value === null && <option value="">선택하세요</option>}
         {options.length === 0 ? (
           <option value="" disabled>선택 가능한 기간 없음</option>
         ) : (
@@ -282,15 +286,16 @@ export default function ReportEmailClient() {
     queryKey: queryKeys.periods(),
     queryFn: getPeriods,
     staleTime: 60_000,
-    select: (data) => {
-      // 초기 선택: 첫 번째(최신) = 당월, 두 번째 = 전월
-      if (data.length > 0 && currPeriod === null) {
-        setCurrPeriod(data[0]);
-        setPrevPeriod(data[1] ?? null);
-      }
-      return data;
-    },
   });
+
+  // 초기 선택: 첫 번째(최신) = 당월, 두 번째 = 전월.
+  //
+  // 예전에는 useQuery 의 select 안에서 setState 를 했다. select 는 순수 변환 함수로
+  // 가정돼 렌더 경로에서 (때로는 여러 번) 호출되므로, 그 안에서 상태를 바꾸면
+  // 호출 횟수에 동작이 끌려다닌다. "고른 값이 없으면 기본값" 을 렌더 중에 파생하면
+  // 상태를 하나도 쓰지 않고 같은 결과가 나온다 — DbDashboard 가 쓰는 방식과 같다.
+  const curr = currPeriod ?? periods[0] ?? null;
+  const prev = prevPeriod ?? (currPeriod === null ? periods[1] ?? null : null);
 
   // 당월 변경 → 목록에서 다음 항목을 전월로 자동 선택
   const handleCurrChange = useCallback((p: Period) => {
@@ -320,7 +325,7 @@ export default function ReportEmailClient() {
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
-    if (!currPeriod || !prevPeriod) {
+    if (!curr || !prev) {
       toast('error', 'DB에 저장된 기간이 2개 이상 있어야 비교 발송이 가능합니다.');
       return;
     }
@@ -329,20 +334,20 @@ export default function ReportEmailClient() {
       return;
     }
     sendMutation.mutate({
-      curr_year: currPeriod.year,
-      curr_month: currPeriod.month,
-      prev_year: prevPeriod.year,
-      prev_month: prevPeriod.month,
+      curr_year: curr.year,
+      curr_month: curr.month,
+      prev_year: prev.year,
+      prev_month: prev.month,
       recipients,
       subject: subject.trim(),
     });
-  }, [currPeriod, prevPeriod, recipients, subject, sendMutation, toast]);
+  }, [curr, prev, recipients, subject, sendMutation, toast]);
 
   const defaultSubjectPreview = useMemo(
-    () => currPeriod
-      ? `[마케팅 리포트] ${currPeriod.year}년 ${currPeriod.month}월 성과 요약`
+    () => curr
+      ? `[마케팅 리포트] ${curr.year}년 ${curr.month}월 성과 요약`
       : '[마케팅 리포트] 성과 요약',
-    [currPeriod],
+    [curr],
   );
 
   return (
@@ -386,11 +391,11 @@ export default function ReportEmailClient() {
                       <i className="bx bx-calendar text-xs" /> 비교 기준
                     </span>
                   }
-                  value={currPeriod}
+                  value={curr}
                   onChange={handleCurrChange}
                   periods={periods}
                   loading={periodsLoading}
-                  excludeKey={prevPeriod ? periodKey(prevPeriod) : undefined}
+                  excludeKey={prev ? periodKey(prev) : undefined}
                 />
                 <PeriodSelect
                   label="전월 (비교 대상)"
@@ -399,11 +404,11 @@ export default function ReportEmailClient() {
                       <i className="bx bx-history text-xs" /> 이전 기간
                     </span>
                   }
-                  value={prevPeriod}
+                  value={prev}
                   onChange={setPrevPeriod}
                   periods={periods}
                   loading={periodsLoading}
-                  excludeKey={currPeriod ? periodKey(currPeriod) : undefined}
+                  excludeKey={curr ? periodKey(curr) : undefined}
                 />
               </div>
 

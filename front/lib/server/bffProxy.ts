@@ -70,9 +70,9 @@ export async function proxyToBackend(
       'Content-Type': response.headers.get('content-type') ?? 'application/octet-stream',
       'Content-Disposition': response.headers.get('content-disposition') ?? 'attachment',
     };
-    const contentLength = response.headers.get('content-length');
-    if (contentLength) headers['Content-Length'] = contentLength;
-
+    // Content-Length 는 일부러 전달하지 않는다. fetch 는 gzip 응답을 자동으로 풀어
+    // 주지만 헤더의 길이는 **압축된** 크기 그대로라, 그 값을 그대로 내보내면 실제
+    // 전송량과 어긋나 엑셀·zip 이 잘린 채 내려받아진다. 런타임이 알아서 계산하게 둔다.
     for (const name of opts.passthroughHeaders ?? []) {
       const value = response.headers.get(name);
       if (value !== null) headers[name] = value;

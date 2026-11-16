@@ -1,7 +1,5 @@
 import logging
 
-from sqlalchemy.orm import Session
-
 from app.core.database import SessionLocal
 from app.models.report_log_model import ReportLog
 from app.models.user_model import User
@@ -44,14 +42,14 @@ class ReportOrchestrator:
         comment_svc: CommentService,
         builder_svc: ReportBuilderService,
         mail_sender: AbstractMailSender,
-        db: Session,
         user: User | None = None,
     ):
+        # 세션은 받지 않는다 — 발송 기록은 _save_report_log 가 전용 세션으로 남기고,
+        # DB 조회는 이미 세션을 들고 있는 AnalysisService 가 맡는다.
         self.analysis = analysis_svc
         self.comment = comment_svc
         self.builder = builder_svc
         self.mail = mail_sender
-        self.db = db
         # 사용량 로그에 남길 실행 주체. 월간 크론처럼 사람이 없으면 None.
         self.user = user
 

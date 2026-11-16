@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchJson, sendJson } from '@/lib/api/authFetch';
+import { fetchJson, NO_TIMEOUT, sendJson } from '@/lib/api/authFetch';
 import { formatCount, formatDateTime } from '@/lib/format';
 import { queryKeys } from '@/lib/queryKeys';
 import Alert from '@/components/ui/Alert';
@@ -67,6 +67,10 @@ export default function AdminReportLogsClient() {
         'POST',
         undefined,
         '재발송 실패',
+        // 서버가 분석 → LLM 코멘트 → HTML 빌드 → SMTP 발송을 동기로 돌아 30초를 넘길
+        // 수 있다. 상한에 걸려 실패로 보이면 관리자가 다시 누르고, 그 사이 첫 요청은
+        // 서버에서 계속 돌아 같은 수신자에게 메일이 두 번 나간다.
+        { timeoutMs: NO_TIMEOUT },
       ),
     onSuccess: ({ recipients }) => {
       pushToast('success', `${recipients.length}명에게 재발송했습니다.`);

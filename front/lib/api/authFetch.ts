@@ -1,5 +1,7 @@
 import { signOut } from 'next-auth/react';
 
+import { messageFromBody } from './responseError';
+
 /** 조회성 요청의 기본 상한. 서버가 응답하지 않을 때 무한정 매달리지 않게 한다. */
 export const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -15,20 +17,29 @@ export interface AuthFetchInit extends RequestInit {
  * 타임아웃과 호출부의 취소 신호를 하나로 합친다.
  *
  * 둘 중 먼저 울리는 쪽이 요청을 끊어야 한다 — 사용자가 취소 버튼을 눌렀을 때와
- * 서버가 응답하지 않을 때를 모두 같은 경로로 처리하기 위함이다.
+ * 서버가 응답하지 않을 때를 같은 경로로 처리하기 위함이다.
+ *
+ * AbortSignal.any 에 기대지 않고 직접 합친다. any 는 비교적 최신 API 라
+ * 없는 브라우저에서는 "호출부가 signal 을 넘기면 타임아웃이 통째로 사라지는"
+ * 조용한 구멍이 생긴다 — 상한이 브라우저에 따라 있다가 없다가 하면 안 된다.
+ *
+ * 반환한 cancel 은 요청이 끝난 뒤 꼭 불러야 타이머가 남지 않는다.
  */
-function combineSignals(signal: AbortSignal | null | undefined, timeoutMs: number) {
-  if (!timeoutMs || typeof AbortSignal?.timeout !== 'function') return signal ?? undefined;
+function withTimeout(signal: AbortSignal | null | undefined, timeoutMs: number) {
+  if (!timeoutMs) return { signal: signal ?? undefined, cancel: () => {} };
 
-  const timeout = AbortSignal.timeout(timeoutMs);
-  if (!signal) return timeout;
-  if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
-  return signal; // 합칠 수 없으면 사용자의 취소를 우선한다
-}
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new DOMException('요청 시간이 초과되었습니다.', 'TimeoutError')),
+    timeoutMs,
+  );
+  const cancel = () => clearTimeout(timer);
 
-/** 중단된 요청인지 — 타임아웃(TimeoutError)과 사용자 취소(AbortError) 둘 다. */
-export function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError');
+  if (signal) {
+    if (signal.aborted) controller.abort(signal.reason);
+    else signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+  }
+  return { signal: controller.signal, cancel };
 }
 
 /** 사용자가 직접 취소한 경우(타임아웃이 아니라) — 화면에 오류로 띄우지 않기 위해 구분한다. */
@@ -49,37 +60,24 @@ export async function authFetch(
   init: AuthFetchInit = {},
 ): Promise<Response> {
   const { timeoutMs = DEFAULT_TIMEOUT_MS, signal, ...rest } = init;
+  const limited = withTimeout(signal, timeoutMs);
 
   let response: Response;
   try {
-    response = await fetch(input, { ...rest, signal: combineSignals(signal, timeoutMs) });
+    response = await fetch(input, { ...rest, signal: limited.signal });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'TimeoutError') {
       throw new Error('서버가 응답하지 않습니다. 잠시 후 다시 시도해 주세요.');
     }
     throw error;
+  } finally {
+    limited.cancel();
   }
 
   if (response.status === 401) {
     signOut({ callbackUrl: '/' });
   }
   return response;
-}
-
-/**
- * 이미 읽어 둔 본문에서 사람이 읽을 메시지를 꺼낸다.
- *
- * 응답 봉투가 두 가지다 — FastAPI 는 `detail`, BFF Route Handler 는 `message`.
- * 꺼내는 순서는 responseError.extractResponseError 와 같아야 한다(한쪽만 고치면
- * 같은 오류가 화면마다 다른 문구로 보인다).
- */
-function extractMessage(body: unknown, fallback: string): string {
-  if (body && typeof body === 'object') {
-    const { detail, message } = body as { detail?: unknown; message?: unknown };
-    if (typeof detail === 'string' && detail) return detail;
-    if (typeof message === 'string' && message) return message;
-  }
-  return fallback;
 }
 
 /**
@@ -101,22 +99,30 @@ export async function fetchJson<T>(
   const body: unknown = text ? JSON.parse(text) : null;
 
   if (!res.ok) {
-    throw new Error(extractMessage(body, fallbackMessage));
+    throw new Error(messageFromBody(body, fallbackMessage));
   }
   return body as T;
 }
 
-/** JSON 바디를 실어 보내는 변형 — headers·body·method 를 매번 적지 않아도 된다. */
+/**
+ * JSON 바디를 실어 보내는 변형 — headers·body·method 를 매번 적지 않아도 된다.
+ *
+ * options 로 timeoutMs 를 넘길 수 있다. 서버에서 오래 걸리면서 **되돌릴 수 없는**
+ * 작업(메일 재발송, 기간 삭제)은 기본 상한을 쓰면 안 된다 — 브라우저가 요청을 끊어도
+ * 서버 작업은 계속 진행되므로, 사용자에게는 실패로 보이지만 실제로는 수행된다.
+ */
 export function sendJson<T>(
   input: RequestInfo | URL,
   method: 'POST' | 'PATCH' | 'PUT' | 'DELETE',
   body?: unknown,
   fallbackMessage?: string,
+  options?: Pick<AuthFetchInit, 'timeoutMs' | 'signal'>,
 ): Promise<T> {
   return fetchJson<T>(
     input,
     {
       method,
+      ...options,
       ...(body === undefined
         ? {}
         : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),

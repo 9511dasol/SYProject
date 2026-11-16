@@ -330,7 +330,10 @@ class MarketingRepository:
             return False, "되돌릴 수 없습니다. 시간이 초과되었거나 이미 되돌렸습니다."
 
         if not saved_rows:
-            return True, "이전 상태로 되돌렸습니다. (저장된 항목이 없었으므로 해당 데이터를 삭제합니다.)"
+            # 덮어쓸 기존 데이터가 없던 업로드다. 되돌릴 것이 없다는 사실을 그대로
+            # 알린다 — 예전에는 "삭제합니다" 라고 했지만 실제로 지우는 코드가 없어,
+            # 아무 일도 하지 않고 성공했다고 보고하고 있었다.
+            return False, "되돌릴 이전 데이터가 없습니다. (이 기간에 처음 저장된 업로드입니다.)"
 
         restored = _rewrite_rows(saved_rows)
         return True, f"이전 상태로 되돌렸습니다. ({restored}개 행 복원)"
@@ -373,23 +376,29 @@ class MarketingRepository:
         입력을 건너뛴 달의 예산소진율·잔여광고비가 통째로 0이 되기 때문이다.
         """
         # 예전에는 기간 메타를 전부 메모리로 읽어 파이썬에서 걸렀다. 엑셀을 내보낼
-        # 때마다 호출되는 경로라, 기간이 쌓일수록 매번 전체 스캔이 됐다. 정렬·필터를
-        # SQL 로 내리고 한 행만 가져온다.
+        # 때마다 호출되는 경로라, 기간이 쌓일수록 매번 전체 스캔이 됐다. 정렬·범위
+        # 조건을 SQL 로 내리고, 쓸 수 있는 값이 나오는 첫 행에서 멈춘다.
+        #
+        # "값이 있는 행" 판정을 SQL 의 IS NOT NULL 로만 할 수는 없다. 예산을 비우면
+        # (set_media_budgets 에 빈 dict) 컬럼에 파이썬 None 이 들어가는데, JSON 타입은
+        # 그걸 SQL NULL 이 아니라 **JSON null** 로 저장할 수 있다. 그런 행이 "가장 최근"
+        # 으로 뽑히면 그 달부터 이후 전부가 예산 0 이 된다 — 이 함수가 막으려던 바로 그
+        # 상황이다. 최종 판정은 파이썬 truthiness 로 한다.
         ordinal = MarketingPeriodMeta.year * 12 + MarketingPeriodMeta.month
-        best = (
+        candidates = (
             self.db.query(MarketingPeriodMeta)
-            .filter(
-                MarketingPeriodMeta.media_budgets.isnot(None),
-                ordinal <= year * 12 + month,
-            )
+            .filter(ordinal <= year * 12 + month)
             .order_by(ordinal.desc())
-            .first()
         )
-        if best is None or not best.media_budgets:
-            return {}, None
 
-        budgets = {str(k): float(v) for k, v in best.media_budgets.items() if v is not None}
-        return budgets, (best.year, best.month)
+        for row in candidates:
+            if not row.media_budgets:
+                continue  # 비워 둔 달은 건너뛰고 그 이전 값을 이어받는다
+            budgets = {str(k): float(v) for k, v in row.media_budgets.items() if v is not None}
+            if budgets:
+                return budgets, (row.year, row.month)
+
+        return {}, None
 
     def set_media_budgets(self, year: int, month: int, budgets: dict[str, float]) -> None:
         """해당 기간의 매체별 예산을 통째로 교체한다. 빈 dict 를 주면 설정을 지운다."""

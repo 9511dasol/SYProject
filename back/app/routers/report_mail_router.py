@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends
-from pydantic import BaseModel, EmailStr, field_validator
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
 from sqlalchemy.orm import Session
 
 from app.core.ai_budget import require_ai_budget
 from app.core.database import SessionLocal
 from app.core.feature_flags import require_feature_flag
 from app.core.security import get_current_user, get_db, require_admin
-from app.models.report_log_model import ReportLog
 from app.models.user_model import User
+from app.repositories.report_log_repo import ReportLogRepository
 from app.services.report_factory import build_orchestrator
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ class LogResponse(BaseModel):
     error_msg: str | None
     created_at: str
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ── 엔드포인트 ─────────────────────────────────────────────────────────────────
@@ -126,13 +126,18 @@ def send_report_sync(
 
 
 @router.get("/logs", response_model=list[LogResponse], summary="발송 이력 조회")
-def get_logs(limit: int = 50, db: Session = Depends(get_db)):
-    rows = (
-        db.query(ReportLog)
-        .order_by(ReportLog.created_at.desc())
-        .limit(limit)
-        .all()
-    )
+def get_logs(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """발송 이력을 최신순으로 반환한다.
+
+    쿼리를 라우터에서 직접 짜지 않고 ReportLogRepository 를 쓴다 — 같은 테이블을
+    읽는 관리자 화면(admin_report_log_router)과 정렬 기준이 갈라지지 않게 한다
+    (레포는 created_at 이 같을 때 id 로 한 번 더 정렬해 순서가 흔들리지 않는다).
+    """
+    rows = ReportLogRepository(db).list_logs(limit=limit, offset=offset)
     return [
         LogResponse(
             id=r.id,

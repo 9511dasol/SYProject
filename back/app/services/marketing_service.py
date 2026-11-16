@@ -219,6 +219,11 @@ def _period_from_content(content: bytes) -> str | None:
     return None
 
 
+# 파일명의 두 자리 연도로 인정할 범위(20xx). 날짜(MM.DD)의 월은 12 를 넘지 않으므로
+# 하한을 20 으로 두면 "05.01" 같은 날짜가 연·월로 잘못 읽히지 않는다.
+_PERIOD_MIN_YY = 20
+_PERIOD_MAX_YY = 39
+
 _SINGLE_MEDIA_COLUMNS = {"일별", "노출수", "클릭수", "총비용"}
 
 
@@ -242,15 +247,18 @@ class MarketingService:
             return
         # YY.MM 또는 YY_MM 형식 (예: 26.05, 26_05)
         #
-        # 예전에는 \b 로 경계를 잡았는데, 밑줄과 한글은 모두 단어 문자라
-        # "네이버_26.05.csv" 처럼 흔한 이름에서 경계가 생기지 않아 매칭에 실패했다
-        # (docstring 이 지원한다고 적어 둔 형태인데도). 숫자만 양옆에서 배제한다 —
-        # 더 긴 숫자열 안에서 두 자리를 잘라내는 오탐은 그대로 막힌다.
-        m2 = re.search(r"(?<!\d)(\d{2})[._](\d{2})(?!\d)", filename)
-        if m2:
-            year, month = m2.groups()
-            if 1 <= int(month) <= 12:
-                self.current_period = f"{int(year)}년 {int(month)}월"
+        # 경계를 \b 로 잡으면 밑줄과 한글이 모두 단어 문자라 "네이버_26.05.csv" 처럼
+        # 흔한 이름에서 경계가 생기지 않아 매칭에 실패한다(docstring 이 지원한다고
+        # 적어 둔 형태인데도). 숫자만 양옆에서 배제해 더 긴 숫자열 안을 자르는 것은 막는다.
+        #
+        # 다만 그것만으로는 "05.01~05.31" 같은 **날짜**도 연·월로 읽힌다. 연도 범위를
+        # 함께 검사해 갈라낸다 — 날짜의 월은 12 를 넘지 않으므로 연도를 20 이상으로
+        # 제한하면 MM.DD 와 겹칠 일이 없다. 걸러진 이름은 아래 CSV 제목행 탐색으로
+        # 넘어가고, 그쪽이 파일명보다 신뢰도가 높다.
+        for m2 in re.finditer(r"(?<!\d)(\d{2})[._](\d{2})(?!\d)", filename):
+            year, month = int(m2.group(1)), int(m2.group(2))
+            if _PERIOD_MIN_YY <= year <= _PERIOD_MAX_YY and 1 <= month <= 12:
+                self.current_period = f"{year}년 {month}월"
                 return
         # 파일명에서 못 찾으면 CSV 제목/기간 행에서 탐색 (네이버: "(2026.06.01.~...)",
         # 구글 Ads: "2026년 6월 1일 - ..."). UTF-16(구글) 파일은 ASCII 바이트 사이에

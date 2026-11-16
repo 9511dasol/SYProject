@@ -23,6 +23,5 @@ def build_orchestrator(db: Session, user: User | None = None) -> ReportOrchestra
         comment_svc=CommentService(llm=build_llm()),
         builder_svc=ReportBuilderService(),
         mail_sender=build_mail_sender(),
-        db=db,
         user=user,
     )

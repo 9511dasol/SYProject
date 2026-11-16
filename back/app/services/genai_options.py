@@ -26,6 +26,9 @@ def build_genai_client(api_key: str, *, image: bool = False) -> genai.Client:
         api_key=api_key,
         http_options=types.HttpOptions(
             timeout=int(seconds * 1000),
-            retry_options=types.HttpRetryOptions(attempts=settings.LLM_MAX_RETRIES),
+            # google-genai 의 attempts 는 첫 요청을 **포함한** 횟수다(1이면 재시도 없음).
+            # anthropic/openai 의 max_retries 는 첫 요청을 뺀 재시도 횟수라, 같은 설정값을
+            # 그대로 넘기면 Gemini 만 한 번 덜 시도한다.
+            retry_options=types.HttpRetryOptions(attempts=settings.LLM_MAX_RETRIES + 1),
         ),
     )

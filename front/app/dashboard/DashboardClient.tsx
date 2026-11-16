@@ -7,6 +7,7 @@ import ReportDashboard, { type ImportedReport, type PendingLoad } from '@/compon
 import Modal from '@/components/ui/Modal';
 import { useToast } from '@/components/providers/ToastProvider';
 import BottomTaskBar, { type TaskProgress } from '@/components/ui/BottomTaskBar';
+import { useFileDrop } from '@/hooks/useFileDrop';
 import { loadExcelReports, startSaveExcelTask, getSaveExcelTaskStatus, undoUpload } from '@/lib/marketingClient';
 import { queryKeys } from '@/lib/queryKeys';
 import {
@@ -14,6 +15,7 @@ import {
   loadActiveTab,
   loadPersistedReports,
   persistReport,
+  ReportStorageFullError,
   saveActiveTab,
 } from '@/lib/reportStorage';
 
@@ -62,7 +64,6 @@ export default function DashboardClient() {
   const [uploadOpen, setUploadOpen] = useState(false);
   // 홈 카드에 떨궈 모달을 연 경우, 그 파일을 모달의 첫 상태로 넘긴다
   const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
-  const [dragOver, setDragOver] = useState(false);
   const { toast: addToast } = useToast();
   const [saveTaskEntries, setSaveTaskEntries] = useState<SaveTaskEntry[]>([]);
   const [importedReports, setImportedReports] = useState<ImportedReport[]>([]);
@@ -104,16 +105,24 @@ export default function DashboardClient() {
     })),
   });
 
-  // 완료 태스크 → periods 캐시 무효화 (한 번만)
+  // 완료 태스크 → periods 캐시 무효화 (한 번만).
+  //
+  // 의존성으로 "방금 done 이 된 태스크 id" 만 본다. 예전에는 의존성 배열이 아예 없어
+  // 매 렌더마다 폴링 목록을 전부 훑었다 — invalidatedRef 가드 덕에 결과는 맞았지만,
+  // 폴링이 여러 건이면 무의미한 순회가 계속 돌았다.
+  const doneRemoteIds = pollEntries
+    .filter((entry, idx) => saveTaskQueries[idx]?.data?.status === 'done')
+    .map((entry) => entry.remoteId!)
+    .join(',');
+
   useEffect(() => {
-    pollEntries.forEach((entry, idx) => {
-      const data = saveTaskQueries[idx]?.data;
-      if (data?.status === 'done' && entry.remoteId && !invalidatedRef.current.has(entry.remoteId)) {
-        invalidatedRef.current.add(entry.remoteId);
-        queryClient.invalidateQueries({ queryKey: queryKeys.periods() });
-      }
-    });
-  });
+    const finished = doneRemoteIds ? doneRemoteIds.split(',') : [];
+    const fresh = finished.filter((id) => !invalidatedRef.current.has(id));
+    if (fresh.length === 0) return;
+
+    fresh.forEach((id) => invalidatedRef.current.add(id));
+    queryClient.invalidateQueries({ queryKey: queryKeys.periods() });
+  }, [doneRemoteIds, queryClient]);
 
   // BottomTaskBar용 TaskProgress 파생
   const saveTasks: TaskProgress[] = saveTaskEntries.map((entry) => {
@@ -205,7 +214,15 @@ export default function DashboardClient() {
           setImportedReports((prev) => [...prev, ...newReports]);
           setActiveDashTab(newReports[0].id);
           saveActiveTab(newReports[0].id);
-          newReports.forEach((r) => persistReport(r).catch(() => {}));
+          // 보관은 "새로고침 후 복원"용 부가 기능이라 실패해도 화면은 그대로 둔다.
+          // 다만 용량이 꽉 찬 건 알려 줘야 한다 — 말 없이 넘어가면 다음 방문에
+          // 리포트가 사라진 이유를 알 길이 없다.
+          Promise.allSettled(newReports.map(persistReport)).then((results) => {
+            const full = results.some(
+              (r) => r.status === 'rejected' && r.reason instanceof ReportStorageFullError,
+            );
+            if (full) addToast('info', new ReportStorageFullError().message);
+          });
           addToast(
             'success',
             reports.length > 1
@@ -279,15 +296,14 @@ export default function DashboardClient() {
     setDroppedFiles([]);
   }, []);
 
-  // 카드에 떨군 파일로 모달을 연다. preventDefault 를 빠뜨리면 브라우저가 그 파일로
-  // 페이지를 이동시켜 작업하던 화면이 통째로 날아간다.
-  const handleCardDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    const files = Array.from(e.dataTransfer.files);
+  // 카드에 떨군 파일로 모달을 연다. 드롭 처리(기본 동작 차단·드래그 상태·빈 드롭
+  // 무시)는 공용 훅이 맡는다 — 예전에는 파일이 아닌 것(선택한 텍스트·링크)을 떨궈도
+  // 빈 업로드 모달이 열렸다.
+  const handleCardFiles = useCallback((files: File[]) => {
     setDroppedFiles(files);
     setUploadOpen(true);
   }, []);
+  const { isDragging: dragOver, handlers: cardDropHandlers } = useFileDrop(handleCardFiles);
 
   return (
     <>
@@ -360,12 +376,7 @@ export default function DashboardClient() {
                 단계를 건너뛰고 바로 확인 단계로 열린다 (클릭 3번 → 1번). */}
             <button
               onClick={openUpload}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragOver(true);
-              }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={handleCardDrop}
+              {...cardDropHandlers}
               className={`${CARD_BASE} ${
                 dragOver
                   ? 'from-emerald-500/25 to-teal-500/10 border-emerald-500 ring-2 ring-emerald-500/40'

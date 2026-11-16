@@ -81,12 +81,15 @@ class TestReportOrchestratorLogsUsage:
         if mail_fails:
             mail.send.side_effect = RuntimeError("smtp down")
 
+        # 발송 기록은 전용 세션으로 남기므로(=_save_report_log) 오케스트레이터는
+        # 세션을 들고 있지 않는다. 테스트에서는 그 기록을 끈다.
+        mocker.patch("app.services.report_orchestrator._save_report_log")
+
         return ReportOrchestrator(
             analysis_svc=mocker.MagicMock(),
             comment_svc=comment_svc,
             builder_svc=mocker.MagicMock(),
             mail_sender=mail,
-            db=mocker.MagicMock(),
             user=user,
         )
 

@@ -156,9 +156,29 @@ def _purge_expired_tasks() -> None:
         logger.info("만료 정리 — 작업 %d건, 되돌리기 스냅샷 %d건 삭제", tasks, undos)
 
 
+def _align_worker_threads_with_db_pool() -> None:
+    """워커 스레드 수를 DB 커넥션 풀 크기에 맞춘다.
+
+    블로킹 엔드포인트를 스레드풀로 옮기면서 동시에 DB 를 때리는 요청 수가 워커 스레드
+    수만큼 늘었다. anyio 기본값은 40 인데 커넥션 풀은 그보다 작아, 스레드는 남는데
+    커넥션이 없어 pool_timeout(30초)을 기다리다 500 이 나는 조합이 된다.
+
+    스레드를 풀 크기까지만 허용하면 초과분은 커넥션 대기 대신 스레드 대기로 줄을 선다 —
+    같은 양의 일을 하지만 실패 대신 지연으로 나타난다.
+    """
+    import anyio.to_thread  # noqa: PLC0415 — 이벤트 루프 안에서만 불러야 한다
+
+    allowed = settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW
+    limiter = anyio.to_thread.current_default_thread_limiter()
+    if limiter.total_tokens > allowed:
+        limiter.total_tokens = allowed
+        logger.info("worker threads capped at %d (DB pool size)", allowed)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     _init_db()
+    _align_worker_threads_with_db_pool()
     # 리포트 템플릿은 여기서 선로드하지 않는다.
     # 선로드하면 export를 한 번도 쓰지 않는 인스턴스까지 그 메모리를 상시 점유한다.
     # excel_service._template_bytes()가 첫 호출 때 읽고 mtime 기준으로 캐시하므로,

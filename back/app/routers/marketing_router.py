@@ -583,6 +583,12 @@ def _run_save_task(
                     )
             raise
 
+        # replace 저장에서는 1단계 삭제가 되돌림의 기준이다. save_mapped_dataframe 이
+        # 만든 undo_id 는 이미 비워진 기간을 읽어 스냅샷이 비어 있어 아무것도 복원하지
+        # 못한다 — 삭제 직전에 떠 둔 스냅샷을 돌려줘야 "되돌리기"가 실제로 동작한다.
+        if pre_delete_rows:
+            undo_id = delete_undo_id
+
         task_store.update_task(task_id, progress=90)
 
         # ── 3단계: 코멘트 — 실패해도 데이터 저장까지 실패로 만들지 않는다 ──────────

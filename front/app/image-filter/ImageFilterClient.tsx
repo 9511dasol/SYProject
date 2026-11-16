@@ -57,6 +57,7 @@ export default function ImageFilterClient() {
     file,
     previewUrl,
     dimensions: originalDimensions,
+    selectionId,
     select,
     clear,
   } = useImageUpload((dims) =>
@@ -336,8 +337,9 @@ export default function ImageFilterClient() {
                   {PROCESSING_LABELS[processing]}
                 </Button>
 
-                {/* 편집 중에는 기다리는 것 말고 선택지가 없었다 — 끊을 수 있게 한다 */}
-                {processing !== 'idle' && (
+                {/* AI 작업 중에는 기다리는 것 말고 선택지가 없었다 — 끊을 수 있게 한다.
+                    요소 분석(analyzing)도 같은 Gemini 호출이라 함께 포함한다. */}
+                {isProcessing && (
                   <Button variant="outline" className="w-full" onClick={handleCancel}>
                     <i className="bx bx-x text-lg" />
                     취소
@@ -355,9 +357,10 @@ export default function ImageFilterClient() {
         </div>
 
         {/* 배경 시안 제안 — 프롬프트 편집과 독립적인 보조 기능.
-            key 로 파일을 묶어 두면 다른 파일을 올렸을 때 이전 시안이 알아서 비워진다
-            (컴포넌트 안에서 effect 로 리셋하면 불필요한 렌더가 한 번 더 돈다). */}
-        {file && <BackgroundSuggest key={`${file.name}:${file.size}:${file.lastModified}`} file={file} />}
+            key 를 선택 번호로 두면 파일을 바꿀 때는 물론 **같은 파일을 다시 고를 때도**
+            이전 시안이 비워진다 (이름·크기·수정시각으로 키를 만들면 같은 파일을 다시
+            골랐을 때 문자열이 같아 리마운트되지 않는다). */}
+        {file && <BackgroundSuggest key={selectionId} file={file} />}
 
         {/* 안내 문구 */}
         <p className="text-center text-xs text-fg-subtle">

@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import DropZone from '@/components/image-resize/DropZone';
 import PlatformTabs from '@/components/heading-suggest/PlatformTabs';
 import HeadingGrid, { HeadingGridSkeleton } from '@/components/heading-suggest/HeadingGrid';
 import Button from '@/components/ui/Button';
 import type { HeadingItem, HeadingLoadingState, PlatformFilter } from '@/types/heading';
+import { useImageUpload } from '@/hooks/useImageUpload';
+import { isUserCancel } from '@/lib/api/authFetch';
 import { fetchHeadings } from '@/lib/headingClient';
 
 const LOADING_LABELS: Record<HeadingLoadingState, string> = {
@@ -18,8 +20,6 @@ const LOADING_LABELS: Record<HeadingLoadingState, string> = {
 // 이전 생성 기록(썸네일 갤러리·마지막 작업 자동 복원)은 이 페이지에서 걷어냈다.
 // 저장은 그대로 되고, 지난 기록은 '헤딩 문구 기록'(/heading-history) 페이지에서 본다.
 export default function HeadingSuggestClient() {
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState<HeadingLoadingState>('idle');
   const [headings, setHeadings] = useState<HeadingItem[]>([]);
   const [activeTab, setActiveTab] = useState<PlatformFilter>('전체');
@@ -27,48 +27,59 @@ export default function HeadingSuggestClient() {
 
   const isLoading = loading !== 'idle';
 
-  /* ── 파일 선택 ──────────────────────────────────────────────── */
+  /* ── 파일 선택 (업로드·미리보기·URL 해제는 공용 훅) ─────────── */
+  const { file, previewUrl, select, clear } = useImageUpload();
+
   const handleFileSelect = useCallback(
     (f: File) => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(URL.createObjectURL(f));
-      setFile(f);
       setHeadings([]);
       setError(null);
       setActiveTab('전체');
+      select(f);
     },
-    [previewUrl],
+    [select],
   );
 
   const handleClear = useCallback(() => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setFile(null);
-    setPreviewUrl(null);
+    clear();
     setHeadings([]);
     setError(null);
     setActiveTab('전체');
-  }, [previewUrl]);
+  }, [clear]);
 
   /* ── AI 분석 실행 ───────────────────────────────────────────── */
+  // Vision 호출이라 상한을 두지 않는다 — 대신 끊을 수단을 준다
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => abortRef.current?.abort(), []);
+
   const handleAnalyze = async () => {
     if (!file) return;
     setError(null);
     setHeadings([]);
 
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const record = await fetchHeadings(
         file,
         () => setLoading('compressing'),
         () => setLoading('analyzing'),
+        controller.signal,
       );
       setHeadings(record.headings);
       setActiveTab('전체');
     } catch (err) {
-      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+      // 사용자가 직접 끊은 건 실패가 아니다
+      if (!isUserCancel(err)) {
+        setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+      }
     } finally {
+      abortRef.current = null;
       setLoading('idle');
     }
   };
+
+  const handleCancel = useCallback(() => abortRef.current?.abort(), []);
 
   /* ── 탭별 카운트 ────────────────────────────────────────────── */
   const counts = useMemo<Record<PlatformFilter, number>>(
@@ -81,11 +92,8 @@ export default function HeadingSuggestClient() {
     [headings],
   );
 
-  /* ── 언마운트 정리 ──────────────────────────────────────────── */
-  useEffect(() => {
-    return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  /* objectURL 해제는 useImageUpload 가 맡는다 — 예전 정리 함수는 첫 렌더의
+     previewUrl(null)을 클로저로 잡고 있어 실제로는 아무것도 해제하지 못했다 */
 
   /* ── 렌더 ───────────────────────────────────────────────────── */
   return (
@@ -139,6 +147,14 @@ export default function HeadingSuggestClient() {
             >
               {!isLoading && <i className="bx bx-bulb text-lg" />}
               {LOADING_LABELS[loading]}
+            </Button>
+          )}
+
+          {/* 분석 중에는 기다리는 것 말고 선택지가 없었다 — 끊을 수 있게 한다 */}
+          {isLoading && (
+            <Button variant="outline" className="w-full" onClick={handleCancel}>
+              <i className="bx bx-x text-lg" />
+              취소
             </Button>
           )}
 

@@ -417,17 +417,25 @@ function DiffCell({ value, bold = false }: { value: number; bold?: boolean }) {
  * 예전에는 배열 인덱스를 key 로 썼다. 정렬을 바꾸면 같은 인덱스에 다른 키워드가
  * 와서 React 가 DOM 을 재활용하며 모든 행을 갱신한다 — 수천 행에서는 정렬할 때마다
  * 눈에 띄게 느려진다.
+ *
+ * 다만 네 값만으로는 유일하지 않다. 이미 비교된 통합 시트는 같은
+ * (캠페인유형, 기기, 키워드, 전환유형) 조합이 두 줄 이상 올 수 있어(서버가 중복을
+ * 합치지 않는다) key 가 겹치면 그 행이 화면에서 사라진다. 원본 배열에서의 위치를
+ * 덧붙여 유일성을 보장한다 — 정렬이 바뀌어도 같은 행은 같은 키를 유지한다.
  */
-function rowKey(row: CompareRow): string {
-  return `${row.keyword}|${row.campaign_type}|${row.device}|${row.conv_type}`;
+function rowKey(row: CompareRow, originalIndex: number): string {
+  return `${originalIndex}|${row.keyword}|${row.campaign_type}|${row.device}|${row.conv_type}`;
 }
 
 function CompareTable({
   rows,
+  keyOf,
   sort,
   onSort,
 }: {
   rows: CompareRow[];
+  /** 원본 배열 기준으로 미리 만들어 둔 행 키 (필터·정렬은 객체 참조를 보존한다) */
+  keyOf: (row: CompareRow) => string;
   sort: { key: SortKey; dir: 'asc' | 'desc' };
   onSort: (k: SortKey) => void;
 }) {
@@ -449,7 +457,7 @@ function CompareTable({
         {rows.map((row) => {
           const m = STATUS_META[row.status];
           return (
-            <li key={rowKey(row)} className="p-4 space-y-2">
+            <li key={keyOf(row)} className="p-4 space-y-2">
               <div className="flex items-start gap-2">
                 <span className={`shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${m.badgeCls}`}>
                   <i className={`bx ${m.icon} text-xs`} />
@@ -512,7 +520,7 @@ function CompareTable({
           {rows.map((row) => {
             const m = STATUS_META[row.status];
             return (
-              <tr key={rowKey(row)} className="hover:bg-surface-2/60 transition-colors">
+              <tr key={keyOf(row)} className="hover:bg-surface-2/60 transition-colors">
                 <td className="px-3 py-2.5">
                   <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-semibold ${m.badgeCls}`}>
                     <i className={`bx ${m.icon} text-xs`} />
@@ -578,6 +586,14 @@ function ResultView({
         : { key, dir: 'desc' },
     );
   }, []);
+
+  // 행 키는 원본 배열 기준으로 한 번만 만든다. 필터·정렬은 배열만 새로 만들고
+  // 행 객체는 그대로 쓰므로, 객체를 키로 찾으면 정렬이 바뀌어도 같은 키가 나온다.
+  const keyOf = useMemo(() => {
+    const keys = new Map<CompareRow, string>();
+    sheet.rows.forEach((row, i) => keys.set(row, rowKey(row, i)));
+    return (row: CompareRow) => keys.get(row) ?? rowKey(row, -1);
+  }, [sheet]);
 
   const filteredRows = useMemo(() => {
     let rows = sheet.rows.slice();
@@ -701,7 +717,7 @@ function ResultView({
       </div>
 
       {/* 비교 테이블 */}
-      <CompareTable rows={visibleRows} sort={sort} onSort={handleSort} />
+      <CompareTable rows={visibleRows} keyOf={keyOf} sort={sort} onSort={handleSort} />
 
       {hasMore && (
         <div className="flex flex-col items-center gap-2 pt-2">
