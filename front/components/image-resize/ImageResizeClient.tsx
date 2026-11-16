@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import DropZone from '@/components/image-resize/DropZone';
 import DimensionInputs from '@/components/image-resize/DimensionInputs';
 import FormatSelector from '@/components/image-resize/FormatSelector';
+import MediaPresetBatch from '@/components/image-resize/MediaPresetBatch';
 import Button from '@/components/ui/Button';
 import type { ImageDimensions, ResizeFormState } from '@/types/imageResize';
 import { compressImageIfNeeded, resizeImage } from '@/lib/imageResizeClient';
@@ -291,6 +292,22 @@ export default function ImageResizeClient() {
             </>
           )}
         </div>
+
+        {/* 매체 규격 일괄 변환 — 단일 변환과 독립적인 보조 카드 */}
+        {file && (
+          <div className="rounded-2xl border border-border bg-surface shadow-card overflow-hidden">
+            <div className="p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <i className="bx bx-grid-alt text-xl text-violet-500" />
+                <span className="text-sm font-semibold text-fg-body">매체 규격 일괄 변환</span>
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-violet-100 dark:bg-violet-900/50 text-violet-600 dark:text-violet-400 tracking-wide">
+                  무료
+                </span>
+              </div>
+              <MediaPresetBatch file={file} outputFormat={form.outputFormat} />
+            </div>
+          </div>
+        )}
 
         {/* 안내 문구 */}
         <p className="text-center text-xs text-fg-subtle">

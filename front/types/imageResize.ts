@@ -45,3 +45,12 @@ export interface FormatOption {
   description: string;
   icon: string;
 }
+
+/** 매체 규격 프리셋 — GET /api/image-resize/presets 응답 한 줄 */
+export interface MediaPreset {
+  key: string;
+  media: string;   // Meta | Google | YouTube | Naver | Kakao
+  label: string;   // "피드 1:1" 등
+  width: number;
+  height: number;
+}

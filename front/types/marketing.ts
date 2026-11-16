@@ -123,6 +123,14 @@ export interface RowDiff {
   updated: string[];
 }
 
+/** 기간 비교(MoM·YoY)용 다른 달 합계 — 그 달 데이터가 없으면 서버가 null 을 준다 */
+export interface ComparePeriod {
+  year: number;
+  month: number;
+  label: string;   // "25년 10월"
+  total: MediaSummary;
+}
+
 export interface ReportData {
   period: string;
   total: MediaSummary;
@@ -132,6 +140,8 @@ export interface ReportData {
   comment_updated_at?: string | null;
   diff?: Record<string, RowDiff>;  // {campaign_type: {added, updated}}
   undo_id?: string;
+  compare_mom?: ComparePeriod | null;  // 전월
+  compare_yoy?: ComparePeriod | null;  // 전년동월
 }
 
 export interface RowFormData {

@@ -6,9 +6,17 @@ import DimensionInputs from '@/components/image-resize/DimensionInputs';
 import FormatSelector from '@/components/image-resize/FormatSelector';
 import PromptInput from '@/components/image-filter/PromptInput';
 import AiResultBanner from '@/components/image-filter/AiResultBanner';
+import BackgroundSuggest from '@/components/image-filter/BackgroundSuggest';
+import ElementPicker from '@/components/image-filter/ElementPicker';
 import Button from '@/components/ui/Button';
-import type { ImageDimensions, AiResult, FilterFormState, FilterProcessingState } from '@/types/imageFilter';
-import { editAndResize } from '@/lib/imageFilterClient';
+import type {
+  ImageDimensions,
+  AiResult,
+  FilterFormState,
+  FilterProcessingState,
+  ImageElement,
+} from '@/types/imageFilter';
+import { analyzeElements, editAndResize } from '@/lib/imageFilterClient';
 
 const INITIAL_FORM: FilterFormState = {
   prompt: '',
@@ -35,7 +43,12 @@ export default function ImageFilterClient() {
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const isProcessing = processing !== 'idle';
+  // 요소 분석 — null 은 "아직 분석 안 함" (빈 배열과 구분)
+  const [elements, setElements] = useState<ImageElement[] | null>(null);
+  const [selectedElementId, setSelectedElementId] = useState<number | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+
+  const isProcessing = processing !== 'idle' || analyzing;
 
   /* ── 파일 선택 ──────────────────────────────────────────────── */
   const handleFileSelect = useCallback(
@@ -46,6 +59,8 @@ export default function ImageFilterClient() {
       setFile(f);
       setAiResult(null);
       setError(null);
+      setElements(null);
+      setSelectedElementId(null);
       setForm((prev) => ({ ...prev, targetWidth: '', targetHeight: '' }));
 
       const img = new Image();
@@ -72,7 +87,25 @@ export default function ImageFilterClient() {
     setForm(INITIAL_FORM);
     setAiResult(null);
     setError(null);
+    setElements(null);
+    setSelectedElementId(null);
   }, [previewUrl]);
+
+  /* ── 요소 분석 ──────────────────────────────────────────────── */
+  const handleAnalyze = async () => {
+    if (!file || analyzing) return;
+    setError(null);
+    setAnalyzing(true);
+    try {
+      const found = await analyzeElements(file);
+      setElements(found);
+      setSelectedElementId(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '요소 분석에 실패했습니다.');
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   /* ── 가로 변경 (비율 유지) ──────────────────────────────────── */
   const handleWidthChange = useCallback(
@@ -107,6 +140,8 @@ export default function ImageFilterClient() {
   );
 
   /* ── AI 편집 & 다운로드 ─────────────────────────────────────── */
+  const selectedElement = elements?.find((el) => el.id === selectedElementId) ?? null;
+
   const handleEdit = async () => {
     if (!file || !form.prompt.trim()) return;
 
@@ -116,10 +151,16 @@ export default function ImageFilterClient() {
     setError(null);
     setAiResult(null);
 
+    // 요소를 선택했으면 "그 영역만 수정" 지시를 프롬프트에 입힌다 —
+    // 백엔드 편집 엔드포인트는 그대로 두고 지시만 정밀해진다
+    const prompt = selectedElement
+      ? composeElementPrompt(selectedElement, form.prompt.trim())
+      : form.prompt;
+
     try {
       const { provider } = await editAndResize(
         file,
-        form.prompt,
+        prompt,
         w,
         h,
         form.outputFormat,
@@ -182,15 +223,50 @@ export default function ImageFilterClient() {
             <>
               <Divider />
 
-              {/* 섹션 2: 편집 프롬프트 */}
+              {/* 섹션 2: 요소 선택 (선택사항) */}
+              <section className="p-6">
+                <SectionLabel number={2} label="요소 선택 (선택사항)" badge="Gemini" />
+                <p className="text-xs text-fg-subtle mt-1 mb-3">
+                  AI가 이미지 속 요소(문구·로고·제품 등)를 찾아드립니다. 요소를 클릭해
+                  고르면 그 부분만 정확히 수정됩니다.
+                </p>
+                {elements === null ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAnalyze}
+                    isLoading={analyzing}
+                    disabled={isProcessing && !analyzing}
+                  >
+                    {!analyzing && <i className="bx bx-scan text-base" />}
+                    {analyzing ? '요소를 분석하는 중...' : '요소 분석하기'}
+                  </Button>
+                ) : (
+                  previewUrl && (
+                    <ElementPicker
+                      previewUrl={previewUrl}
+                      elements={elements}
+                      selectedId={selectedElementId}
+                      onSelect={setSelectedElementId}
+                      disabled={isProcessing}
+                    />
+                  )
+                )}
+              </section>
+
+              <Divider />
+
+              {/* 섹션 3: 편집 프롬프트 */}
               <section className="p-6">
                 <SectionLabel
-                  number={2}
+                  number={3}
                   label="편집 프롬프트"
                   badge="Gemini"
                 />
                 <p className="text-xs text-fg-subtle mt-1 mb-3">
-                  이미지를 어떻게 바꾸고 싶은지 자유롭게 입력하세요.
+                  {selectedElement
+                    ? `선택한 "${selectedElement.label}" 요소를 어떻게 바꿀지 입력하세요.`
+                    : '이미지를 어떻게 바꾸고 싶은지 자유롭게 입력하세요.'}
                 </p>
                 <PromptInput
                   value={form.prompt}
@@ -203,9 +279,9 @@ export default function ImageFilterClient() {
                 <>
                   <Divider />
 
-                  {/* 섹션 3: 크기 설정 */}
+                  {/* 섹션 4: 크기 설정 */}
                   <section className="p-6">
-                    <SectionLabel number={3} label="리사이즈 크기" />
+                    <SectionLabel number={4} label="리사이즈 크기" />
                     <p className="text-xs text-fg-subtle mt-1 mb-3">
                       편집 완료 후 이 크기로 리사이즈됩니다.
                     </p>
@@ -225,9 +301,9 @@ export default function ImageFilterClient() {
 
                   <Divider />
 
-                  {/* 섹션 4: 출력 포맷 */}
+                  {/* 섹션 5: 출력 포맷 */}
                   <section className="p-6">
-                    <SectionLabel number={4} label="출력 포맷" />
+                    <SectionLabel number={5} label="출력 포맷" />
                     <div className="mt-3">
                       <FormatSelector
                         value={form.outputFormat}
@@ -282,12 +358,31 @@ export default function ImageFilterClient() {
           )}
         </div>
 
+        {/* 배경 시안 제안 — 프롬프트 편집과 독립적인 보조 기능 */}
+        {file && <BackgroundSuggest file={file} />}
+
         {/* 안내 문구 */}
         <p className="text-center text-xs text-fg-subtle">
           이미지는 서버에 저장되지 않으며, AI 편집 처리 후 즉시 반환됩니다.
         </p>
       </div>
     </div>
+  );
+}
+
+/* ── 요소 지정 프롬프트 조합 ─────────────────────────────────── */
+
+/**
+ * 선택한 요소의 위치(비율 좌표)를 자연어로 풀어 "그 영역만 수정" 지시를 만든다.
+ * 백엔드 편집 엔드포인트는 자유 프롬프트 그대로 받으므로 변경이 필요 없다.
+ */
+function composeElementPrompt(el: ImageElement, instruction: string): string {
+  const range = (start: number, size: number) =>
+    `${Math.round(start * 100)}%~${Math.round((start + size) * 100)}%`;
+  return (
+    `이미지 속 "${el.label}" 요소(가로 ${range(el.box.x, el.box.w)}, ` +
+    `세로 ${range(el.box.y, el.box.h)} 영역)만 다음 지시대로 수정해주세요: ${instruction}. ` +
+    `그 외 영역은 원본과 똑같이 유지해주세요.`
   );
 }
 

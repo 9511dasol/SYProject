@@ -1,4 +1,5 @@
 import type { RowPendingStatus } from '@/hooks/usePendingRows';
+import type { Delta } from './compare';
 
 /**
  * 리포트 표의 작은 표시 요소들.
@@ -42,14 +43,48 @@ export function PendingBadge({ type }: { type: RowPendingStatus }) {
   );
 }
 
+// ── 기간 비교 증감 칩 ─────────────────────────────────────────────────────────
+
+const DELTA_TONE_CLS = {
+  success: 'text-badge-success-fg',
+  danger: 'text-badge-danger-fg',
+  neutral: 'text-fg-subtle',
+} as const;
+
+/** KPI 카드·비교 표에서 쓰는 "전월 +12.3%" 꼴 한 줄. delta 가 null 이면 '–' */
+export function DeltaChip({ name, delta }: { name?: string; delta: Delta | null }) {
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] leading-none tabular-nums whitespace-nowrap">
+      {name && <span className="text-fg-subtle">{name}</span>}
+      {delta ? (
+        <span className={`font-semibold ${DELTA_TONE_CLS[delta.tone]}`}>{delta.text}</span>
+      ) : (
+        <span className="text-fg-subtle">–</span>
+      )}
+    </span>
+  );
+}
+
 // ── KPI 카드 ─────────────────────────────────────────────────────────────────
 
-export function KpiCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+export function KpiCard({
+  label,
+  value,
+  sub,
+  deltas,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  /** 기간 비교 칩 줄 — 비교 데이터가 있을 때만 내려온다 */
+  deltas?: React.ReactNode;
+}) {
   return (
     <div className="rounded-xl bg-surface-2 border border-border shadow-card px-4 py-3 flex flex-col gap-0.5">
       <span className="text-xs text-fg-subtle">{label}</span>
       <span className="text-lg font-semibold text-fg tabular-nums">{value}</span>
       {sub && <span className="text-xs text-fg-subtle tabular-nums">{sub}</span>}
+      {deltas && <span className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">{deltas}</span>}
     </div>
   );
 }

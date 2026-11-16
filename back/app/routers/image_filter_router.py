@@ -2,7 +2,7 @@
 
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,17 @@ from app.core.settings import settings
 from app.models.user_model import User
 from app.repositories.ai_tool_usage_log_repo import AIToolUsageLogRepository
 from app.schemas.image_filter_schema import EditInput, get_edit_input
+from app.schemas.image_resize_schema import read_and_check_file, validate_content_length
+from app.services.image_background_service import (
+    BackgroundSuggestion,
+    ImageBackgroundError,
+    suggest_backgrounds,
+)
+from app.services.image_element_service import (
+    ElementAnalysis,
+    ImageAnalyzeError,
+    analyze_elements,
+)
 from app.services.image_filter_service import ImageEditError, edit_and_resize
 
 router = APIRouter(
@@ -24,6 +35,67 @@ router = APIRouter(
         Depends(require_ai_budget),
     ],
 )
+
+
+@router.post("/analyze", response_model=ElementAnalysis)
+@limiter.limit(settings.RATE_LIMIT_AI)
+async def analyze_endpoint(
+    request: Request,
+    file: UploadFile = File(..., description="분석할 이미지"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ElementAnalysis:
+    """이미지 속 구성 요소(텍스트·로고·제품 등)를 bounding box 와 함께 추출.
+
+    프런트가 박스를 이미지 위에 겹쳐 그려 "클릭으로 수정 대상 특정"에 쓴다.
+    """
+    validate_content_length(request)
+    file_bytes, filename = await read_and_check_file(file)
+
+    try:
+        analysis, usage = await analyze_elements(file_bytes)
+    except ImageAnalyzeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    AIToolUsageLogRepository(db).create(
+        user=current_user,
+        tool="image_element_analyze",
+        image_filename=filename,
+        prompt=f"요소 분석 ({len(analysis.elements)}개 검출)",
+        prompt_tokens=usage.prompt_tokens if usage else None,
+        output_tokens=usage.output_tokens if usage else None,
+        total_tokens=usage.total_tokens if usage else None,
+    )
+    return analysis
+
+
+@router.post("/backgrounds", response_model=BackgroundSuggestion)
+@limiter.limit(settings.RATE_LIMIT_AI)
+async def backgrounds_endpoint(
+    request: Request,
+    file: UploadFile = File(..., description="배경 시안을 만들 이미지"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BackgroundSuggestion:
+    """피사체는 유지하고 배경만 바꾼 시안 여러 장을 생성해 돌려준다."""
+    validate_content_length(request)
+    file_bytes, filename = await read_and_check_file(file)
+
+    try:
+        suggestion, usage = await suggest_backgrounds(file_bytes)
+    except ImageBackgroundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    AIToolUsageLogRepository(db).create(
+        user=current_user,
+        tool="image_background",
+        image_filename=filename,
+        prompt=f"배경 시안 생성 ({len(suggestion.variants)}종)",
+        prompt_tokens=usage.prompt_tokens if usage else None,
+        output_tokens=usage.output_tokens if usage else None,
+        total_tokens=usage.total_tokens if usage else None,
+    )
+    return suggestion
 
 
 @router.post("/edit")

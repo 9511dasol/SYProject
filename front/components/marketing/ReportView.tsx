@@ -6,8 +6,10 @@ import MediaShareBars from '@/components/charts/MediaShareBars';
 import TrendChart from '@/components/charts/TrendChart';
 import CommentSection from '@/components/marketing/CommentSection';
 import RowEditorModal from '@/components/marketing/RowEditorModal';
+import ActionSuggestions from '@/components/marketing/report/ActionSuggestions';
 import DailyTable from '@/components/marketing/report/DailyTable';
 import KpiGrid from '@/components/marketing/report/KpiGrid';
+import PeriodCompareTable from '@/components/marketing/report/PeriodCompareTable';
 import ReportTabs from '@/components/marketing/report/ReportTabs';
 import SummaryTable from '@/components/marketing/report/SummaryTable';
 import Alert from '@/components/ui/Alert';
@@ -155,11 +157,32 @@ export default function ReportView({
 
           {activeTab === SUMMARY_TAB ? (
             <>
-              <KpiGrid total={data.total} />
+              <KpiGrid
+                total={data.total}
+                mom={data.compare_mom?.total}
+                yoy={data.compare_yoy?.total}
+              />
 
               <div className="grid gap-4 xl:grid-cols-2">
                 <TrendChart points={totalTrend} title="일별 추이" />
                 <MediaShareBars rows={data.by_media} />
+              </div>
+
+              {(data.compare_mom || data.compare_yoy) && (
+                <div>
+                  <h3 className="text-sm font-medium text-fg-muted mb-2">기간 비교</h3>
+                  <PeriodCompareTable
+                    current={data.total}
+                    currentLabel={data.period}
+                    mom={data.compare_mom}
+                    yoy={data.compare_yoy}
+                  />
+                </div>
+              )}
+
+              <div>
+                <h3 className="text-sm font-medium text-fg-muted mb-2">액션 제안</h3>
+                <ActionSuggestions data={data} />
               </div>
 
               <div>

@@ -15,6 +15,8 @@ import type { AIToolKey, AIToolUsageLogItem, AIToolUsageLogListResponse, AIUsage
 
 const TOOL_LABELS: Record<AIToolKey, string> = {
   image_filter: '이미지 정제',
+  image_element_analyze: '이미지 요소 분석',
+  image_background: '배경 시안 생성',
   image_resize: '리사이저 (AI 업스케일)',
   heading_suggest: '헤딩 문구 추천',
   marketing_comment: '마케팅 코멘트 생성',

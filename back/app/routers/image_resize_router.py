@@ -2,7 +2,7 @@
 
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -11,15 +11,65 @@ from app.core.feature_flags import require_feature_flag
 from app.core.security import get_current_user, get_db
 from app.models.user_model import User
 from app.repositories.ai_tool_usage_log_repo import AIToolUsageLogRepository
-from app.schemas.image_resize_schema import ResizeInput, get_resize_input
+from app.schemas.image_resize_schema import (
+    ResizeInput,
+    get_resize_input,
+    normalize_format,
+    read_and_check_file,
+    validate_content_length,
+)
 from app.services.image_ai_edit_service import _UPSCALE_PROMPT
 from app.services.image_resize_service import resize_image
+from app.services.media_preset_service import (
+    MEDIA_PRESETS,
+    MediaPreset,
+    UnknownPresetError,
+    batch_resize_zip,
+)
 
 router = APIRouter(
     prefix="/api/image-resize",
     tags=["image-resize"],
     dependencies=[Depends(require_feature_flag("is_image_resize_enabled"))],
 )
+
+
+@router.get("/presets", response_model=list[MediaPreset])
+async def presets_endpoint() -> list[MediaPreset]:
+    """매체 규격 프리셋 목록 — 프런트 체크박스의 단일 출처."""
+    return MEDIA_PRESETS
+
+
+@router.post("/batch")
+async def batch_endpoint(
+    request: Request,
+    file: UploadFile = File(..., description="변환할 이미지"),
+    presets: str = Form(..., description="프리셋 키 목록 (쉼표 구분)"),
+    format: str = Form("jpeg", description="출력 포맷: jpeg | png | webp"),
+    _: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """선택한 매체 규격들로 비율 유지(중앙 크롭) 변환해 zip 으로 내려준다. AI 미사용."""
+    validate_content_length(request)
+    fmt = normalize_format(format)
+    file_bytes, filename = await read_and_check_file(file)
+
+    keys = [k.strip() for k in presets.split(",") if k.strip()]
+    if not keys:
+        raise HTTPException(status_code=422, detail="변환할 규격을 하나 이상 선택해 주세요.")
+
+    try:
+        buf, download_name, content_type = batch_resize_zip(file_bytes, filename, keys, fmt)
+    except UnknownPresetError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"이미지 처리 중 오류: {exc}") from exc
+
+    encoded_name = quote(download_name, safe="")
+    return StreamingResponse(
+        buf,
+        media_type=content_type,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}"},
+    )
 
 
 @router.post("/resize")
