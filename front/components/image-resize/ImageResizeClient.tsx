@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import DropZone from '@/components/image-resize/DropZone';
 import DimensionInputs from '@/components/image-resize/DimensionInputs';
 import FormatSelector from '@/components/image-resize/FormatSelector';
 import MediaPresetBatch from '@/components/image-resize/MediaPresetBatch';
 import Button from '@/components/ui/Button';
-import type { ImageDimensions, ResizeFormState } from '@/types/imageResize';
+import type { ResizeFormState } from '@/types/imageResize';
+import { useAspectRatioInputs } from '@/hooks/useAspectRatioInputs';
+import { useImageUpload } from '@/hooks/useImageUpload';
 import { compressImageIfNeeded, resizeImage } from '@/lib/imageResizeClient';
 
 const INITIAL_FORM: ResizeFormState = {
@@ -20,9 +22,6 @@ const INITIAL_FORM: ResizeFormState = {
 type ProcessingState = 'idle' | 'compressing' | 'resizing';
 
 export default function ImageResizeClient() {
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [originalDimensions, setOriginalDimensions] = useState<ImageDimensions | null>(null);
   const [form, setForm] = useState<ResizeFormState>(INITIAL_FORM);
   const [processing, setProcessing] = useState<ProcessingState>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -30,74 +29,42 @@ export default function ImageResizeClient() {
 
   const isProcessing = processing !== 'idle';
 
-  /* ── 파일 선택 ──────────────────────────────────────────────── */
+  /* ── 파일 선택 (업로드·미리보기·치수 측정은 공용 훅) ────────── */
+  const {
+    file,
+    previewUrl,
+    dimensions: originalDimensions,
+    select,
+    clear,
+  } = useImageUpload((dims) =>
+    setForm((prev) => ({
+      ...prev,
+      targetWidth: String(dims.width),
+      targetHeight: String(dims.height),
+    })),
+  );
+
   const handleFileSelect = useCallback(
     (f: File) => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      const url = URL.createObjectURL(f);
-      setPreviewUrl(url);
-      setFile(f);
       setError(null);
       setSuccessMsg(null);
       setForm(INITIAL_FORM);
-
-      const img = new Image();
-      img.onload = () => {
-        const dims: ImageDimensions = { width: img.naturalWidth, height: img.naturalHeight };
-        setOriginalDimensions(dims);
-        setForm((prev) => ({
-          ...prev,
-          targetWidth: String(dims.width),
-          targetHeight: String(dims.height),
-        }));
-      };
-      img.src = url;
+      select(f);
     },
-    [previewUrl]
+    [select],
   );
 
   /* ── 초기화 ─────────────────────────────────────────────────── */
   const handleClear = useCallback(() => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setFile(null);
-    setPreviewUrl(null);
-    setOriginalDimensions(null);
+    clear();
     setForm(INITIAL_FORM);
     setError(null);
     setSuccessMsg(null);
-  }, [previewUrl]);
+  }, [clear]);
 
-  /* ── 가로 변경 (비율 유지 시 세로 자동 계산) ────────────────── */
-  const handleWidthChange = useCallback(
-    (value: string) => {
-      setForm((prev) => {
-        if (!prev.keepAspectRatio || !originalDimensions) return { ...prev, targetWidth: value };
-        const w = Number(value);
-        if (w > 0) {
-          const ratio = originalDimensions.height / originalDimensions.width;
-          return { ...prev, targetWidth: value, targetHeight: String(Math.round(w * ratio)) };
-        }
-        return { ...prev, targetWidth: value };
-      });
-    },
-    [originalDimensions]
-  );
-
-  /* ── 세로 변경 (비율 유지 시 가로 자동 계산) ────────────────── */
-  const handleHeightChange = useCallback(
-    (value: string) => {
-      setForm((prev) => {
-        if (!prev.keepAspectRatio || !originalDimensions) return { ...prev, targetHeight: value };
-        const h = Number(value);
-        if (h > 0) {
-          const ratio = originalDimensions.width / originalDimensions.height;
-          return { ...prev, targetHeight: value, targetWidth: String(Math.round(h * ratio)) };
-        }
-        return { ...prev, targetHeight: value };
-      });
-    },
-    [originalDimensions]
-  );
+  /* ── 가로·세로 변경 (비율 유지 계산은 공용 훅) ──────────────── */
+  const { onWidthChange: handleWidthChange, onHeightChange: handleHeightChange } =
+    useAspectRatioInputs(originalDimensions, setForm);
 
   /* ── 리사이즈 실행 ──────────────────────────────────────────── */
   const handleResize = async () => {
@@ -140,14 +107,7 @@ export default function ImageResizeClient() {
      확대 비율로 바꿨을 때 켜뒀던 선택이 사라진다. 파생값으로 두면 둘 다 해결된다. */
   const useAiUpscale = isUpscaling && form.useAiUpscale;
 
-  /* ── 언마운트 시 URL 해제 ───────────────────────────────────── */
-  useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
-    // previewUrl 변경마다 cleanup 재등록 불필요 — 언마운트 시만 해제
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  /* 언마운트 시 objectURL 해제는 useImageUpload 가 맡는다 */
 
   const canResize = !!file && !!form.targetWidth && !!form.targetHeight && !isProcessing;
 

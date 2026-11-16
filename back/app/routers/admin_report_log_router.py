@@ -83,6 +83,8 @@ def resend_report(
         )
     except Exception as exc:
         # orchestrator가 실패 로그를 이미 남겼으므로 여기서는 사유만 전달한다.
+        # 관리자 전용 진단 화면이고, 메일 계층이 "Gmail 앱 비밀번호 필요" 같은
+        # 조치 가능한 문구를 만들어 주므로 사유를 그대로 보여주는 편이 낫다.
         logger.exception("리포트 재발송 실패 (log_id=%s)", log_id)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=f"재발송 실패: {exc}"

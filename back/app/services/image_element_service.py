@@ -9,17 +9,15 @@
 좌표라 원본 크기 그대로 매핑된다.
 """
 
-import io
-import json
-import re
-
-from PIL import Image
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 from pydantic import BaseModel, Field, ValidationError
 
 from app.core.settings import settings
+from app.services.genai_options import build_genai_client
+from app.services.image_util import make_thumbnail_jpeg
+from app.services.llm_json import parse_json_object, strip_code_fence
 from app.services.token_usage import TokenUsage
 
 _client: genai.Client | None = None
@@ -30,7 +28,7 @@ def _gemini() -> genai.Client:
     if _client is None:
         if not settings.GEMINI_API_KEY:
             raise ImageAnalyzeError("GEMINI_API_KEY가 설정되지 않았습니다.")
-        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        _client = build_genai_client(settings.GEMINI_API_KEY)
     return _client
 
 
@@ -79,37 +77,19 @@ _SYSTEM_PROMPT = f"""당신은 광고 이미지 분석 전문가입니다.
 
 
 def _thumbnail(file_bytes: bytes) -> bytes:
-    """분석용 축소본 — 비율 좌표를 쓰므로 원본 매핑에 영향 없다."""
-    img = Image.open(io.BytesIO(file_bytes))
-    if img.mode not in ("RGB", "L"):
-        img = img.convert("RGB")
-    img.thumbnail(_THUMBNAIL_BOX, Image.Resampling.LANCZOS)
-    out = io.BytesIO()
-    img.save(out, format="JPEG", quality=85, optimize=True)
-    return out.getvalue()
+    """분석용 축소본 — 비율 좌표를 쓰므로 원본 매핑에 영향 없다.
 
-
-def _clean_json(raw: str) -> str:
-    raw = raw.strip()
-    raw = re.sub(r'^```(?:json)?\s*\n?', '', raw, flags=re.MULTILINE)
-    raw = re.sub(r'\n?```\s*$', '', raw, flags=re.MULTILINE)
-    return raw.strip()
+    투명 영역은 흰색으로 합성한다. 예전에는 RGB 로 변환만 해서 PIL 기본값인
+    검정으로 깔렸고, 모델이 어두운 배경 위 요소로 잘못 읽을 수 있었다.
+    """
+    return make_thumbnail_jpeg(file_bytes, _THUMBNAIL_BOX)
 
 
 def _parse_response(raw: str) -> ElementAnalysis:
-    cleaned = _clean_json(raw)
-    try:
-        data = json.loads(cleaned)
-    except json.JSONDecodeError:
-        match = re.search(r'\{.*\}', cleaned, re.DOTALL)
-        if not match:
-            raise ImageAnalyzeError(f"AI 응답에서 JSON을 찾을 수 없습니다: {cleaned[:200]!r}")
-        try:
-            data = json.loads(match.group())
-        except json.JSONDecodeError as exc:
-            raise ImageAnalyzeError(f"AI 응답 JSON이 잘려 파싱할 수 없습니다: {cleaned[:200]!r}") from exc
+    cleaned = strip_code_fence(raw)
+    data = parse_json_object(raw, error=ImageAnalyzeError, excerpt=200)
 
-    items = data.get("elements") if isinstance(data, dict) else None
+    items = data.get("elements")
     if not isinstance(items, list):
         raise ImageAnalyzeError(f"AI 응답 형식이 예상과 다릅니다: {cleaned[:200]!r}")
 

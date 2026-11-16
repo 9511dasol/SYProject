@@ -66,16 +66,22 @@ export async function proxyToBackend(
         headers: { 'Content-Type': response.headers.get('content-type') ?? 'application/json' },
       });
     }
-    const buffer = await response.arrayBuffer();
     const headers: Record<string, string> = {
       'Content-Type': response.headers.get('content-type') ?? 'application/octet-stream',
       'Content-Disposition': response.headers.get('content-disposition') ?? 'attachment',
     };
+    const contentLength = response.headers.get('content-length');
+    if (contentLength) headers['Content-Length'] = contentLength;
+
     for (const name of opts.passthroughHeaders ?? []) {
       const value = response.headers.get(name);
       if (value !== null) headers[name] = value;
     }
-    return new NextResponse(buffer, { status: response.status, headers });
+
+    // 바디를 그대로 흘려보낸다. 예전에는 arrayBuffer() 로 파일 전체를 이 프로세스
+    // 메모리에 올린 뒤 다시 내보냈다 — 큰 엑셀/zip 에서 BFF 가 응답 크기 제한에
+    // 걸리던 원인이다(그래서 엑셀을 메일로 보내는 우회 경로가 생겼다).
+    return new NextResponse(response.body, { status: response.status, headers });
   }
 
   const text = await response.text();

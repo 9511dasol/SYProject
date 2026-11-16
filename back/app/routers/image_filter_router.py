@@ -3,6 +3,7 @@
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -12,9 +13,9 @@ from app.core.rate_limit import limiter
 from app.core.security import get_current_user, get_db
 from app.core.settings import settings
 from app.models.user_model import User
-from app.repositories.ai_tool_usage_log_repo import AIToolUsageLogRepository
 from app.schemas.image_filter_schema import EditInput, get_edit_input
 from app.schemas.image_resize_schema import read_and_check_file, validate_content_length
+from app.services.ai_usage import log_ai_usage
 from app.services.image_background_service import (
     BackgroundSuggestion,
     ImageBackgroundError,
@@ -57,14 +58,13 @@ async def analyze_endpoint(
     except ImageAnalyzeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    AIToolUsageLogRepository(db).create(
+    await run_in_threadpool(
+        log_ai_usage,
         user=current_user,
         tool="image_element_analyze",
-        image_filename=filename,
+        label=filename,
         prompt=f"요소 분석 ({len(analysis.elements)}개 검출)",
-        prompt_tokens=usage.prompt_tokens if usage else None,
-        output_tokens=usage.output_tokens if usage else None,
-        total_tokens=usage.total_tokens if usage else None,
+        usage=usage,
     )
     return analysis
 
@@ -86,14 +86,13 @@ async def backgrounds_endpoint(
     except ImageBackgroundError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    AIToolUsageLogRepository(db).create(
+    await run_in_threadpool(
+        log_ai_usage,
         user=current_user,
         tool="image_background",
-        image_filename=filename,
+        label=filename,
         prompt=f"배경 시안 생성 ({len(suggestion.variants)}종)",
-        prompt_tokens=usage.prompt_tokens if usage else None,
-        output_tokens=usage.output_tokens if usage else None,
-        total_tokens=usage.total_tokens if usage else None,
+        usage=usage,
     )
     return suggestion
 
@@ -107,7 +106,11 @@ async def edit_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     try:
-        buf, download_name, content_type, ai_provider, usage = edit_and_resize(
+        # Gemini 이미지 생성(수십 초) + PIL 리사이즈가 모두 동기라, 이벤트 루프에서
+        # 직접 호출하면 그동안 서버 전체가 멈춘다. 같은 라우터의 backgrounds 경로와
+        # 동일하게 스레드풀로 넘긴다.
+        buf, download_name, content_type, ai_provider, usage = await run_in_threadpool(
+            edit_and_resize,
             file_bytes=inp.file_bytes,
             original_filename=inp.filename,
             prompt=inp.prompt,
@@ -122,14 +125,14 @@ async def edit_endpoint(
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"이미지 처리 중 오류: {exc}") from exc
 
-    AIToolUsageLogRepository(db).create(
+    # 사용량 기록도 커밋을 동반하는 DB 쓰기라 이벤트 루프 밖에서 처리한다.
+    await run_in_threadpool(
+        log_ai_usage,
         user=current_user,
         tool="image_filter",
-        image_filename=inp.filename,
+        label=inp.filename,
         prompt=inp.prompt,
-        prompt_tokens=usage.prompt_tokens if usage else None,
-        output_tokens=usage.output_tokens if usage else None,
-        total_tokens=usage.total_tokens if usage else None,
+        usage=usage,
     )
 
     encoded_name = quote(download_name, safe="")

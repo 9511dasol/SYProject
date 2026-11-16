@@ -1,7 +1,8 @@
 'use client';
 
 import { useRef, useState, useCallback } from 'react';
-import type { DragEvent, ChangeEvent } from 'react';
+import type { ChangeEvent } from 'react';
+import { useFileDrop } from '@/hooks/useFileDrop';
 import type { DropZoneProps } from '@/types/imageResize';
 
 const ACCEPTED_MIME = new Set([
@@ -22,7 +23,6 @@ export default function DropZone({
   disabled = false,
 }: DropZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const validate = useCallback((f: File): string | null => {
@@ -41,21 +41,8 @@ export default function DropZone({
     [validate, onFileSelect]
   );
 
-  const handleDrop = useCallback(
-    (e: DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      setIsDragging(false);
-      if (disabled) return;
-      const f = e.dataTransfer.files[0];
-      if (f) handleSelect(f);
-    },
-    [disabled, handleSelect]
-  );
-
-  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (!disabled) setIsDragging(true);
-  };
+  const onFiles = useCallback((files: File[]) => handleSelect(files[0]), [handleSelect]);
+  const { isDragging, handlers } = useFileDrop(onFiles, disabled);
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -72,10 +59,16 @@ export default function DropZone({
         tabIndex={disabled ? -1 : 0}
         aria-label="이미지 업로드 영역"
         onClick={() => !disabled && inputRef.current?.click()}
-        onKeyDown={(e) => e.key === 'Enter' && !disabled && inputRef.current?.click()}
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={() => setIsDragging(false)}
+        // 네이티브 버튼은 Space 로도 눌린다 — Enter 만 받으면 키보드 사용자의
+        // 기대와 어긋난다. Space 의 기본 동작(페이지 스크롤)도 막아야 한다.
+        onKeyDown={(e) => {
+          if (disabled) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            inputRef.current?.click();
+          }
+        }}
+        {...handlers}
         className={[
           'relative rounded-2xl border-2 border-dashed transition-all duration-200 cursor-pointer overflow-hidden select-none',
           isDragging && !disabled

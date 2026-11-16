@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { useFileDrop } from '@/hooks/useFileDrop';
 import {
   formatCompact as fmtCompact,
   formatCount,
@@ -49,16 +50,13 @@ type Phase = 'idle' | 'loading' | 'error' | 'result';
 function UploadZone({
   isDragging,
   onFile,
-  onDragOver,
-  onDragLeave,
-  onDrop,
+  dropHandlers,
   fileInputRef,
 }: {
   isDragging: boolean;
   onFile: (f: File) => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDragLeave: () => void;
-  onDrop: (e: React.DragEvent) => void;
+  /** useFileDrop 이 돌려주는 onDragOver/onDragLeave/onDrop 묶음 */
+  dropHandlers: React.DOMAttributes<HTMLElement>;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   return (
@@ -87,9 +85,7 @@ function UploadZone({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
+          {...dropHandlers}
           className={`
             w-full rounded-2xl border-2 border-dashed p-10 flex flex-col items-center gap-4
             transition-all duration-200 cursor-pointer text-center focus-visible:outline-none
@@ -415,6 +411,17 @@ function DiffCell({ value, bold = false }: { value: number; bold?: boolean }) {
 
 // ── 비교 테이블 ───────────────────────────────────────────────────────────────
 
+/**
+ * 행을 가리키는 안정적인 키.
+ *
+ * 예전에는 배열 인덱스를 key 로 썼다. 정렬을 바꾸면 같은 인덱스에 다른 키워드가
+ * 와서 React 가 DOM 을 재활용하며 모든 행을 갱신한다 — 수천 행에서는 정렬할 때마다
+ * 눈에 띄게 느려진다.
+ */
+function rowKey(row: CompareRow): string {
+  return `${row.keyword}|${row.campaign_type}|${row.device}|${row.conv_type}`;
+}
+
 function CompareTable({
   rows,
   sort,
@@ -439,10 +446,10 @@ function CompareTable({
     <>
       {/* 모바일 카드 뷰 */}
       <ul className="sm:hidden rounded-xl border border-border divide-y divide-border">
-        {rows.map((row, i) => {
+        {rows.map((row) => {
           const m = STATUS_META[row.status];
           return (
-            <li key={i} className="p-4 space-y-2">
+            <li key={rowKey(row)} className="p-4 space-y-2">
               <div className="flex items-start gap-2">
                 <span className={`shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${m.badgeCls}`}>
                   <i className={`bx ${m.icon} text-xs`} />
@@ -502,10 +509,10 @@ function CompareTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-border bg-surface">
-          {rows.map((row, i) => {
+          {rows.map((row) => {
             const m = STATUS_META[row.status];
             return (
-              <tr key={i} className="hover:bg-surface-2/60 transition-colors">
+              <tr key={rowKey(row)} className="hover:bg-surface-2/60 transition-colors">
                 <td className="px-3 py-2.5">
                   <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-semibold ${m.badgeCls}`}>
                     <i className={`bx ${m.icon} text-xs`} />
@@ -534,6 +541,9 @@ function CompareTable({
 }
 
 // ── 결과 뷰 ───────────────────────────────────────────────────────────────────
+
+/** 한 번에 그릴 행 수 — 수천 행을 한꺼번에 DOM 에 올리지 않기 위한 상한. */
+const ROWS_PER_PAGE = 300;
 
 function ResultView({
   result,
@@ -600,6 +610,23 @@ function ResultView({
 
     return rows;
   }, [sheet, filters, sort]);
+
+  // 한 번에 그릴 행 수. 키워드 시트는 수천 행이 흔한데, 전부 그리면 모바일 카드와
+  // 데스크톱 표가 각각 DOM 을 만들어 필터·정렬할 때마다 눈에 띄게 멈춘다.
+  const [visibleCount, setVisibleCount] = useState(ROWS_PER_PAGE);
+
+  // 필터·정렬이 바뀌면 처음부터 다시 — 렌더 중 파생이라 effect 가 필요 없다.
+  const [lastQuery, setLastQuery] = useState({ filters, sort, sheet });
+  if (lastQuery.filters !== filters || lastQuery.sort !== sort || lastQuery.sheet !== sheet) {
+    setLastQuery({ filters, sort, sheet });
+    setVisibleCount(ROWS_PER_PAGE);
+  }
+
+  const visibleRows = useMemo(
+    () => filteredRows.slice(0, visibleCount),
+    [filteredRows, visibleCount],
+  );
+  const hasMore = visibleCount < filteredRows.length;
 
   return (
     <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 py-8 space-y-6">
@@ -674,7 +701,22 @@ function ResultView({
       </div>
 
       {/* 비교 테이블 */}
-      <CompareTable rows={filteredRows} sort={sort} onSort={handleSort} />
+      <CompareTable rows={visibleRows} sort={sort} onSort={handleSort} />
+
+      {hasMore && (
+        <div className="flex flex-col items-center gap-2 pt-2">
+          <p className="text-xs text-fg-subtle">
+            {formatCount(filteredRows.length)}건 중 {formatCount(visibleRows.length)}건 표시 중
+          </p>
+          <button
+            onClick={() => setVisibleCount((n) => n + ROWS_PER_PAGE)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-4 py-2 text-xs font-semibold text-fg-muted hover:bg-surface-2 transition-colors"
+          >
+            <i className="bx bx-chevron-down text-base" />
+            {formatCount(Math.min(ROWS_PER_PAGE, filteredRows.length - visibleRows.length))}건 더 보기
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -685,7 +727,6 @@ export default function FileCompareClient() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [result, setResult] = useState<CompareResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleFile = useCallback(async (file: File) => {
@@ -706,22 +747,8 @@ export default function FileCompareClient() {
     }
   }, []);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
-  const handleDragLeave = useCallback(() => setIsDragging(false), []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragging(false);
-      const file = e.dataTransfer.files?.[0];
-      if (file) handleFile(file);
-    },
-    [handleFile],
-  );
+  const onFiles = useCallback((files: File[]) => handleFile(files[0]), [handleFile]);
+  const { isDragging, handlers: dropHandlers } = useFileDrop(onFiles);
 
   const handleReset = useCallback(() => {
     setPhase('idle');
@@ -737,9 +764,7 @@ export default function FileCompareClient() {
     <UploadZone
       isDragging={isDragging}
       onFile={handleFile}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      dropHandlers={dropHandlers}
       fileInputRef={fileInputRef}
     />
   );

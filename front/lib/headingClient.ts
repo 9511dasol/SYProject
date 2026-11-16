@@ -1,15 +1,7 @@
 import type { HeadingHistoryResponse, HeadingSuggestionRecord } from '@/types/heading';
-import { authFetch } from '@/lib/api/authFetch';
+import { authFetch, NO_TIMEOUT } from '@/lib/api/authFetch';
+import { extractResponseError } from '@/lib/api/responseError';
 import { compressImageIfNeeded } from './imageResizeClient';
-
-async function readError(res: Response, fallback: string): Promise<string> {
-  let detail = fallback;
-  try {
-    const json = await res.json();
-    detail = json.detail ?? json.message ?? detail;
-  } catch { /* ignore */ }
-  return detail;
-}
 
 /**
  * 이미지를 서버에 전송해 플랫폼별 헤딩 문구를 생성하고, 저장된 기록(히스토리 항목)을 반환합니다.
@@ -20,6 +12,7 @@ export async function fetchHeadings(
   file: File,
   onCompress?: () => void,
   onAnalyze?: () => void,
+  signal?: AbortSignal,
 ): Promise<HeadingSuggestionRecord> {
   onCompress?.();
   const compressed = await compressImageIfNeeded(file);
@@ -31,10 +24,13 @@ export async function fetchHeadings(
   const res = await authFetch('/api/heading/suggest', {
     method: 'POST',
     body: form,
+    // Vision 호출이라 수십 초가 정상 — 끊지 않고 사용자 취소에 맡긴다.
+    timeoutMs: NO_TIMEOUT,
+    signal,
   });
 
   if (!res.ok) {
-    throw new Error(await readError(res, `서버 오류: ${res.status}`));
+    throw new Error(await extractResponseError(res));
   }
 
   return (await res.json()) as HeadingSuggestionRecord;
@@ -51,7 +47,7 @@ export async function fetchHeadingHistoryPage(
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   const res = await authFetch(`/api/heading/history?${params.toString()}`, { method: 'GET' });
   if (!res.ok) {
-    throw new Error(await readError(res, `기록을 불러오지 못했습니다 (${res.status})`));
+    throw new Error(await extractResponseError(res, `기록을 불러오지 못했습니다 (${res.status})`));
   }
   return (await res.json()) as HeadingHistoryResponse;
 }
@@ -60,6 +56,6 @@ export async function fetchHeadingHistoryPage(
 export async function deleteHeadingSuggestion(id: number): Promise<void> {
   const res = await authFetch(`/api/heading/history/${id}`, { method: 'DELETE' });
   if (!res.ok && res.status !== 204) {
-    throw new Error(await readError(res, `삭제에 실패했습니다 (${res.status})`));
+    throw new Error(await extractResponseError(res, `삭제에 실패했습니다 (${res.status})`));
   }
 }

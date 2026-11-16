@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy.orm import Session
 
 from app.core.ai_budget import require_ai_budget
 from app.core.database import SessionLocal
 from app.core.feature_flags import require_feature_flag
-from app.core.security import get_current_user, get_db
+from app.core.security import get_current_user, get_db, require_admin
 from app.models.report_log_model import ReportLog
 from app.models.user_model import User
 from app.services.report_factory import build_orchestrator
@@ -97,31 +97,32 @@ def send_report(
     return {"status": "queued", "message": "리포트 메일 발송이 시작되었습니다."}
 
 
-@router.get("/send/sync", summary="리포트 메일 발송 (동기 — 테스트용)")
+@router.post(
+    "/send/sync",
+    summary="리포트 메일 발송 (동기 — 관리자 점검용)",
+    dependencies=[Depends(require_ai_budget)],
+)
 def send_report_sync(
-    curr_year: int,
-    curr_month: int,
-    prev_year: int,
-    prev_month: int,
-    recipients: str,
-    subject: str = "",
+    body: SendReportRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
-    """즉시 발송하고 결과를 반환합니다 (주로 테스트용)."""
-    to = [r.strip() for r in recipients.split(",") if r.strip()]
-    if not to:
-        raise HTTPException(status_code=400, detail="수신자를 입력하세요.")
+    """즉시 발송하고 결과를 반환합니다 (발송 설정 점검용).
+
+    예전에는 GET + 쿼리스트링이었다. 메일 발송은 부작용이 있는 동작이라 GET 으로
+    두면 링크 프리페치나 캐시에 의해 의도치 않게 발송될 수 있고, 비동기 /send 에는
+    걸려 있는 AI 예산 게이트도 이 경로에만 빠져 있어 집계를 우회할 수 있었다.
+    관리자만 호출하도록 제한한다.
+    """
     orchestrator = build_orchestrator(db, user=current_user)
-    result = orchestrator.run(
-        curr_year=curr_year,
-        curr_month=curr_month,
-        prev_year=prev_year,
-        prev_month=prev_month,
-        recipients=to,
-        subject=subject,
+    return orchestrator.run(
+        curr_year=body.curr_year,
+        curr_month=body.curr_month,
+        prev_year=body.prev_year,
+        prev_month=body.prev_month,
+        recipients=list(body.recipients),
+        subject=body.subject,
     )
-    return result
 
 
 @router.get("/logs", response_model=list[LogResponse], summary="발송 이력 조회")

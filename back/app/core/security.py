@@ -15,12 +15,33 @@ from app.models.user_model import User
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
+MIN_PASSWORD_LENGTH = 8
+
+
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(password.encode("utf-8"), hashed_password.encode("utf-8"))
+
+
+def validate_password_policy(password: str) -> None:
+    """비밀번호가 정책에 맞는지 검사하고, 아니면 400으로 거절한다.
+
+    길이 검사가 변경·재설정 라우터에만 복사돼 있어 가입(register)과 관리자 계정
+    생성에는 아예 없었다 — 1자리 비밀번호로도 계정이 만들어졌다. 비밀번호가
+    새로 정해지는 네 경로가 모두 이 함수를 거치게 한다.
+
+    스키마의 Field(min_length=...) 대신 함수로 둔 이유는 응답 형태 때문이다.
+    프론트는 에러 사유를 `detail` "문자열"에서만 읽는데(authFetch.extractMessage),
+    Pydantic 검증 실패는 detail 이 객체 배열이라 화면에 사유가 뜨지 않는다.
+    """
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"비밀번호는 {MIN_PASSWORD_LENGTH}자 이상이어야 합니다.",
+        )
 
 
 def create_access_token(subject: str, extra_claims: dict | None = None) -> str:

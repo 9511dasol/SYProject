@@ -15,6 +15,7 @@ from PIL import Image
 from pydantic import BaseModel
 
 from app.services.image_resize_service import _PIL_FORMAT, _SAVE_KWARGS
+from app.services.image_util import flatten_for_format
 
 
 class MediaPreset(BaseModel):
@@ -63,16 +64,7 @@ def cover_resize(img: Image.Image, width: int, height: int) -> Image.Image:
 
 def _flatten_for(fmt: str, img: Image.Image) -> Image.Image:
     """JPEG 출력 시 알파를 흰 배경에 합성 — 기존 /resize 와 같은 규칙."""
-    if fmt == "jpeg" and img.mode in ("RGBA", "PA", "LA", "P"):
-        if img.mode == "P":
-            img = img.convert("RGBA")
-        bg = Image.new("RGB", img.size, (255, 255, 255))
-        mask = img.split()[-1] if img.mode in ("RGBA", "PA", "LA") else None
-        bg.paste(img.convert("RGBA") if img.mode == "PA" else img, mask=mask)
-        return bg
-    if fmt != "png" and img.mode not in ("RGB", "RGBA", "L", "LA"):
-        return img.convert("RGB")
-    return img
+    return flatten_for_format(img, fmt)
 
 
 def batch_resize_zip(

@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import JSON, UniqueConstraint
+from sqlalchemy import JSON, UniqueConstraint, and_
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -42,6 +42,24 @@ class MarketingData(Base):
     signup: Mapped[float] = mapped_column(default=0.0)
     purchase: Mapped[float] = mapped_column(default=0.0)
     apply: Mapped[float] = mapped_column(default=0.0)
+
+
+def month_bounds(year: int, month: int) -> tuple[date, date]:
+    """해당 연월의 [시작일, 다음 달 1일) 경계."""
+    start = date(year, month, 1)
+    end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    return start, end
+
+
+def in_month(year: int, month: int):
+    """report_date 가 해당 연월에 속한다는 조건.
+
+    `extract('year', report_date) == year` 식으로 쓰면 컬럼에 함수가 적용돼
+    report_date 인덱스를 타지 못하고 매번 전체 스캔이 된다. 뜻이 같은 범위 조건으로
+    두면 인덱스를 쓴다 — 월별 조회·집계가 전부 이 경로를 지나므로 효과가 크다.
+    """
+    start, end = month_bounds(year, month)
+    return and_(MarketingData.report_date >= start, MarketingData.report_date < end)
 
 
 def resolve_total_conv(conversions, signup, purchase, apply) -> float:

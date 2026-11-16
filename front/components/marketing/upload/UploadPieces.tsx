@@ -1,6 +1,7 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
+import { useFileDrop } from '@/hooks/useFileDrop';
 import { formatFileSize } from '@/lib/format';
 
 /** 업로드 패널의 작은 조각들 — 단계 표시 · 드롭존 · 파일 한 줄 */
@@ -50,25 +51,14 @@ export function Steps({ step }: { step: 1 | 2 }) {
  */
 export function UploadDropZone({ onFiles }: { onFiles: (files: File[]) => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [over, setOver] = useState(false);
+  const { isDragging: over, handlers } = useFileDrop(onFiles);
 
   return (
     <>
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setOver(true);
-        }}
-        onDragLeave={() => setOver(false)}
-        onDrop={(e) => {
-          // preventDefault 를 빠뜨리면 브라우저가 그 파일로 페이지를 이동시켜
-          // 작업하던 화면이 통째로 날아간다.
-          e.preventDefault();
-          setOver(false);
-          onFiles(Array.from(e.dataTransfer.files));
-        }}
+        {...handlers}
         className={`w-full rounded-xl border-2 border-dashed cursor-pointer transition-colors
           flex flex-col items-center justify-center py-12 gap-2 text-center
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary

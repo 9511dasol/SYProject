@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
 
-from sqlalchemy import extract, func
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.marketing_model import MarketingData, resolve_total_conv
+from app.models.marketing_model import MarketingData, in_month, resolve_total_conv
 
 
 def _safe_pct(new: float, old: float) -> float:
@@ -116,10 +116,7 @@ def _query_kpis(db: Session, year: int, month: int) -> dict[str, MediaKPI]:
             func.sum(MarketingData.purchase).label("purchase"),
             func.sum(MarketingData.apply).label("apply"),
         )
-        .filter(
-            extract("year", MarketingData.report_date) == year,
-            extract("month", MarketingData.report_date) == month,
-        )
+        .filter(in_month(year, month))
         .group_by(MarketingData.campaign_type)
         .all()
     )

@@ -12,6 +12,7 @@ from google import genai
 from google.genai import types
 
 from app.core.settings import settings
+from app.services.genai_options import build_genai_client
 from app.services.token_usage import TokenUsage
 
 _client: genai.Client | None = None
@@ -20,7 +21,8 @@ _client: genai.Client | None = None
 def _gemini() -> genai.Client | None:
     global _client
     if _client is None and settings.GEMINI_API_KEY:
-        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        # 이미지 생성은 텍스트보다 오래 걸려 전용(더 긴) 타임아웃을 쓴다.
+        _client = build_genai_client(settings.GEMINI_API_KEY, image=True)
     return _client
 
 

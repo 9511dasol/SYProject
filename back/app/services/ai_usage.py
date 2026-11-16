@@ -1,8 +1,11 @@
-"""AI 호출 사용량을 ai_tool_usage_logs 에 남기는 공용 헬퍼.
+"""AI 호출 사용량을 ai_tool_usage_logs 에 남기는 공용 창구.
 
-이미지·헤딩 도구는 라우터에서 직접 AIToolUsageLogRepository 를 부르지만, 코멘트 생성은
-백그라운드 작업이나 크론에서도 호출돼 요청 세션이 없을 때가 있다. 세션을 스스로 열고
-실패해도 본 작업을 깨뜨리지 않는 창구를 하나 둔다.
+예전에는 이미지·헤딩 라우터가 각자 AIToolUsageLogRepository 를 직접 부르면서
+`prompt_tokens=usage.prompt_tokens if usage else None` 세 줄을 다섯 곳에 복제했고,
+기록이 실패하면 그대로 500 이 나갔다. AI 호출은 이미 끝나 토큰을 쓴 뒤라,
+사용자는 실패한 줄 알고 같은 버튼을 눌러 토큰을 한 번 더 쓰게 된다.
+
+세션을 스스로 열고, 실패해도 본 작업을 깨뜨리지 않는 창구를 하나만 둔다.
 """
 
 import logging
@@ -31,14 +34,17 @@ def log_ai_usage(
     tool: str,
     label: str,
     usage: TokenUsage | None,
+    prompt: str = "",
 ) -> None:
     """AI 호출 1건을 기록한다.
+
+    label 은 목록에 보일 이름(이미지 파일명이나 기간 라벨), prompt 는 실제로 보낸
+    편집 지시문이다.
 
     usage 가 None 이면(제공자가 사용량을 안 줬거나 응답 형태가 바뀐 경우) 토큰 칸을
     비워 둔 채 호출 사실만 남긴다 — 건수까지 사라지면 '안 썼다'와 구분되지 않는다.
 
-    기록 실패는 삼킨다. 코멘트는 이미 저장됐는데 로그 때문에 500이 나가면 사용자는
-    생성이 실패한 줄 알고 같은 버튼을 다시 눌러 토큰을 한 번 더 쓴다.
+    기록 실패는 삼킨다(모듈 docstring 참고).
     """
     db = SessionLocal()
     try:
@@ -46,6 +52,7 @@ def log_ai_usage(
             user=user or User(id=_SYSTEM_USER_ID, email=_SYSTEM_USER_EMAIL),
             tool=tool,
             image_filename=label,
+            prompt=prompt,
             prompt_tokens=usage.prompt_tokens if usage else None,
             output_tokens=usage.output_tokens if usage else None,
             total_tokens=usage.total_tokens if usage else None,

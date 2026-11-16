@@ -1,3 +1,4 @@
+from app.core.settings import settings
 from app.services.llm.base import AbstractLLMClient
 from app.services.token_usage import TokenUsage
 
@@ -10,7 +11,12 @@ class ClaudeClient(AbstractLLMClient):
             import anthropic
         except ImportError as e:
             raise ImportError("pip install anthropic 후 사용하세요.") from e
-        self._client = anthropic.Anthropic(api_key=api_key)
+        # timeout/max_retries 를 주지 않으면 공급자 지연 시 호출이 무한정 매달린다.
+        self._client = anthropic.Anthropic(
+            api_key=api_key,
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+            max_retries=settings.LLM_MAX_RETRIES,
+        )
         self._model = model
 
     def generate_with_usage(self, prompt: str) -> tuple[str, TokenUsage | None]:

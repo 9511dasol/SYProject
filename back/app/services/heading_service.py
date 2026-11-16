@@ -7,17 +7,17 @@
   4. HeadingResponse 반환
 """
 
-import io
-import json
 import re
 
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
-from PIL import Image
 
 from app.core.settings import settings
 from app.schemas.heading_schema import HeadingResponse
+from app.services.genai_options import build_genai_client
+from app.services.image_util import make_thumbnail_jpeg
+from app.services.llm_json import parse_json_object, strip_code_fence
 from app.services.token_usage import TokenUsage
 
 # ── 클라이언트 (지연 초기화) ──────────────────────────────────────────────────
@@ -30,7 +30,7 @@ def _gemini() -> genai.Client:
     if _client is None:
         if not settings.GEMINI_API_KEY:
             raise RuntimeError("GEMINI_API_KEY 환경변수가 설정되지 않았습니다.")
-        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        _client = build_genai_client(settings.GEMINI_API_KEY)
     return _client
 
 
@@ -78,34 +78,7 @@ STRICT OUTPUT RULES:
 # ── 썸네일 생성 ───────────────────────────────────────────────────────────────
 
 def _make_thumbnail_bytes(file_bytes: bytes) -> bytes:
-    buf = io.BytesIO(file_bytes)
-    img: Image.Image = Image.open(buf)
-    img.load()
-
-    if img.mode in ("RGBA", "PA", "LA", "P"):
-        if img.mode == "P":
-            img = img.convert("RGBA")
-        bg   = Image.new("RGB", img.size, (255, 255, 255))
-        mask = img.split()[-1] if img.mode in ("RGBA", "LA") else None
-        bg.paste(img.convert("RGBA") if img.mode == "PA" else img, mask=mask)
-        img  = bg
-    elif img.mode != "RGB":
-        img = img.convert("RGB")
-
-    img.thumbnail(_THUMBNAIL_BOX, Image.Resampling.LANCZOS)
-    out = io.BytesIO()
-    img.save(out, format="JPEG", quality=85, optimize=True)
-    return out.getvalue()
-
-
-# ── JSON 정제 + 파싱 ──────────────────────────────────────────────────────────
-
-def _clean_json(raw: str) -> str:
-    """마크다운 코드 블록 제거 + 앞뒤 공백 정리."""
-    raw = raw.strip()
-    raw = re.sub(r'^```(?:json)?\s*\n?', '', raw, flags=re.MULTILINE)
-    raw = re.sub(r'\n?```\s*$',          '', raw, flags=re.MULTILINE)
-    return raw.strip()
+    return make_thumbnail_jpeg(file_bytes, _THUMBNAIL_BOX)
 
 
 # desc 길이 보정 — 프롬프트만으로는 한글 글자 수가 잡히지 않는다.
@@ -148,20 +121,10 @@ def _fit_desc(desc: str) -> str:
 
 def _parse_response(raw: str) -> HeadingResponse:
     """AI 응답 텍스트 → HeadingResponse (엄격 검증)."""
-    cleaned = _clean_json(raw)
+    cleaned = strip_code_fence(raw)
+    data = parse_json_object(raw, error=RuntimeError, excerpt=300)
 
-    try:
-        data = json.loads(cleaned)
-    except json.JSONDecodeError:
-        match = re.search(r'\{.*\}', cleaned, re.DOTALL)
-        if not match:
-            raise RuntimeError(f"AI 응답에서 JSON을 찾을 수 없습니다: {cleaned[:300]!r}")
-        try:
-            data = json.loads(match.group())
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(f"AI 응답 JSON이 잘려 파싱할 수 없습니다: {cleaned[:300]!r}") from exc
-
-    if not isinstance(data, dict) or not isinstance(data.get("headings"), list):
+    if not isinstance(data.get("headings"), list):
         raise RuntimeError(f"AI 응답 형식이 예상과 다릅니다: {cleaned[:300]!r}")
 
     # 10개 초과 시 앞에서부터 자르고, id 자동 보정 (AI가 id 를 잘못 반환한 경우 대비)

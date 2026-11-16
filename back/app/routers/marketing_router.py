@@ -15,10 +15,12 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
 from app.core.ai_budget import require_ai_budget
 from app.core.database import SessionLocal
+from app.core.errors import server_error
 from app.core.security import get_current_user
 from app.core.settings import settings
 from app.core.uploads import (
@@ -30,7 +32,9 @@ from app.core.uploads import (
 )
 from app.models.marketing_model import resolve_total_conv
 from app.models.user_model import User
+from app.repositories import marketing_repo
 from app.repositories.marketing_repo import MarketingRepository
+from app.schemas.excel_report_schema import ExcelReportBundle
 from app.schemas.marketing_schema import (
     ComparePeriod,
     MediaDailyRow,
@@ -315,13 +319,19 @@ def _build_report(
     return ReportResponse(period=period, total=total, by_media=by_media, daily=daily, diff=row_diff, undo_id=undo_id)
 
 
-async def _run_analysis(task_id: str, files: list[FileEntry]) -> None:
+def _run_analysis(task_id: str, files: list[FileEntry]) -> None:
+    """동기 함수 → FastAPI BackgroundTasks가 스레드풀에서 실행 (_run_export_task 와 같은 이유).
+
+    예전에는 `async def` 였다. BackgroundTasks 는 async 함수를 스레드풀이 아니라
+    이벤트 루프에서 돌리기 때문에, CSV 파싱이 끝날 때까지 다른 모든 요청과
+    진행률 폴링까지 멈춰 있었다.
+    """
     db = SessionLocal()
     try:
         task_store.update_task(task_id, status=TaskStatus.PROCESSING.value)
         svc = MarketingService(MarketingRepository(db))
         conv_files, media_files = svc._classify(files)
-        result = await svc.process_and_analyze(conv_files, media_files)
+        result = svc.process_and_analyze(conv_files, media_files)
         task_store.update_task(
             task_id,
             status=TaskStatus.COMPLETED.value,
@@ -508,14 +518,20 @@ def _run_export_task(
         task_store.update_task(task_id, status="error", progress=0, error=f"{stage} 실패: {exc}")
 
 
-def _delete_periods(periods: list[tuple[int, int]]) -> int:
-    """여러 (연, 월)의 기존 행을 한 트랜잭션으로 삭제하고 삭제 건수를 반환."""
+def _delete_periods(periods: list[tuple[int, int]]) -> tuple[int, str, list[dict]]:
+    """여러 (연, 월)의 기존 행을 한 트랜잭션으로 삭제. (삭제 건수, undo_id, 삭제 전 행) 반환.
+
+    삭제는 먼저 커밋되고 저장은 뒤따르므로(커넥션 분리로 데드락을 피하려는 구조),
+    저장이 실패하면 지운 데이터가 돌아올 곳이 없었다. 지우기 전 상태를 함께 돌려줘
+    호출자가 되돌릴 수 있게 한다.
+    """
     db_del = SessionLocal()
     try:
         repo = MarketingRepository(db_del)
+        undo_id, snapshot = repo.snapshot_periods(periods)
         deleted = sum(repo.delete_rows_by_period(y, m) for y, m in periods)
         db_del.commit()
-        return deleted
+        return deleted, undo_id, snapshot
     except Exception:
         db_del.rollback()
         raise
@@ -542,12 +558,30 @@ def _run_save_task(
         task_store.update_task(task_id, status="processing", progress=10)
 
         # ── 1단계: replace 시 기존 행 삭제 (독립 트랜잭션으로 먼저 커밋) ──────────
-        deleted = _delete_periods(periods) if replace else 0
+        deleted, delete_undo_id, pre_delete_rows = 0, "", []
+        if replace:
+            deleted, delete_undo_id, pre_delete_rows = _delete_periods(periods)
 
         task_store.update_task(task_id, progress=50)
 
         # ── 2단계: 새 데이터 저장 (_upsert 내부에서 engine.begin() 사용) ─────────
-        saved, _, undo_id = MarketingRepository(None).save_mapped_dataframe(df)  # type: ignore[arg-type]
+        # 1단계 삭제가 이미 커밋됐으므로, 여기서 실패하면 지운 기간을 되돌려 놓아야
+        # 한 달치 데이터가 통째로 사라지지 않는다.
+        try:
+            saved, _, undo_id = MarketingRepository(None).save_mapped_dataframe(df)  # type: ignore[arg-type]
+        except Exception:
+            if pre_delete_rows:
+                logger.exception(
+                    "엑셀 저장 실패 — 삭제했던 %d개 행을 되돌립니다 (task=%s)", len(pre_delete_rows), task_id
+                )
+                try:
+                    marketing_repo.restore_rows(pre_delete_rows)
+                except Exception:
+                    logger.exception(
+                        "되돌리기 실패 — undo_id=%s 로 수동 복구가 필요합니다 (task=%s)",
+                        delete_undo_id, task_id,
+                    )
+            raise
 
         task_store.update_task(task_id, progress=90)
 
@@ -615,7 +649,7 @@ async def start_save_excel_task(
 
 
 @router.get("/save-excel-task/{task_id}")
-async def get_save_excel_task_status(task_id: str) -> dict:
+def get_save_excel_task_status(task_id: str) -> dict:
     task = task_store.get_task(task_id, kind=_KIND_SAVE)
     if task is None:
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
@@ -629,7 +663,7 @@ async def get_save_excel_task_status(task_id: str) -> dict:
 
 
 @router.post("/export-db-task")
-async def start_export_db_task(
+def start_export_db_task(
     year: int = Query(...),
     month: int = Query(...),
     deliver_by: str = Query("download", pattern="^(download|email)$"),
@@ -683,7 +717,7 @@ async def start_export_db_task(
 
 
 @router.get("/export-db-task/{task_id}")
-async def get_export_task_status(task_id: str) -> dict:
+def get_export_task_status(task_id: str) -> dict:
     """백그라운드 export 진행률 조회"""
     task = task_store.get_task(task_id, kind=_KIND_EXPORT)
     if task is None:
@@ -699,7 +733,7 @@ async def get_export_task_status(task_id: str) -> dict:
 
 
 @router.delete("/export-db-task/{task_id}")
-async def cancel_export_task(task_id: str) -> dict:
+def cancel_export_task(task_id: str) -> dict:
     """진행 중인 export 태스크를 취소 요청.
 
     작업 행은 지우지 않고 취소 플래그만 세운다 — 워커가 단계마다 이 플래그를 읽어
@@ -711,7 +745,7 @@ async def cancel_export_task(task_id: str) -> dict:
 
 
 @router.get("/export-db-result/{task_id}")
-async def get_export_task_result(task_id: str) -> StreamingResponse:
+def get_export_task_result(task_id: str) -> StreamingResponse:
     """완료된 export 파일 다운로드 (1회용 — 내려준 뒤 보관본을 제거)"""
     task = task_store.get_task(task_id, kind=_KIND_EXPORT)
     if task is None or task["status"] != "done":
@@ -748,7 +782,7 @@ async def get_export_task_result(task_id: str) -> StreamingResponse:
 
 
 @router.get("/export-db")
-async def export_db_excel(
+def export_db_excel(
     year: int = Query(...),
     month: int = Query(...),
 ) -> StreamingResponse:
@@ -776,7 +810,7 @@ async def export_db_excel(
 
 
 @router.get("/periods")
-async def get_periods() -> list[dict]:
+def get_periods() -> list[dict]:
     """저장된 연월 목록 반환"""
     db = SessionLocal()
     try:
@@ -786,7 +820,7 @@ async def get_periods() -> list[dict]:
 
 
 @router.get("/summary", response_model=ReportResponse)
-async def get_summary(
+def get_summary(
     year: int = Query(...),
     month: int = Query(...),
 ) -> ReportResponse:
@@ -807,7 +841,7 @@ async def get_summary(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"리포트 집계 중 오류가 발생했습니다: {exc}")
+        raise server_error("리포트를 집계하지 못했습니다. 잠시 후 다시 시도해 주세요.", exc)
     finally:
         db.close()
 
@@ -826,21 +860,28 @@ async def update_comment(
     """
     prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
 
-    db = SessionLocal()
-    try:
-        comparison = AnalysisService(db).compare(year, month, prev_year, prev_month)
-        comment, usage = CommentService(llm=build_llm()).generate_with_usage(comparison)
-        repo = MarketingRepository(db)
-        repo.upsert_period_meta(year, month, comment=comment)
-        db.commit()
-        _, comment_updated_at = repo.get_comment_meta(year, month)
-    except Exception as exc:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"코멘트 생성 실패: {exc}")
-    finally:
-        db.close()
+    def _generate():
+        db = SessionLocal()
+        try:
+            comparison = AnalysisService(db).compare(year, month, prev_year, prev_month)
+            comment, usage = CommentService(llm=build_llm()).generate_with_usage(comparison)
+            repo = MarketingRepository(db)
+            repo.upsert_period_meta(year, month, comment=comment)
+            db.commit()
+            _, comment_updated_at = repo.get_comment_meta(year, month)
+            return comment, usage, comment_updated_at
+        except Exception as exc:
+            db.rollback()
+            raise server_error("코멘트를 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.", exc)
+        finally:
+            db.close()
 
-    log_ai_usage(
+    # LLM 호출은 수 초가 걸리는 블로킹 작업이라 이벤트 루프에서 돌리면 안 된다.
+    comment, usage, comment_updated_at = await run_in_threadpool(_generate)
+
+    # 사용량 기록도 자체 세션으로 커밋하는 DB 쓰기라 이벤트 루프 밖에서 처리한다.
+    await run_in_threadpool(
+        log_ai_usage,
         user=current_user,
         tool=AI_TOOL_MARKETING_COMMENT,
         label=_period_label(year, month),
@@ -872,7 +913,7 @@ async def upload_files(
 
 
 @router.get("/status/{task_id}", response_model=TaskStatusResponse)
-async def get_task_status(task_id: str) -> TaskStatusResponse:
+def get_task_status(task_id: str) -> TaskStatusResponse:
     task = task_store.get_task(task_id, kind=_KIND_UPLOAD)
     if task is None:
         raise HTTPException(status_code=404, detail="태스크를 찾을 수 없습니다.")
@@ -894,19 +935,23 @@ async def preview_report(
     check_content_length(request)
     file_data: list[FileEntry] = await read_data_uploads(files, allowed_extensions=CSV_EXTENSIONS)
 
-    db = SessionLocal()
-    try:
-        svc = MarketingService(MarketingRepository(db))
-        conv_files, media_files = svc._classify(file_data)
-        result = await svc.process_and_analyze(conv_files, media_files)
-    finally:
-        db.close()
+    def _analyze() -> dict:
+        db = SessionLocal()
+        try:
+            svc = MarketingService(MarketingRepository(db))
+            conv_files, media_files = svc._classify(file_data)
+            return svc.process_and_analyze(conv_files, media_files)
+        finally:
+            db.close()
+
+    # 파싱·집계·DB 쓰기는 전부 블로킹이라 이벤트 루프 밖에서 돌린다.
+    result = await run_in_threadpool(_analyze)
 
     return _build_report(result["media_kpis"], result["period"], result.get("diff"), result.get("undo_id", ""))
 
 
 @router.post("/undo/{undo_id}")
-async def undo_upload(undo_id: str) -> dict:
+def undo_upload(undo_id: str) -> dict:
     """CSV 업로드 되돌리기 — 이전 DB 상태로 복원"""
     db = SessionLocal()
     try:
@@ -940,7 +985,7 @@ async def list_excel_periods(
         raise HTTPException(status_code=422, detail=str(exc))
 
 
-@router.post("/load-excel")
+@router.post("/load-excel", response_model=ExcelReportBundle)
 async def load_excel(
     request: Request,
     file: UploadFile = File(...),
@@ -953,6 +998,9 @@ async def load_excel(
     한 파일에 5월·6월처럼 여러 달이 들어 있으면 달마다 하나씩 reports 에 담아 준다.
     period 를 주면 그 달만 읽는다 — 기간이 18개 담긴 파일에서 한 달만 열어 보려고
     나머지 17개를 파싱할 이유가 없다.
+
+    response_model 을 붙여 파서가 돌려준 dict 모양을 여기서 검증한다. 예전에는 순수
+    dict 를 그대로 흘려보내서, 파서가 키를 바꾸면 프론트에서 조용히 undefined 가 됐다.
     """
     check_content_length(request)
     content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
@@ -985,17 +1033,24 @@ async def save_excel_data(
     df, _, comments = _excel_to_df(content, period)
     periods = _periods_in_df(df)
 
-    deleted = 0
+    deleted, delete_undo_id, pre_delete_rows = 0, "", []
     if replace:
         try:
-            deleted = _delete_periods(periods)
+            deleted, delete_undo_id, pre_delete_rows = _delete_periods(periods)
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"기존 데이터 삭제 실패: {exc}")
+            raise server_error("기존 데이터를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.", exc)
 
     try:
         saved, _, _undo_id = MarketingRepository(None).save_mapped_dataframe(df)  # type: ignore[arg-type]
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"DB 저장 실패: {exc}")
+        # 삭제는 이미 커밋됐다 — 되돌리지 않으면 해당 기간이 통째로 비어버린다.
+        if pre_delete_rows:
+            logger.exception("엑셀 저장 실패 — 삭제했던 %d개 행을 되돌립니다", len(pre_delete_rows))
+            try:
+                marketing_repo.restore_rows(pre_delete_rows)
+            except Exception:
+                logger.exception("되돌리기 실패 — undo_id=%s 로 수동 복구가 필요합니다", delete_undo_id)
+        raise server_error("저장하지 못했습니다. 잠시 후 다시 시도해 주세요.", exc)
 
     # 코멘트 저장이 실패해도 이미 들어간 데이터를 되돌리지는 않는다 — 부가 정보라서
     # 여기서 500을 던지면 "저장이 안 됐다"로 읽히고 사용자가 같은 파일을 다시 올린다.
@@ -1023,7 +1078,7 @@ async def save_excel_data(
 
 
 @router.post("/rows")
-async def upsert_row(body: RowUpsertBody) -> dict:
+def upsert_row(body: RowUpsertBody) -> dict:
     """단일 행 (report_date, campaign_type) UPSERT"""
     df = pd.DataFrame([{
         "report_date": body.report_date,
@@ -1041,11 +1096,11 @@ async def upsert_row(body: RowUpsertBody) -> dict:
         saved, _, _ = MarketingRepository(None).save_mapped_dataframe(df)  # type: ignore[arg-type]
         return {"saved": saved, "message": "저장되었습니다."}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"저장 실패: {exc}")
+        raise server_error("저장하지 못했습니다. 잠시 후 다시 시도해 주세요.", exc)
 
 
 @router.delete("/rows")
-async def delete_row(
+def delete_row(
     report_date: str = Query(...),
     campaign_type: str = Query(...),
 ) -> dict:
@@ -1068,7 +1123,7 @@ async def delete_row(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"삭제 실패: {exc}")
+        raise server_error("삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.", exc)
 
 
 @router.post("/export")
@@ -1080,18 +1135,22 @@ async def export_excel(
     check_content_length(request)
     file_data: list[FileEntry] = await read_data_uploads(files, allowed_extensions=CSV_EXTENSIONS)
 
-    db = SessionLocal()
-    try:
-        svc = MarketingService(MarketingRepository(db))
-        conv_files, media_files = svc._classify(file_data)
-        media_kpis, period = await svc.process_for_export(conv_files, media_files)
-    finally:
-        db.close()
+    def _build() -> tuple[bytes, str]:
+        db = SessionLocal()
+        try:
+            svc = MarketingService(MarketingRepository(db))
+            conv_files, media_files = svc._classify(file_data)
+            media_kpis, period = svc.process_for_export(conv_files, media_files)
+        finally:
+            db.close()
 
-    # 일별 실적은 방금 올린 CSV에서 오지만, 비교 행·예산·코멘트는 DB에만 있다.
-    # 기간은 라벨("26년 7월")에서 읽는다.
-    year, month = resolve_period(period, None, None)
-    excel_bytes = _build_excel(media_kpis, period, year, month)
+        # 일별 실적은 방금 올린 CSV에서 오지만, 비교 행·예산·코멘트는 DB에만 있다.
+        # 기간은 라벨("26년 7월")에서 읽는다.
+        year, month = resolve_period(period, None, None)
+        return _build_excel(media_kpis, period, year, month), period
+
+    # CSV 파싱부터 openpyxl 템플릿 채우기까지 전부 블로킹이라 이벤트 루프 밖에서 돌린다.
+    excel_bytes, period = await run_in_threadpool(_build)
 
     filename = f"마케팅분석_{period.replace(' ', '')}.xlsx"
     return StreamingResponse(

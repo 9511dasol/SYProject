@@ -10,7 +10,12 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 import pandas as pd
 
 from app.core.database import SessionLocal, engine
-from app.models.marketing_model import MarketingData, MarketingPeriodMeta, resolve_total_conv
+from app.models.marketing_model import (
+    MarketingData,
+    MarketingPeriodMeta,
+    in_month,
+    resolve_total_conv,
+)
 from app.repositories.undo_snapshot_repo import UndoSnapshotRepository
 from app.services import storage_service
 
@@ -77,6 +82,67 @@ def _insert_in_chunks(db_df: pd.DataFrame, chunk_size: int = _INSERT_CHUNK_SIZE)
     """대량 INSERT를 작은 트랜잭션으로 나눠 커넥션 리셋(WinError 10054) 위험을 줄인다."""
     for start in range(0, len(db_df), chunk_size):
         _insert_chunk(db_df.iloc[start : start + chunk_size])
+
+
+def _delete_combo(conn, report_date, campaign_type) -> None:
+    conn.execute(
+        text("DELETE FROM marketing_data WHERE report_date = :d AND campaign_type = :c"),
+        {"d": report_date, "c": campaign_type},
+    )
+
+
+def _rewrite_rows(rows: list[dict], clear_combos: pd.DataFrame | None = None) -> int:
+    """비울 범위를 지운 뒤 rows 를 그대로 되돌려 놓는다.
+
+    clear_combos 를 주면 그 (날짜, 매체) 범위를, 주지 않으면 rows 가 덮는 범위를
+    비운다. 업서트 실패 복구는 더 넓은 범위를 비워야 한다 — 청크 INSERT 가 중간에
+    깨지면 먼저 들어간 청크가 남는데, 원래 값이 없던 조합(되돌릴 행도 없는 조합)에
+    들어간 새 행은 rows 범위만 비워서는 지워지지 않기 때문이다.
+
+    되돌리기(restore_undo)와 업서트 실패 복구가 같은 동작을 해야 해서 한 곳에 둔다.
+    """
+    df = None
+    if rows:
+        df = pd.DataFrame(rows)
+        df["report_date"] = pd.to_datetime(df["report_date"]).dt.date
+
+    combos = clear_combos
+    if combos is None:
+        if df is None:
+            return 0
+        combos = df[["report_date", "campaign_type"]].drop_duplicates()
+
+    with engine.begin() as conn:
+        for _, row in combos.iterrows():
+            _delete_combo(conn, row["report_date"], str(row["campaign_type"]))
+
+    if df is None:
+        return 0
+
+    _insert_in_chunks(df)
+    return len(df)
+
+
+_SNAPSHOT_FIELDS = (
+    "report_date", "campaign_type", "impressions", "clicks", "cost",
+    "conversions", "conversion_revenue", "signup", "purchase", "apply",
+)
+
+
+def _model_to_snapshot(row: MarketingData) -> dict:
+    """ORM 행 → 되돌리기 스냅샷 dict. _upsert 가 SELECT 로 만드는 것과 같은 모양."""
+    snapshot = {}
+    for field in _SNAPSHOT_FIELDS:
+        value = getattr(row, field)
+        if value is None and field in ("signup", "purchase", "apply"):
+            value = 0  # SELECT 쪽 COALESCE(...,0) 과 맞춘다
+        snapshot[field] = _json_safe(value)
+    return snapshot
+
+
+def restore_rows(rows: list[dict]) -> int:
+    """스냅샷 행을 DB 에 되돌린다 — 삭제가 이미 커밋된 뒤 실패했을 때 쓰는 진입점."""
+    return _rewrite_rows(rows)
 
 
 class MarketingRepository:
@@ -167,13 +233,22 @@ class MarketingRepository:
         해당 그룹(노출/클릭/비용 또는 전환)의 데이터를 실제로 갖고 있지 않은 행은
         기존 DB 값을 그대로 유지한다 — 파일을 하나씩 나눠 올릴 때 이전에 저장된
         값이 0으로 덮어써지는 것을 방지.
+
+        쓰기 순서가 중요하다. 예전에는 DELETE 를 먼저 커밋하고 INSERT 한 다음
+        마지막에 스냅샷을 저장해서, INSERT 가 끝내 실패하면 기존 행은 이미
+        지워졌는데 되돌릴 스냅샷도 없어 복구가 불가능했다. 지금은
+        읽기 → 스냅샷 저장 → (삭제+삽입) 순서로 하고, 쓰기가 실패하면
+        스냅샷으로 되돌린다. INSERT 를 작은 트랜잭션으로 쪼개는 것은 Supabase
+        풀러의 커넥션 리셋을 피하려는 의도라 그대로 둔다.
         """
         has_authority_cols = "_has_media" in db_df.columns and "_has_conv" in db_df.columns
         combos = db_df[["report_date", "campaign_type"]].drop_duplicates()
         diff: dict[str, dict[str, list[str]]] = {}
         undo_rows: list[dict] = []
+        stale_combos: list[tuple] = []
         undo_id = str(_uuid.uuid4())
 
+        # 1단계 — 읽기만. 덮어쓸 기존 행을 모아 스냅샷과 diff 를 만든다.
         with engine.begin() as conn:
             for _, row in combos.iterrows():
                 ct = str(row["campaign_type"])
@@ -194,6 +269,7 @@ class MarketingRepository:
                 diff.setdefault(ct, {"added": [], "updated": []})[bucket].append(ds)
 
                 if existing:
+                    stale_combos.append((row["report_date"], ct))
                     for r in existing:
                         undo_rows.append({k: _json_safe(v) for k, v in r._mapping.items()})
 
@@ -208,20 +284,42 @@ class MarketingRepository:
                                 for f in self._CONV_FIELDS:
                                     db_df.at[i, f] = existing_row[f]
 
-                    conn.execute(
-                        text(
-                            "DELETE FROM marketing_data "
-                            "WHERE report_date = :d AND campaign_type = :c"
-                        ),
-                        {"d": row["report_date"], "c": ct},
-                    )
-
         if has_authority_cols:
             db_df = db_df.drop(columns=["_has_media", "_has_conv"])
 
-        _insert_in_chunks(db_df)
+        # 2단계 — 아무것도 지우기 전에 스냅샷부터 남긴다.
+        try:
+            _save_undo_snapshot(undo_id, undo_rows)
+        except Exception:
+            if undo_rows:
+                # 덮어쓸 기존 행이 있는데 복구 지점을 못 남겼다면 지우면 안 된다 —
+                # 되돌릴 수단 없이 기존 데이터를 날리는 것이 바로 이 순서가 막으려는 상황이다.
+                logger.exception("되돌리기 스냅샷 저장 실패 — 기존 데이터를 보호하기 위해 업서트를 중단합니다.")
+                raise
+            # 덮어쓸 기존 행이 없으면 잃을 것도 없다. 되돌리기 기능의 장애가
+            # 업로드 자체를 막지 않도록 여기서는 계속 진행한다.
+            logger.exception("되돌리기 스냅샷 저장 실패 — 되돌릴 기존 데이터가 없어 업로드는 계속합니다.")
+            undo_id = ""
 
-        _save_undo_snapshot(undo_id, undo_rows)
+        # 3단계 — 덮어쓰기. 실패하면 방금 남긴 스냅샷으로 되돌리고 그대로 올린다.
+        try:
+            if stale_combos:
+                with engine.begin() as conn:
+                    for report_date, ct in stale_combos:
+                        _delete_combo(conn, report_date, ct)
+
+            _insert_in_chunks(db_df)
+        except Exception:
+            logger.exception("업서트 실패 — 스냅샷(undo_id=%s)으로 복구를 시도합니다.", undo_id)
+            try:
+                # 비울 범위는 스냅샷이 아니라 이번 업서트가 건드린 전체 범위다 —
+                # 원래 값이 없던 조합에도 청크 INSERT 로 새 행이 들어갔을 수 있다.
+                _rewrite_rows(undo_rows, clear_combos=combos)
+            except Exception:
+                # 복구까지 실패하면 스냅샷은 DB 에 남아 있으므로 undo_id 로 되돌릴 수 있다.
+                logger.exception("복구 실패 — undo_id=%s 로 수동 복구가 필요합니다.", undo_id)
+            raise
+
         return len(db_df), diff, undo_id
 
     # ── 되돌리기 ──────────────────────────────────────────────────────────────
@@ -234,23 +332,8 @@ class MarketingRepository:
         if not saved_rows:
             return True, "이전 상태로 되돌렸습니다. (저장된 항목이 없었으므로 해당 데이터를 삭제합니다.)"
 
-        df = pd.DataFrame(saved_rows)
-        df["report_date"] = pd.to_datetime(df["report_date"]).dt.date
-        combos = df[["report_date", "campaign_type"]].drop_duplicates()
-
-        with engine.begin() as conn:
-            for _, row in combos.iterrows():
-                conn.execute(
-                    text(
-                        "DELETE FROM marketing_data "
-                        "WHERE report_date = :d AND campaign_type = :c"
-                    ),
-                    {"d": row["report_date"], "c": row["campaign_type"]},
-                )
-
-        _insert_in_chunks(df)
-
-        return True, f"이전 상태로 되돌렸습니다. ({len(df)}개 행 복원)"
+        restored = _rewrite_rows(saved_rows)
+        return True, f"이전 상태로 되돌렸습니다. ({restored}개 행 복원)"
 
     # ── 조회 ──────────────────────────────────────────────────────────────────
 
@@ -289,16 +372,22 @@ class MarketingRepository:
         예산은 계약이 바뀌지 않는 한 매달 같은 값이라, 매달 다시 입력하게 하면
         입력을 건너뛴 달의 예산소진율·잔여광고비가 통째로 0이 되기 때문이다.
         """
-        target = year * 12 + month
-        candidates = [
-            row
-            for row in self.db.query(MarketingPeriodMeta).all()
-            if row.media_budgets and row.year * 12 + row.month <= target
-        ]
-        if not candidates:
+        # 예전에는 기간 메타를 전부 메모리로 읽어 파이썬에서 걸렀다. 엑셀을 내보낼
+        # 때마다 호출되는 경로라, 기간이 쌓일수록 매번 전체 스캔이 됐다. 정렬·필터를
+        # SQL 로 내리고 한 행만 가져온다.
+        ordinal = MarketingPeriodMeta.year * 12 + MarketingPeriodMeta.month
+        best = (
+            self.db.query(MarketingPeriodMeta)
+            .filter(
+                MarketingPeriodMeta.media_budgets.isnot(None),
+                ordinal <= year * 12 + month,
+            )
+            .order_by(ordinal.desc())
+            .first()
+        )
+        if best is None or not best.media_budgets:
             return {}, None
 
-        best = max(candidates, key=lambda r: r.year * 12 + r.month)
         budgets = {str(k): float(v) for k, v in best.media_budgets.items() if v is not None}
         return budgets, (best.year, best.month)
 
@@ -436,13 +525,26 @@ class MarketingRepository:
             "deleted_excel": excel_deleted,
         }
 
+    def snapshot_periods(self, periods: list[tuple[int, int]]) -> tuple[str, list[dict]]:
+        """여러 기간의 현재 행을 되돌리기 스냅샷으로 남기고 (undo_id, rows) 반환.
+
+        기간을 통째로 지우고 다시 넣는 엑셀 교체 경로에서, 지우기 전에 복구 지점을
+        확보하려고 쓴다. 저장이 실패하면 호출자가 rows 로 즉시 되돌리고, 그마저
+        실패해도 undo_id 로 수동 복구할 수 있도록 DB 에도 남긴다.
+        """
+        rows = [
+            _model_to_snapshot(row)
+            for year, month in periods
+            for row in self.get_rows_by_period(year, month)
+        ]
+        undo_id = str(_uuid.uuid4())
+        _save_undo_snapshot(undo_id, rows)
+        return undo_id, rows
+
     def delete_rows_by_period(self, year: int, month: int) -> int:
         deleted = (
             self.db.query(MarketingData)
-            .filter(
-                extract("year", MarketingData.report_date) == year,
-                extract("month", MarketingData.report_date) == month,
-            )
+            .filter(in_month(year, month))
             .delete(synchronize_session=False)
         )
         return int(deleted)
@@ -450,10 +552,7 @@ class MarketingRepository:
     def get_rows_by_period(self, year: int, month: int) -> list[MarketingData]:
         return (
             self.db.query(MarketingData)
-            .filter(
-                extract("year", MarketingData.report_date) == year,
-                extract("month", MarketingData.report_date) == month,
-            )
+            .filter(in_month(year, month))
             .order_by(MarketingData.report_date, MarketingData.campaign_type)
             .all()
         )
@@ -475,10 +574,7 @@ class MarketingRepository:
                 func.sum(MarketingData.purchase).label("purchase"),
                 func.sum(MarketingData.apply).label("apply"),
             )
-            .filter(
-                extract("year", MarketingData.report_date) == year,
-                extract("month", MarketingData.report_date) == month,
-            )
+            .filter(in_month(year, month))
             .one()
         )
         if r.impressions is None and r.clicks is None and r.cost is None:
@@ -512,10 +608,7 @@ class MarketingRepository:
                 func.sum(MarketingData.purchase).label("purchase"),
                 func.sum(MarketingData.apply).label("apply"),
             )
-            .filter(
-                extract("year", MarketingData.report_date) == year,
-                extract("month", MarketingData.report_date) == month,
-            )
+            .filter(in_month(year, month))
             .group_by(MarketingData.campaign_type)
             .all()
         )
@@ -543,10 +636,7 @@ class MarketingRepository:
                 func.sum(MarketingData.conversions).label("conversions"),
                 func.sum(MarketingData.conversion_revenue).label("conversion_revenue"),
             )
-            .filter(
-                extract("year", MarketingData.report_date) == year,
-                extract("month", MarketingData.report_date) == month,
-            )
+            .filter(in_month(year, month))
             .group_by(MarketingData.campaign_type)
             .all()
         )

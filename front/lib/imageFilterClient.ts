@@ -1,21 +1,18 @@
 import type { OutputFormat } from '@/types/imageResize';
 import type { BackgroundVariant, ImageElement } from '@/types/imageFilter';
-import { authFetch } from '@/lib/api/authFetch';
+import { authFetch, NO_TIMEOUT } from '@/lib/api/authFetch';
+import { downloadResponse } from '@/lib/api/download';
+import { throwResponseError } from '@/lib/api/responseError';
 import { compressImageIfNeeded } from './imageResizeClient';
 
-async function throwResponseError(res: Response): Promise<never> {
-  let detail = `서버 오류: ${res.status}`;
-  try {
-    const json = await res.json();
-    detail = json.detail ?? json.message ?? detail;
-  } catch {
-    // JSON 파싱 실패 무시
-  }
-  throw new Error(detail);
-}
+// AI 이미지 작업은 수십 초가 정상이라 공용 타임아웃(30초)을 적용하면 안 된다.
+// 대신 호출부가 넘긴 signal 로 사용자가 직접 끊을 수 있게 한다.
 
 /** 피사체는 유지하고 배경만 바꾼 시안 여러 장을 생성한다 (이미지 생성 모델 — 수십 초 소요). */
-export async function suggestBackgrounds(file: File): Promise<BackgroundVariant[]> {
+export async function suggestBackgrounds(
+  file: File,
+  signal?: AbortSignal,
+): Promise<BackgroundVariant[]> {
   const compressed = await compressImageIfNeeded(file);
   const form = new FormData();
   form.append('file', compressed);
@@ -23,6 +20,8 @@ export async function suggestBackgrounds(file: File): Promise<BackgroundVariant[
   const res = await authFetch('/api/image-filter/backgrounds', {
     method: 'POST',
     body: form,
+    timeoutMs: NO_TIMEOUT,
+    signal,
   });
   if (!res.ok) await throwResponseError(res);
 
@@ -31,7 +30,10 @@ export async function suggestBackgrounds(file: File): Promise<BackgroundVariant[
 }
 
 /** 이미지 속 구성 요소(텍스트·로고·제품 등)를 bounding box 와 함께 분석한다. */
-export async function analyzeElements(file: File): Promise<ImageElement[]> {
+export async function analyzeElements(
+  file: File,
+  signal?: AbortSignal,
+): Promise<ImageElement[]> {
   const compressed = await compressImageIfNeeded(file);
   const form = new FormData();
   form.append('file', compressed);
@@ -39,18 +41,11 @@ export async function analyzeElements(file: File): Promise<ImageElement[]> {
   const res = await authFetch('/api/image-filter/analyze', {
     method: 'POST',
     body: form,
+    timeoutMs: NO_TIMEOUT,
+    signal,
   });
 
-  if (!res.ok) {
-    let detail = `서버 오류: ${res.status}`;
-    try {
-      const json = await res.json();
-      detail = json.detail ?? json.message ?? detail;
-    } catch {
-      // JSON 파싱 실패 무시
-    }
-    throw new Error(detail);
-  }
+  if (!res.ok) await throwResponseError(res);
 
   const data = (await res.json()) as { elements: ImageElement[] };
   return data.elements;
@@ -68,6 +63,7 @@ export async function editAndResize(
   format: OutputFormat,
   onCompress?: () => void,
   onEdit?: () => void,
+  signal?: AbortSignal,
 ): Promise<{ provider: string }> {
   // 1. 클라이언트 사전 압축 (10MB↑)
   onCompress?.();
@@ -85,36 +81,16 @@ export async function editAndResize(
   const res = await authFetch('/api/image-filter/edit', {
     method: 'POST',
     body: form,
+    timeoutMs: NO_TIMEOUT,
+    signal,
   });
 
   // 3. 실패 응답 처리
-  if (!res.ok) {
-    let detail = `서버 오류: ${res.status}`;
-    try {
-      const json = await res.json();
-      detail = json.detail ?? json.message ?? detail;
-    } catch {
-      // JSON 파싱 실패 무시
-    }
-    throw new Error(detail);
-  }
+  if (!res.ok) await throwResponseError(res);
 
   // 4. 성공: Blob 다운로드
-  const blob = await res.blob();
   const aiProvider = res.headers.get('X-AI-Provider') ?? '';
-
-  const contentDisposition = res.headers.get('Content-Disposition') ?? '';
-  const match = contentDisposition.match(/filename[^;=\n]*=\s*(?:UTF-8''|"?)([^";\n]*)"?/i);
-  const filename = match?.[1] ? decodeURIComponent(match[1]) : `edited_${file.name}`;
-
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+  await downloadResponse(res, `edited_${file.name}`);
 
   return { provider: aiProvider };
 }

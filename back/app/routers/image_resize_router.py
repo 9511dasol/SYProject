@@ -3,6 +3,7 @@
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -10,7 +11,6 @@ from app.core.ai_budget import check_ai_budget
 from app.core.feature_flags import require_feature_flag
 from app.core.security import get_current_user, get_db
 from app.models.user_model import User
-from app.repositories.ai_tool_usage_log_repo import AIToolUsageLogRepository
 from app.schemas.image_resize_schema import (
     ResizeInput,
     get_resize_input,
@@ -18,6 +18,7 @@ from app.schemas.image_resize_schema import (
     read_and_check_file,
     validate_content_length,
 )
+from app.services.ai_usage import log_ai_usage
 from app.services.image_ai_edit_service import _UPSCALE_PROMPT
 from app.services.image_resize_service import resize_image
 from app.services.media_preset_service import (
@@ -58,7 +59,10 @@ async def batch_endpoint(
         raise HTTPException(status_code=422, detail="변환할 규격을 하나 이상 선택해 주세요.")
 
     try:
-        buf, download_name, content_type = batch_resize_zip(file_bytes, filename, keys, fmt)
+        # 프리셋 수만큼의 PIL 변환 + zip 압축이라 길게는 초 단위로 블로킹된다.
+        buf, download_name, content_type = await run_in_threadpool(
+            batch_resize_zip, file_bytes, filename, keys, fmt
+        )
     except UnknownPresetError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
@@ -83,7 +87,9 @@ async def resize_endpoint(
         check_ai_budget(db)
 
     try:
-        buf, download_name, media_type, ai_upscale_used, usage = resize_image(
+        # PIL 리샘플링은 CPU 바운드이고, AI 업스케일을 켜면 동기 Gemini 호출까지 붙는다.
+        buf, download_name, media_type, ai_upscale_used, usage = await run_in_threadpool(
+            resize_image,
             file_bytes=inp.file_bytes,
             original_filename=inp.filename,
             target_width=inp.width,
@@ -96,14 +102,14 @@ async def resize_endpoint(
 
     # 순수 리사이즈(Pillow)는 Gemini를 호출하지 않으므로 로그 대상에서 제외 — 실제 AI 호출이 있었을 때만 기록
     if ai_upscale_used:
-        AIToolUsageLogRepository(db).create(
+        # 사용량 기록도 커밋을 동반하는 DB 쓰기라 이벤트 루프 밖에서 처리한다.
+        await run_in_threadpool(
+            log_ai_usage,
             user=current_user,
             tool="image_resize",
-            image_filename=inp.filename,
+            label=inp.filename,
             prompt=_UPSCALE_PROMPT,
-            prompt_tokens=usage.prompt_tokens if usage else None,
-            output_tokens=usage.output_tokens if usage else None,
-            total_tokens=usage.total_tokens if usage else None,
+            usage=usage,
         )
 
     encoded_name = quote(download_name, safe="")

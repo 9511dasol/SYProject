@@ -241,24 +241,22 @@ class TestExportEmailBlocked:
     def test_switch_is_currently_on(self):
         assert marketing_router.EXPORT_EMAIL_UNDER_MAINTENANCE is True
 
-    @pytest.mark.asyncio
-    async def test_email_delivery_is_rejected(self):
+    def test_email_delivery_is_rejected(self):
         with pytest.raises(HTTPException) as exc:
-            await marketing_router.start_export_db_task(
+            marketing_router.start_export_db_task(
                 year=2026, month=6, deliver_by="email", recipient=None,
                 background_tasks=BackgroundTasks(), current_user=_FakeUser(),
             )
         assert exc.value.status_code == 503
         assert "준비중" in exc.value.detail
 
-    @pytest.mark.asyncio
-    async def test_switch_off_lets_the_request_through(self, monkeypatch):
+    def test_switch_off_lets_the_request_through(self, monkeypatch):
         """차단만 걸려 있고 나머지 로직은 그대로여야 한다 — 스위치를 내리면 다음 검증으로 넘어간다."""
         monkeypatch.setattr(marketing_router, "EXPORT_EMAIL_UNDER_MAINTENANCE", False)
         monkeypatch.setattr(marketing_router, "mail_config_error", lambda: "메일 설정 없음")
 
         with pytest.raises(HTTPException) as exc:
-            await marketing_router.start_export_db_task(
+            marketing_router.start_export_db_task(
                 year=2026, month=6, deliver_by="email", recipient=None,
                 background_tasks=BackgroundTasks(), current_user=_FakeUser(),
             )

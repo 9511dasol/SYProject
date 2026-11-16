@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.security import get_db, require_admin
+from app.core.security import get_db, require_admin, validate_password_policy
 from app.models.user_model import User
 from app.repositories.user_repo import UserRepository
 from app.schemas.user_admin_schema import (
@@ -30,6 +30,8 @@ def create_user(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
+    validate_password_policy(body.password)
+
     repo = UserRepository(db)
     if repo.get_by_email(body.email) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 가입된 이메일입니다.")
@@ -94,8 +96,7 @@ def reset_password(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
-    if len(body.new_password) < 8:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="비밀번호는 8자 이상이어야 합니다.")
+    validate_password_policy(body.new_password)
 
     repo = UserRepository(db)
     user = repo.get_by_id(user_id)

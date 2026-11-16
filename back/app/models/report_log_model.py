@@ -21,5 +21,5 @@ class ReportLog(Base):
     status: Mapped[str] = mapped_column(String(20), default="sent")  # "sent" | "error"
     error_msg: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )  # 목록 조회가 항상 created_at DESC 정렬

@@ -8,8 +8,6 @@ UTF-16 BOM + 탭 구분에 제목·기간 2줄이 앞에 붙고, 숫자에 천 �
 칸은 따옴표로 감싸여 온다 — 이 형식 자체가 회귀 지점이라 그대로 재현한다.
 """
 
-import asyncio
-
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
@@ -80,7 +78,7 @@ def _upload(files: list[tuple[bytes, str]]) -> tuple[dict, _RecordingRepo]:
     repo = _RecordingRepo()
     svc = MarketingService(repo)
     conv_files, media_files = svc._classify(files)
-    result = asyncio.run(svc.process_and_analyze(conv_files, media_files))
+    result = svc.process_and_analyze(conv_files, media_files)
     return result, repo
 
 

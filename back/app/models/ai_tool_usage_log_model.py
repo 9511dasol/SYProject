@@ -21,4 +21,8 @@ class AIToolUsageLog(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # 월 예산 게이트(require_ai_budget)가 AI 호출마다 created_at >= :since 로 토큰을
+    # 합산한다 — 인덱스가 없으면 로그가 쌓일수록 모든 AI 요청이 같이 느려진다.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )

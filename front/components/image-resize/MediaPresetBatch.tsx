@@ -24,15 +24,24 @@ export default function MediaPresetBatch({
   const [doneMsg, setDoneMsg] = useState<string | null>(null);
 
   useEffect(() => {
+    // 응답이 돌아오기 전에 화면을 떠나면 사라진 컴포넌트에 setState 하게 된다
+    let cancelled = false;
     fetchMediaPresets()
-      .then(setPresets)
-      .catch((err) => setError(err instanceof Error ? err.message : '규격 목록 로드 실패'));
+      .then((list) => { if (!cancelled) setPresets(list); })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : '규격 목록 로드 실패');
+      });
+    return () => { cancelled = true; };
   }, []);
 
-  // 파일이 바뀌면 완료 메시지는 무효
-  useEffect(() => {
+  // 파일이 바뀌면 완료 메시지는 무효.
+  // effect 대신 렌더 중에 맞춘다 — 프리셋 목록은 파일과 무관해서 key 로 통째로
+  // 다시 마운트하면 매번 다시 받아오게 되고, effect + setState 는 렌더를 한 번 더 돌린다.
+  const [lastFile, setLastFile] = useState(file);
+  if (lastFile !== file) {
+    setLastFile(file);
     setDoneMsg(null);
-  }, [file]);
+  }
 
   const byMedia = useMemo(() => {
     const groups = new Map<string, MediaPreset[]>();

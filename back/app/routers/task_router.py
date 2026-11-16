@@ -32,7 +32,7 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 
 @router.get("/{task_id}/status", response_model=TaskStatusResponse)
-async def get_task_status(task_id: str) -> TaskStatusResponse:
+def get_task_status(task_id: str) -> TaskStatusResponse:
     task = get_task(task_id)
     if task is None:
         raise HTTPException(

@@ -4,6 +4,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.core.ai_budget import require_ai_budget
@@ -12,7 +13,6 @@ from app.core.rate_limit import limiter
 from app.core.security import get_current_user, get_db
 from app.core.settings import settings
 from app.models.user_model import User
-from app.repositories.ai_tool_usage_log_repo import AIToolUsageLogRepository
 from app.repositories.heading_suggestion_repo import HeadingSuggestionRepository
 from app.schemas.heading_schema import (
     HeadingHistoryResponse,
@@ -21,6 +21,7 @@ from app.schemas.heading_schema import (
     get_heading_input,
 )
 from app.services import storage_service
+from app.services.ai_usage import log_ai_usage
 from app.services.heading_service import generate_headings
 
 logger = logging.getLogger(__name__)
@@ -62,25 +63,26 @@ async def suggest_headings(
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"헤딩 생성 중 오류: {exc}") from exc
 
-    # 썸네일을 Storage에 저장하고, 생성 결과를 사용자별 히스토리로 저장 (페이지 재접속 시 복원용)
-    image_path = _upload_thumbnail(current_user.id, thumbnail_bytes)
-    record = HeadingSuggestionRepository(db).create(
-        user=current_user,
-        image_filename=inp.filename,
-        image_path=image_path,
-        headings=[h.model_dump() for h in result.headings],
-    )
+    # 썸네일을 Storage에 저장하고, 생성 결과를 사용자별 히스토리로 저장 (페이지 재접속 시 복원용).
+    # 업로드는 동기 httpx(타임아웃 120초), 뒤이은 저장도 동기 DB 커밋이라 묶어서 스레드풀로 넘긴다.
+    def _persist():
+        image_path = _upload_thumbnail(current_user.id, thumbnail_bytes)
+        record = HeadingSuggestionRepository(db).create(
+            user=current_user,
+            image_filename=inp.filename,
+            image_path=image_path,
+            headings=[h.model_dump() for h in result.headings],
+        )
 
-    AIToolUsageLogRepository(db).create(
-        user=current_user,
-        tool="heading_suggest",
-        image_filename=inp.filename,
-        prompt_tokens=usage.prompt_tokens if usage else None,
-        output_tokens=usage.output_tokens if usage else None,
-        total_tokens=usage.total_tokens if usage else None,
-    )
+        log_ai_usage(
+            user=current_user,
+            tool="heading_suggest",
+            label=inp.filename,
+            usage=usage,
+        )
+        return HeadingSuggestionRecord.model_validate(record)
 
-    return HeadingSuggestionRecord.model_validate(record)
+    return await run_in_threadpool(_persist)
 
 
 @router.get("/history", response_model=HeadingHistoryResponse)

@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = _DEV_DATABASE_URL
 
+    # 커넥션 풀 크기. 블로킹 엔드포인트를 스레드풀에서 돌리게 되면서 DB 를 동시에
+    # 때리는 요청 수가 늘었다 — 예전에는 이벤트 루프에서 직렬 처리돼 사실상 1개였다.
+    # anyio 기본 워커 스레드(40)보다 작게 두되, 폴링성 조회가 풀 고갈로 막히지
+    # 않을 만큼은 확보한다. Supabase 풀러 상한에 맞춰 조정할 것.
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+
     # 기동 시 `alembic upgrade head` 를 자동 실행할지.
     # 기본값은 개발 True / 운영 False (아래 _validate 에서 결정) — 운영에서는
     # 배포 파이프라인의 별도 단계에서 적용하고, 앱은 상태 점검만 한다.
@@ -62,6 +69,13 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-flash"
     GEMINI_IMAGE_MODEL: str = "gemini-2.5-flash-image"
+
+    # LLM 호출 상한 — 지정하지 않으면 SDK 기본값이 사실상 무한대라, 공급자가
+    # 응답을 멈추면 요청 스레드가 영원히 매달린다. 이미지 생성은 텍스트보다
+    # 훨씬 오래 걸려 한도를 따로 둔다.
+    LLM_TIMEOUT_SECONDS: float = 60.0
+    LLM_IMAGE_TIMEOUT_SECONDS: float = 180.0
+    LLM_MAX_RETRIES: int = 2
 
     # Mail
     MAIL_ENABLED: bool = True

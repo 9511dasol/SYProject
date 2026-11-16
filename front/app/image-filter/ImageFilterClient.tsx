@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import DropZone from '@/components/image-resize/DropZone';
 import DimensionInputs from '@/components/image-resize/DimensionInputs';
 import FormatSelector from '@/components/image-resize/FormatSelector';
@@ -10,13 +10,15 @@ import BackgroundSuggest from '@/components/image-filter/BackgroundSuggest';
 import ElementPicker from '@/components/image-filter/ElementPicker';
 import Button from '@/components/ui/Button';
 import type {
-  ImageDimensions,
   AiResult,
   FilterFormState,
   FilterProcessingState,
   ImageElement,
 } from '@/types/imageFilter';
+import { useAspectRatioInputs } from '@/hooks/useAspectRatioInputs';
+import { useImageUpload } from '@/hooks/useImageUpload';
 import { analyzeElements, editAndResize } from '@/lib/imageFilterClient';
+import { isUserCancel } from '@/lib/api/authFetch';
 
 const INITIAL_FORM: FilterFormState = {
   prompt: '',
@@ -35,9 +37,6 @@ const PROCESSING_LABELS: Record<FilterProcessingState, string> = {
 };
 
 export default function ImageFilterClient() {
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [originalDimensions, setOriginalDimensions] = useState<ImageDimensions | null>(null);
   const [form, setForm] = useState<FilterFormState>(INITIAL_FORM);
   const [processing, setProcessing] = useState<FilterProcessingState>('idle');
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
@@ -48,96 +47,74 @@ export default function ImageFilterClient() {
   const [selectedElementId, setSelectedElementId] = useState<number | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
 
+  // 진행 중인 AI 요청의 취소 핸들 — 이미지 생성은 수십 초라 끊을 수단이 필요하다
+  const abortRef = useRef<AbortController | null>(null);
+
   const isProcessing = processing !== 'idle' || analyzing;
 
-  /* ── 파일 선택 ──────────────────────────────────────────────── */
+  /* ── 파일 선택 (업로드·미리보기·치수 측정은 공용 훅) ────────── */
+  const {
+    file,
+    previewUrl,
+    dimensions: originalDimensions,
+    select,
+    clear,
+  } = useImageUpload((dims) =>
+    setForm((prev) => ({
+      ...prev,
+      targetWidth: String(dims.width),
+      targetHeight: String(dims.height),
+    })),
+  );
+
   const handleFileSelect = useCallback(
     (f: File) => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      const url = URL.createObjectURL(f);
-      setPreviewUrl(url);
-      setFile(f);
       setAiResult(null);
       setError(null);
       setElements(null);
       setSelectedElementId(null);
       setForm((prev) => ({ ...prev, targetWidth: '', targetHeight: '' }));
-
-      const img = new Image();
-      img.onload = () => {
-        const dims: ImageDimensions = { width: img.naturalWidth, height: img.naturalHeight };
-        setOriginalDimensions(dims);
-        setForm((prev) => ({
-          ...prev,
-          targetWidth: String(dims.width),
-          targetHeight: String(dims.height),
-        }));
-      };
-      img.src = url;
+      select(f);
     },
-    [previewUrl],
+    [select],
   );
 
   /* ── 초기화 ─────────────────────────────────────────────────── */
   const handleClear = useCallback(() => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setFile(null);
-    setPreviewUrl(null);
-    setOriginalDimensions(null);
+    clear();
     setForm(INITIAL_FORM);
     setAiResult(null);
     setError(null);
     setElements(null);
     setSelectedElementId(null);
-  }, [previewUrl]);
+  }, [clear]);
 
   /* ── 요소 분석 ──────────────────────────────────────────────── */
   const handleAnalyze = async () => {
     if (!file || analyzing) return;
     setError(null);
     setAnalyzing(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const found = await analyzeElements(file);
+      const found = await analyzeElements(file, controller.signal);
       setElements(found);
       setSelectedElementId(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '요소 분석에 실패했습니다.');
+      if (!isUserCancel(err)) {
+        setError(err instanceof Error ? err.message : '요소 분석에 실패했습니다.');
+      }
     } finally {
+      abortRef.current = null;
       setAnalyzing(false);
     }
   };
 
-  /* ── 가로 변경 (비율 유지) ──────────────────────────────────── */
-  const handleWidthChange = useCallback(
-    (value: string) => {
-      setForm((prev) => {
-        if (!prev.keepAspectRatio || !originalDimensions) return { ...prev, targetWidth: value };
-        const w = Number(value);
-        if (w > 0) {
-          const ratio = originalDimensions.height / originalDimensions.width;
-          return { ...prev, targetWidth: value, targetHeight: String(Math.round(w * ratio)) };
-        }
-        return { ...prev, targetWidth: value };
-      });
-    },
-    [originalDimensions],
-  );
-
-  /* ── 세로 변경 (비율 유지) ──────────────────────────────────── */
-  const handleHeightChange = useCallback(
-    (value: string) => {
-      setForm((prev) => {
-        if (!prev.keepAspectRatio || !originalDimensions) return { ...prev, targetHeight: value };
-        const h = Number(value);
-        if (h > 0) {
-          const ratio = originalDimensions.width / originalDimensions.height;
-          return { ...prev, targetHeight: value, targetWidth: String(Math.round(h * ratio)) };
-        }
-        return { ...prev, targetHeight: value };
-      });
-    },
-    [originalDimensions],
-  );
+  /* ── 가로·세로 변경 (비율 유지 계산은 공용 훅) ──────────────── */
+  const { onWidthChange: handleWidthChange, onHeightChange: handleHeightChange } =
+    useAspectRatioInputs(originalDimensions, setForm);
 
   /* ── AI 편집 & 다운로드 ─────────────────────────────────────── */
   const selectedElement = elements?.find((el) => el.id === selectedElementId) ?? null;
@@ -157,6 +134,9 @@ export default function ImageFilterClient() {
       ? composeElementPrompt(selectedElement, form.prompt.trim())
       : form.prompt;
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const { provider } = await editAndResize(
         file,
@@ -166,21 +146,29 @@ export default function ImageFilterClient() {
         form.outputFormat,
         () => setProcessing('compressing'),
         () => setProcessing('editing'),
+        controller.signal,
       );
       setAiResult({ provider });
     } catch (err) {
-      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+      // 사용자가 직접 취소한 건 실패가 아니므로 빨간 오류로 띄우지 않는다
+      if (!isUserCancel(err)) {
+        setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+      }
     } finally {
+      abortRef.current = null;
       setProcessing('idle');
     }
   };
 
-  /* ── 언마운트 정리 ──────────────────────────────────────────── */
+  /** 진행 중인 AI 요청을 끊는다. */
+  const handleCancel = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
+  /* ── 언마운트 정리 (objectURL 해제는 useImageUpload 담당) ───── */
   useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // 화면을 떠나면 진행 중이던 요청도 함께 끊는다
+    return () => abortRef.current?.abort();
   }, []);
 
   const canEdit = !!file && !!form.prompt.trim() && !isProcessing;
@@ -348,6 +336,14 @@ export default function ImageFilterClient() {
                   {PROCESSING_LABELS[processing]}
                 </Button>
 
+                {/* 편집 중에는 기다리는 것 말고 선택지가 없었다 — 끊을 수 있게 한다 */}
+                {processing !== 'idle' && (
+                  <Button variant="outline" className="w-full" onClick={handleCancel}>
+                    <i className="bx bx-x text-lg" />
+                    취소
+                  </Button>
+                )}
+
                 {!form.prompt.trim() && !isProcessing && (
                   <p className="text-center text-xs text-fg-subtle">
                     편집 프롬프트를 입력해야 시작할 수 있습니다.
@@ -358,8 +354,10 @@ export default function ImageFilterClient() {
           )}
         </div>
 
-        {/* 배경 시안 제안 — 프롬프트 편집과 독립적인 보조 기능 */}
-        {file && <BackgroundSuggest file={file} />}
+        {/* 배경 시안 제안 — 프롬프트 편집과 독립적인 보조 기능.
+            key 로 파일을 묶어 두면 다른 파일을 올렸을 때 이전 시안이 알아서 비워진다
+            (컴포넌트 안에서 effect 로 리셋하면 불필요한 렌더가 한 번 더 돈다). */}
+        {file && <BackgroundSuggest key={`${file.name}:${file.size}:${file.lastModified}`} file={file} />}
 
         {/* 안내 문구 */}
         <p className="text-center text-xs text-fg-subtle">

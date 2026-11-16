@@ -8,6 +8,7 @@ from app.core.security import (
     decode_refresh_token,
     get_current_user,
     get_db,
+    validate_password_policy,
     verify_password,
 )
 from app.core.settings import settings
@@ -49,6 +50,8 @@ def register(request: Request, body: UserCreate, db: Session = Depends(get_db)):
     # 회원가입은 로컬 개발 환경에서만 허용 (운영 계정은 별도로 생성)
     if settings.ENVIRONMENT != "development":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="회원가입은 비활성화되어 있습니다.")
+
+    validate_password_policy(body.password)
 
     repo = UserRepository(db)
     if repo.get_by_email(body.email) is not None:
@@ -123,7 +126,6 @@ def change_password(
     if not verify_password(body.current_password, current_user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="현재 비밀번호가 올바르지 않습니다.")
 
-    if len(body.new_password) < 8:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="비밀번호는 8자 이상이어야 합니다.")
+    validate_password_policy(body.new_password)
 
     UserRepository(db).update_password(current_user, body.new_password)

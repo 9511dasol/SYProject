@@ -1,5 +1,7 @@
 import type { MediaPreset, OutputFormat } from '@/types/imageResize';
-import { authFetch } from '@/lib/api/authFetch';
+import { authFetch, NO_TIMEOUT } from '@/lib/api/authFetch';
+import { downloadResponse } from '@/lib/api/download';
+import { throwResponseError } from '@/lib/api/responseError';
 
 /** 매체 규격 프리셋 목록 (서버가 단일 출처) */
 export async function fetchMediaPresets(): Promise<MediaPreset[]> {
@@ -20,31 +22,15 @@ export async function batchResizeToZip(
   form.append('presets', presetKeys.join(','));
   form.append('format', format);
 
-  const res = await authFetch('/api/image-resize/batch', { method: 'POST', body: form });
-  if (!res.ok) {
-    let detail = `서버 오류: ${res.status}`;
-    try {
-      const json = await res.json();
-      detail = json.detail ?? json.message ?? detail;
-    } catch {
-      // JSON 파싱 실패 시 기본 메시지 사용
-    }
-    throw new Error(detail);
-  }
+  // 프리셋 수만큼 변환 + zip 압축이라 큰 이미지에서는 기본 상한을 넘길 수 있다.
+  const res = await authFetch('/api/image-resize/batch', {
+    method: 'POST',
+    body: form,
+    timeoutMs: NO_TIMEOUT,
+  });
+  if (!res.ok) await throwResponseError(res);
 
-  const blob = await res.blob();
-  const contentDisposition = res.headers.get('Content-Disposition') ?? '';
-  const match = contentDisposition.match(/filename[^;=\n]*=\s*(?:UTF-8''|"?)([^";\n]*)"?/i);
-  const filename = match?.[1] ? decodeURIComponent(match[1]) : 'media_sizes.zip';
-
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+  await downloadResponse(res, 'media_sizes.zip');
 }
 
 /** 10MB 초과 시 Canvas로 압축 (품질 0.85, 원본 해상도 유지) */
@@ -77,7 +63,8 @@ export async function resizeImage(
   width: number,
   height: number,
   format: OutputFormat,
-  useAiUpscale: boolean = false
+  useAiUpscale: boolean = false,
+  signal?: AbortSignal,
 ): Promise<{ aiUpscaleUsed: boolean }> {
   const form = new FormData();
   form.append('file', file);
@@ -89,33 +76,15 @@ export async function resizeImage(
   const res = await authFetch('/api/image-resize/resize', {
     method: 'POST',
     body: form,
+    // AI 업스케일을 켜면 수십 초가 걸린다 — 끊지 않고 사용자 취소에 맡긴다.
+    timeoutMs: NO_TIMEOUT,
+    signal,
   });
 
-  if (!res.ok) {
-    let detail = `서버 오류: ${res.status}`;
-    try {
-      const json = await res.json();
-      detail = json.detail ?? json.message ?? detail;
-    } catch {
-      // JSON 파싱 실패 시 기본 메시지 사용
-    }
-    throw new Error(detail);
-  }
+  if (!res.ok) await throwResponseError(res);
 
-  const blob = await res.blob();
-  const contentDisposition = res.headers.get('Content-Disposition') ?? '';
-  const match = contentDisposition.match(/filename[^;=\n]*=\s*(?:UTF-8''|"?)([^";\n]*)"?/i);
-  const filename = match?.[1] ?? `resized_${file.name}`;
   const aiUpscaleUsed = res.headers.get('X-AI-Upscale-Used') === 'true';
-
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = decodeURIComponent(filename);
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+  await downloadResponse(res, `resized_${file.name}`);
 
   return { aiUpscaleUsed };
 }

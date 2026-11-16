@@ -74,7 +74,8 @@ def update_media_budgets(
         db.rollback()
         logger.exception("매체별 예산 저장 실패: %d-%02d", year, month)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"저장 실패: {exc}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="저장하지 못했습니다. 잠시 후 다시 시도해 주세요.",
         ) from exc
 
     logger.info("관리자 %s 가 %d년 %d월 매체별 예산 수정", admin.email, year, month)
@@ -103,7 +104,8 @@ def delete_period(
         db.rollback()
         logger.exception("기간 삭제 실패: %d-%02d", year, month)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"삭제 실패: {exc}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.",
         ) from exc
 
     if not result["deleted_rows"] and not result["deleted_meta"]:

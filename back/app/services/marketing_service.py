@@ -241,7 +241,12 @@ class MarketingService:
             self.current_period = f"{int(m8.group(1))}년 {int(m8.group(2))}월"
             return
         # YY.MM 또는 YY_MM 형식 (예: 26.05, 26_05)
-        m2 = re.search(r"\b(\d{2})[._](\d{2})\b", filename)
+        #
+        # 예전에는 \b 로 경계를 잡았는데, 밑줄과 한글은 모두 단어 문자라
+        # "네이버_26.05.csv" 처럼 흔한 이름에서 경계가 생기지 않아 매칭에 실패했다
+        # (docstring 이 지원한다고 적어 둔 형태인데도). 숫자만 양옆에서 배제한다 —
+        # 더 긴 숫자열 안에서 두 자리를 잘라내는 오탐은 그대로 막힌다.
+        m2 = re.search(r"(?<!\d)(\d{2})[._](\d{2})(?!\d)", filename)
         if m2:
             year, month = m2.groups()
             if 1 <= int(month) <= 12:
@@ -514,12 +519,18 @@ class MarketingService:
     # ------------------------------------------------------------------ #
     # 공개 메서드                                                           #
     # ------------------------------------------------------------------ #
-    async def process_and_analyze(
+    def process_and_analyze(
         self,
         conv_files: list[FileEntry],
         media_files: list[FileEntry],
     ) -> dict:
-        """CSV 파싱 → DB 저장 + KPI 계산"""
+        """CSV 파싱 → DB 저장 + KPI 계산.
+
+        동기 함수다. 예전에는 `async def` 였지만 본문에 await 가 하나도 없었고,
+        실제로는 pandas 파싱·집계(CPU)와 DB 쓰기(블로킹 I/O)만 했다. 그 상태로
+        이벤트 루프에서 실행되면 수십 MB CSV 를 처리하는 내내 서버 전체가 멈춘다.
+        호출부는 BackgroundTasks 나 run_in_threadpool 로 스레드풀에서 돌린다.
+        """
         conv_dfs = [_read_csv(c) for c, _ in conv_files]
         df_conv = (
             pd.concat(conv_dfs, ignore_index=True).drop_duplicates()
@@ -609,12 +620,15 @@ class MarketingService:
             "undo_id": undo_id,
         }
 
-    async def process_for_export(
+    def process_for_export(
         self,
         conv_files: list[FileEntry],
         media_files: list[FileEntry],
     ) -> tuple[dict[str, pd.DataFrame], str]:
-        """DB 저장 없이 KPI 계산만 수행 → Excel 내보내기용"""
+        """DB 저장 없이 KPI 계산만 수행 → Excel 내보내기용.
+
+        process_and_analyze 와 같은 이유로 동기 함수다.
+        """
         conv_dfs = [_read_csv(c) for c, _ in conv_files]
         df_conv = (
             pd.concat(conv_dfs, ignore_index=True).drop_duplicates()

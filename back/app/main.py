@@ -11,6 +11,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.core.database import SessionLocal
+from app.core.errors import GENERIC_SERVER_ERROR
 from app.core.logging_config import configure_logging
 from app.core.migrations import schema_state, upgrade_to_head
 from app.core.rate_limit import limiter
@@ -201,6 +202,17 @@ app = FastAPI(title="Marketing AI Pipeline API", version="1.0.0", lifespan=lifes
 # slowapi: 데코레이터가 app.state.limiter를 찾고, 초과 시 429를 응답한다.
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """처리되지 않은 예외를 로그로 남기고 일반화된 500 을 돌려준다.
+
+    이게 없으면 각 라우터가 제각각 `detail=f"...: {exc}"` 로 원본 메시지를 노출하거나
+    (정보 노출), 아무도 잡지 않아 어떤 요청이 왜 깨졌는지 로그에 남지 않았다.
+    """
+    logger.exception("처리되지 않은 예외: %s %s", request.method, request.url.path)
+    return JSONResponse({"detail": GENERIC_SERVER_ERROR}, status_code=500)
+
 
 _MAX_REQUEST_BYTES = settings.MAX_REQUEST_MB * 1_024 * 1_024
 

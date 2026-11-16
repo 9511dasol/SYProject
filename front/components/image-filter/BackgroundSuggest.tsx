@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Button from '@/components/ui/Button';
 import type { BackgroundVariant } from '@/types/imageFilter';
 import { suggestBackgrounds } from '@/lib/imageFilterClient';
@@ -16,11 +16,8 @@ export default function BackgroundSuggest({ file }: { file: File }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 다른 파일로 바뀌면 이전 파일의 시안은 무효다
-  useEffect(() => {
-    setVariants(null);
-    setError(null);
-  }, [file]);
+  // 다른 파일로 바뀌면 이전 시안은 무효다 — 부모가 key 로 묶어 두어 이 컴포넌트가
+  // 통째로 새로 마운트되므로 여기서 따로 비울 필요가 없다.
 
   const handleGenerate = async () => {
     setLoading(true);

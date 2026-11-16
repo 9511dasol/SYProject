@@ -4,6 +4,7 @@ import io
 
 from PIL import Image
 
+from app.services.image_util import flatten_for_format
 from app.services.token_usage import TokenUsage
 from app.services.image_ai_edit_service import ai_upscale
 
@@ -83,15 +84,7 @@ def resize_image(
                 pass  # 디코딩 실패 시 원본 img 유지
 
     # ── JPEG 출력 시 알파 채널 처리 (흰 배경 합성) ───────────────
-    if fmt == "jpeg" and img.mode in ("RGBA", "PA", "LA", "P"):
-        if img.mode == "P":
-            img = img.convert("RGBA")
-        bg = Image.new("RGB", img.size, (255, 255, 255))
-        mask = img.split()[-1] if img.mode in ("RGBA", "PA", "LA") else None
-        bg.paste(img.convert("RGBA") if img.mode == "PA" else img, mask=mask)
-        img = bg
-    elif fmt != "png" and img.mode not in ("RGB", "RGBA", "L", "LA"):
-        img = img.convert("RGB")
+    img = flatten_for_format(img, fmt)
 
     # ── LANCZOS 리샘플링으로 리사이즈 ────────────────────────────
     resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)

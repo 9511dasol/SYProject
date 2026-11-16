@@ -2,6 +2,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from app.core.database import SessionLocal
 from app.models.report_log_model import ReportLog
 from app.models.user_model import User
 from app.services.ai_usage import AI_TOOL_REPORT_MAIL, log_ai_usage
@@ -11,6 +12,27 @@ from app.services.mail.base import AbstractMailSender
 from app.services.report_builder_service import ReportBuilderService
 
 logger = logging.getLogger(__name__)
+
+
+def _save_report_log(log: ReportLog) -> None:
+    """발송 기록을 전용 세션으로 남긴다.
+
+    예전에는 호출자가 넘긴 세션에 add/commit 했다. 동기 발송 경로는 요청 스코프
+    세션을 그대로 넘기므로, 그 요청에서 대기 중이던 다른 변경까지 함께 커밋될 수
+    있었다(log_ai_usage 가 전용 세션을 쓰는 것과 같은 이유로 분리한다).
+
+    기록 실패가 발송 결과를 덮어쓰지 않도록 예외는 로그만 남기고 삼킨다 —
+    메일은 이미 나갔는데 기록 때문에 500 이 나가면 다시 보내게 된다.
+    """
+    db = SessionLocal()
+    try:
+        db.add(log)
+        db.commit()
+    except Exception:
+        logger.exception("리포트 발송 기록 저장 실패 (status=%s)", log.status)
+        db.rollback()
+    finally:
+        db.close()
 
 
 class ReportOrchestrator:
@@ -74,5 +96,4 @@ class ReportOrchestrator:
             logger.exception("Report mail failed: %s", exc)
             raise
         finally:
-            self.db.add(log)
-            self.db.commit()
+            _save_report_log(log)
