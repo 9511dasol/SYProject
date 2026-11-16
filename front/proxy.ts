@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 
 // 인증 없이 접근 가능한 경로 (하위 경로까지 공개)
-const PUBLIC_PATHS = ['/login'];
+// '/automation' 은 Meta 광고 트래픽을 받는 상담 랜딩이다. 여기 없으면 광고를 누른
+// 방문자가 전원 '/' 로 튕겨 랜딩을 아예 못 본다 — 로그인 전 방문자가 100% 이므로.
+const PUBLIC_PATHS = ['/login', '/automation'];
 
 function isPublicPath(pathname: string) {
   // 제품 소개(랜딩) 페이지는 '/' 하나만 공개한다 — PUBLIC_PATHS에 '/'를 넣으면

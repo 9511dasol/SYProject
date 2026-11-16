@@ -10,7 +10,8 @@ interface AppShellProps {
 }
 
 // 자체 헤더를 가진 페이지들 — 앱 셸(사이드바 + 헤더)을 씌우지 않는다.
-const FULL_BLEED_PATHS = ['/', '/login'];
+// /automation 은 광고 트래픽을 받는 판매 페이지라 방문자 대부분이 로그인 전이다.
+const FULL_BLEED_PATHS = ['/', '/login', '/automation'];
 
 export default function AppShell({ children }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
