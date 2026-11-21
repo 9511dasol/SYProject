@@ -67,8 +67,14 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     CLAUDE_MODEL: str = "claude-opus-4-8"
     GEMINI_API_KEY: str = ""
+    # 이미지 모델 전용 키 — 게이트웨이가 모델별로 키를 끊어 발급하면 둘로 나뉜다.
+    # 비우면 GEMINI_API_KEY 하나로 텍스트·이미지 모두 호출한다.
+    GEMINI_IMAGE_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-flash"
     GEMINI_IMAGE_MODEL: str = "gemini-2.5-flash-image"
+    # 게이트웨이(사내 라우터 등)를 거칠 때만 지정 — 비우면 공급자 기본 엔드포인트.
+    GEMINI_BASE_URL: str = ""
+    ANTHROPIC_BASE_URL: str = ""
 
     # LLM 호출 상한 — 지정하지 않으면 SDK 기본값이 사실상 무한대라, 공급자가
     # 응답을 멈추면 요청 스레드가 영원히 매달린다. 이미지 생성은 텍스트보다
@@ -92,6 +98,10 @@ class Settings(BaseSettings):
     REPORT_CRON_HOUR: str = "9"
     REPORT_CRON_DAY: str = "1"   # 매월 1일
     REPORT_AUTO_RECIPIENTS: str = ""  # 쉼표 구분
+
+    # 키워드 순위 하락 알림
+    RANK_ALERT_RECIPIENTS: str = ""  # 쉼표 구분. 비어 있으면 알림을 보내지 않는다.
+    RANK_ALERT_CRON_HOUR: str = "9"  # 매일 이 시각에 평가 (업로드 직후에도 평가한다)
 
     # Auth (JWT) — FastAPI가 발급/검증하는 access token 서명 키 (NextAuth의 AUTH_SECRET과는 독립된 값)
     SECRET_KEY: str = ""
@@ -138,6 +148,16 @@ class Settings(BaseSettings):
     @property
     def CORS_ORIGINS(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS_RAW.split(",") if origin.strip()]
+
+    @property
+    def GEMINI_IMAGE_KEY(self) -> str:
+        """이미지 모델 호출에 실제로 쓰는 키 — 전용 키가 없으면 공용 키로 폴백.
+
+        "키가 설정됐는가" 판단과 클라이언트 생성이 서로 다른 키를 보면
+        이미지 전용 키만 설정한 배포에서 기능이 조용히 죽는다. 해석을 이
+        한 곳에 모은다.
+        """
+        return self.GEMINI_IMAGE_API_KEY or self.GEMINI_API_KEY
 
     @property
     def is_production(self) -> bool:

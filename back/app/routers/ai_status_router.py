@@ -36,7 +36,8 @@ def get_ai_status(_admin: User = Depends(require_admin)) -> AIStatusOut:
             key="gemini",
             label=_PROVIDER_LABELS["gemini"],
             model=settings.GEMINI_MODEL,
-            api_key_configured=bool(settings.GEMINI_API_KEY),
+            # 텍스트·이미지 키가 분리될 수 있다 — 어느 쪽이든 있으면 "구성됨"
+            api_key_configured=bool(settings.GEMINI_API_KEY or settings.GEMINI_IMAGE_API_KEY),
             is_active=settings.LLM_PROVIDER == "gemini",
         ),
     ]

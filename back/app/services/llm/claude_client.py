@@ -14,6 +14,7 @@ class ClaudeClient(AbstractLLMClient):
         # timeout/max_retries 를 주지 않으면 공급자 지연 시 호출이 무한정 매달린다.
         self._client = anthropic.Anthropic(
             api_key=api_key,
+            base_url=settings.ANTHROPIC_BASE_URL or None,
             timeout=settings.LLM_TIMEOUT_SECONDS,
             max_retries=settings.LLM_MAX_RETRIES,
         )
