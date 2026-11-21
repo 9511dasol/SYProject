@@ -22,7 +22,7 @@ from app.schemas.heading_schema import (
 )
 from app.services import storage_service
 from app.services.ai_usage import log_ai_usage
-from app.services.heading_service import generate_headings
+from app.services.heading_service import HeadingGenerationError, generate_headings
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,11 @@ async def suggest_headings(
 ) -> HeadingSuggestionRecord:
     try:
         result, usage, thumbnail_bytes = await generate_headings(inp.file_bytes)
+    except HeadingGenerationError as exc:
+        # 생성은 실패했어도 Gemini 호출이 성공한 시도가 있으면 토큰은 과금됐다.
+        # 기록을 남겨야 월간 예산(로그 합계)이 실소비와 어긋나지 않는다.
+        log_ai_usage(user=current_user, tool="heading_suggest", label=inp.filename, usage=exc.usage)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:

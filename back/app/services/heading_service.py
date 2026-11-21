@@ -144,6 +144,31 @@ def _parse_response(raw: str) -> HeadingResponse:
 
 # ── 공개 진입점 ───────────────────────────────────────────────────────────────
 
+class HeadingGenerationError(RuntimeError):
+    """모든 시도가 실패했지만 그 사이 토큰이 과금된 경우.
+
+    파싱 실패는 Gemini 호출 자체는 성공한 뒤에 일어나므로 토큰은 이미 쓴 상태다.
+    예외로 끝나는 경로에서도 라우터가 usage 를 기록할 수 있어야
+    ai_tool_usage_logs 합계 기반 월간 예산이 실소비와 어긋나지 않는다.
+    """
+
+    def __init__(self, message: str, usage: TokenUsage | None = None):
+        super().__init__(message)
+        self.usage = usage
+
+
+def _add_usage(acc: TokenUsage | None, extra: TokenUsage | None) -> TokenUsage | None:
+    if acc is None:
+        return extra
+    if extra is None:
+        return acc
+    return TokenUsage(
+        prompt_tokens=(acc.prompt_tokens or 0) + (extra.prompt_tokens or 0),
+        output_tokens=(acc.output_tokens or 0) + (extra.output_tokens or 0),
+        total_tokens=(acc.total_tokens or 0) + (extra.total_tokens or 0),
+    )
+
+
 async def _call_gemini(thumbnail_bytes: bytes) -> tuple[str, TokenUsage | None]:
     """Gemini Vision 호출 → (원본 텍스트 응답, 토큰 사용량). API 오류는 RuntimeError로 변환."""
     try:
@@ -185,35 +210,47 @@ async def generate_headings(
     Returns
     -------
     (HeadingResponse, token_usage, thumbnail_bytes)
-      - token_usage: 채택된 시도의 사용량
+      - token_usage: 모든 시도의 합산 사용량 (버려진 재시도 포함 — 전부 실제로 과금됐다)
       - thumbnail_bytes: AI에 전달한 512×512 JPEG 썸네일 (히스토리 저장용)
 
     Raises
     ------
-    RuntimeError — 모든 시도에서 API 오류 또는 응답 파싱 실패
+    HeadingGenerationError — 모든 시도 실패인데 과금된 호출이 있다 (usage 동봉)
+    RuntimeError — 모든 시도에서 API 오류 (과금된 호출 없음)
     """
     thumbnail_bytes = _make_thumbnail_bytes(file_bytes)
 
     best: HeadingResponse | None = None
-    best_usage: TokenUsage | None = None
+    total_usage: TokenUsage | None = None
     last_error: RuntimeError | None = None
 
     for _ in range(_MAX_ATTEMPTS):
         try:
             raw_text, usage = await _call_gemini(thumbnail_bytes)
+        except RuntimeError as exc:
+            last_error = exc
+            continue
+
+        # 호출이 성공한 순간 토큰은 이미 과금됐다. 파싱 실패나 10개 미달로
+        # 버려지는 시도도 합산해야 로그 합계 기반 월간 예산이 실소비와 맞는다
+        # (예전에는 채택된 시도 1건만 반환해 재시도분이 집계에서 샜다).
+        total_usage = _add_usage(total_usage, usage)
+
+        try:
             result = _parse_response(raw_text)
         except RuntimeError as exc:
             last_error = exc
             continue
 
         if len(result.headings) >= _TARGET_COUNT:
-            return result, usage, thumbnail_bytes
+            return result, total_usage, thumbnail_bytes
         if best is None or len(result.headings) > len(best.headings):
             best = result
-            best_usage = usage
 
     if best is not None:
-        return best, best_usage, thumbnail_bytes
+        return best, total_usage, thumbnail_bytes
 
     assert last_error is not None
+    if total_usage is not None:
+        raise HeadingGenerationError(str(last_error), usage=total_usage) from last_error
     raise last_error

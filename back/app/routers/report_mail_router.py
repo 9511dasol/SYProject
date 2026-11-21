@@ -76,10 +76,18 @@ def send_report(
 ):
     """분석 → LLM 코멘트 → HTML 빌드 → 메일 발송을 백그라운드로 실행합니다."""
 
+    # BackgroundTask 는 응답을 보낸 뒤 실행된다 — 그 시점엔 요청 세션이 이미 닫혀
+    # current_user 가 detached 상태이고, 사용량 기록(log_ai_usage)이 .id/.email 을
+    # 읽는 순간 DetachedInstanceError 가 난다. log_ai_usage 는 기록 실패를 삼키므로
+    # 백그라운드 발송의 토큰 사용량만 조용히 누락됐다. 세션과 무관한 원시 값을
+    # 지금 떠 두고, 태스크 안에서는 임시 User 객체로 전달한다(레포는 id/email 만 읽는다).
+    user_id = current_user.id
+    user_email = current_user.email
+
     def _task() -> None:
         task_db = SessionLocal()
         try:
-            orchestrator = build_orchestrator(task_db, user=current_user)
+            orchestrator = build_orchestrator(task_db, user=User(id=user_id, email=user_email))
             orchestrator.run(
                 curr_year=body.curr_year,
                 curr_month=body.curr_month,
