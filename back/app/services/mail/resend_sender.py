@@ -16,7 +16,7 @@ class ResendSender(AbstractMailSender):
         import resend
 
         try:
-            resend.Emails.send(
+            result = resend.Emails.send(
                 {
                     "from": self._from,
                     "to": to,
@@ -26,3 +26,9 @@ class ResendSender(AbstractMailSender):
             )
         except Exception as exc:
             raise MailSendError(f"Resend 발송에 실패했습니다: {exc}") from exc
+
+        # SDK 버전에 따라 실패를 예외가 아니라 {"error": ...} 응답으로 돌려주기도
+        # 한다. 그대로 두면 실패가 ReportLog 에 "sent" 로 남아 발송 실패가 은폐된다.
+        error = result.get("error") if isinstance(result, dict) else getattr(result, "error", None)
+        if error:
+            raise MailSendError(f"Resend 발송에 실패했습니다: {error}")

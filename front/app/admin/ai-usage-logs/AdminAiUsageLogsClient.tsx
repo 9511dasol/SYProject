@@ -78,6 +78,21 @@ function UsageSummaryPanel() {
     saveBudget.mutate(value);
   };
 
+  // 조회 실패를 스피너보다 먼저 처리한다 — 예전에는 이 분기가 없어서 summary 가
+  // 영영 null 인 실패 상태에서 아래 error Alert 에 도달하지 못하고 스피너만 돌았다.
+  if (!summary && summaryQuery.isError) {
+    return (
+      <div className="rounded-xl border border-border bg-surface p-5 space-y-3">
+        <Alert icon={false} className="px-3 py-2 text-xs">
+          {summaryQuery.error.message}
+        </Alert>
+        <Button size="sm" variant="outline" onClick={() => summaryQuery.refetch()}>
+          다시 시도
+        </Button>
+      </div>
+    );
+  }
+
   if (!summary) {
     return (
       <div className="flex justify-center py-6 rounded-xl border border-border bg-surface">

@@ -99,6 +99,12 @@ async function redraw(file: File, scale: number, source?: ImageBitmap): Promise<
     bitmap.close();
     return file;
   }
+  // JPEG 는 알파 채널이 없어 투명 영역이 검정으로 깔린다. 서버의
+  // image_util.flatten_to_rgb 와 같은 규칙(흰색 합성)을 여기서도 지켜야
+  // 투명 PNG 가 압축/축소 경로를 타도 서버와 같은 결과가 나온다 —
+  // 예전에는 여기서 알파를 먼저 파괴해 서버의 흰색 합성이 무력화됐다.
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   bitmap.close();
 
