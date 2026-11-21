@@ -1,5 +1,6 @@
 """AI 이미지 편집 라우터 — 얇은 HTTP 레이어."""
 
+import logging
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -28,6 +29,8 @@ from app.services.image_element_service import (
     analyze_elements,
 )
 from app.services.image_filter_service import ImageEditError, edit_and_resize
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/image-filter",
@@ -131,7 +134,12 @@ async def edit_endpoint(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"이미지 처리 중 오류: {exc}") from exc
+        # 내부 예외 문자열을 그대로 내보내지 않는다 — 원인은 서버 로그에만 남긴다.
+        logger.exception("이미지 편집 실패 (filename=%s)", inp.filename)
+        raise HTTPException(
+            status_code=422,
+            detail="이미지 처리 중 오류가 발생했습니다. 이미지 파일을 확인한 뒤 다시 시도해 주세요.",
+        ) from exc
 
     # 사용량 기록도 커밋을 동반하는 DB 쓰기라 이벤트 루프 밖에서 처리한다.
     await run_in_threadpool(

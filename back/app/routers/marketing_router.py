@@ -31,7 +31,7 @@ from app.core.uploads import (
     read_data_upload,
     read_data_uploads,
 )
-from app.models.marketing_model import resolve_total_conv
+from app.models.marketing_model import derived_kpis, resolve_total_conv
 from app.models.user_model import User
 from app.repositories import marketing_repo
 from app.repositories.marketing_repo import MarketingRepository
@@ -91,19 +91,21 @@ def _df_to_summary(label: str, df: pd.DataFrame) -> MediaSummary:
     imp = _safe(df["impressions"].sum())
     clk = _safe(df["clicks"].sum())
     cost = _safe(df["cost"].sum())
+    revenue = _safe(df["revenue"].sum())
+    kpis = derived_kpis(impressions=imp, clicks=clk, cost=cost, revenue=revenue)
     return MediaSummary(
         label=label,
         impressions=imp,
         clicks=clk,
         cost=cost,
-        ctr=_safe(clk / imp) if imp else 0.0,
-        cpc=_safe(cost / clk) if clk else 0.0,
+        ctr=kpis.ctr,
+        cpc=kpis.cpc,
         total_conv=_safe(df["total_conv"].sum()),
         signup=_safe(df["signup"].sum()),
         purchase=_safe(df["purchase"].sum()),
-        revenue=_safe(df["revenue"].sum()),
+        revenue=revenue,
         apply=_safe(df["apply"].sum()) if "apply" in df.columns else 0.0,
-        roas=_safe(df["revenue"].sum() / cost) if cost else 0.0,
+        roas=kpis.roas,
     )
 
 
@@ -273,26 +275,27 @@ def _empty_report(period: str) -> ReportResponse:
 def _compare_period(repo: MarketingRepository, year: int, month: int) -> ComparePeriod | None:
     """MoM·YoY 비교 블록 — 해당 연월 합계를 MediaSummary 모양으로. 데이터가 없으면 None.
 
-    파생지표(CTR·CPC·ROAS) 공식은 _df_to_summary 와 같게 맞춘다 — 전환수도
+    파생지표(CTR·CPC·ROAS)는 derived_kpis 단일 출처를 쓴다 — 전환수도
     get_period_totals 가 resolve_total_conv 를 거치므로 당월 리포트와 기준이 일치한다.
     """
     t = repo.get_period_totals(year, month)
     if t is None:
         return None
     imp, clk, cost = t["impressions"], t["clicks"], t["cost"]
+    kpis = derived_kpis(impressions=imp, clicks=clk, cost=cost, revenue=t["revenue"])
     total = MediaSummary(
         label=_period_label(year, month),
         impressions=imp,
         clicks=clk,
         cost=cost,
-        ctr=clk / imp if imp else 0.0,
-        cpc=cost / clk if clk else 0.0,
+        ctr=kpis.ctr,
+        cpc=kpis.cpc,
         total_conv=t["conversions"],
         signup=t["signup"],
         purchase=t["purchase"],
         revenue=t["revenue"],
         apply=t["apply"],
-        roas=t["revenue"] / cost if cost else 0.0,
+        roas=kpis.roas,
     )
     return ComparePeriod(year=year, month=month, label=_period_label(year, month), total=total)
 

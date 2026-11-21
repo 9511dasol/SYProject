@@ -66,7 +66,13 @@ async def suggest_headings(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"헤딩 생성 중 오류: {exc}") from exc
+        # 내부 예외 문자열(PIL 스택 등)을 그대로 내보내지 않는다 — 사용자에게는
+        # 의미 없고, 내부 구현의 단서가 된다. 원인은 서버 로그에만 남긴다.
+        logger.exception("헤딩 생성 실패 (filename=%s)", inp.filename)
+        raise HTTPException(
+            status_code=422,
+            detail="헤딩 생성 중 오류가 발생했습니다. 이미지 파일을 확인한 뒤 다시 시도해 주세요.",
+        ) from exc
 
     # 썸네일을 Storage에 저장하고, 생성 결과를 사용자별 히스토리로 저장 (페이지 재접속 시 복원용).
     # 업로드는 동기 httpx(타임아웃 120초), 뒤이은 저장도 동기 DB 커밋이라 묶어서 스레드풀로 넘긴다.

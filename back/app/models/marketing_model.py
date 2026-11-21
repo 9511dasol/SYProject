@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import NamedTuple
 
 from sqlalchemy import JSON, String, UniqueConstraint, and_
 from sqlalchemy.dialects.postgresql import JSONB
@@ -65,6 +66,29 @@ def in_month(year: int, month: int):
     """
     start, end = month_bounds(year, month)
     return and_(MarketingData.report_date >= start, MarketingData.report_date < end)
+
+
+class DerivedKpis(NamedTuple):
+    ctr: float
+    cpc: float
+    roas: float
+
+
+def derived_kpis(
+    *, impressions: float, clicks: float, cost: float, revenue: float
+) -> DerivedKpis:
+    """CTR·CPC·ROAS 공식의 단일 출처.
+
+    대시보드 합계(_df_to_summary)·MoM/YoY 비교(_compare_period)·AI 코멘트
+    (_query_kpis)가 같은 수치를 말해야 한다. 예전에는 세 곳에 복제돼 있었고
+    "공식을 같게 맞춘다"는 주석으로만 유지됐다 — 한쪽만 고치면 화면과 메일
+    코멘트의 수치가 갈라진다. 반올림은 표시 책임이라 호출부에 둔다.
+    """
+    return DerivedKpis(
+        ctr=clicks / impressions if impressions else 0.0,
+        cpc=cost / clicks if clicks else 0.0,
+        roas=revenue / cost if cost else 0.0,
+    )
 
 
 def resolve_total_conv(conversions, signup, purchase, apply) -> float:

@@ -3,7 +3,12 @@ from dataclasses import dataclass, field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.marketing_model import MarketingData, in_month, resolve_total_conv
+from app.models.marketing_model import (
+    MarketingData,
+    derived_kpis,
+    in_month,
+    resolve_total_conv,
+)
 
 
 def _safe_pct(new: float, old: float) -> float:
@@ -178,6 +183,9 @@ def _query_kpis(db: Session, year: int, month: int) -> dict[str, MediaKPI]:
         cost = float(r.cost or 0)
         conv = round(resolve_total_conv(r.conversions, r.signup, r.purchase, r.apply), 2)
         rev = float(r.revenue or 0)
+        # CTR·CPC·ROAS 는 derived_kpis 단일 출처 — 대시보드·비교 블록과 공식이 같아야
+        # AI 코멘트의 수치가 화면과 어긋나지 않는다. 반올림(4자리)은 여기 표시 규칙.
+        kpis = derived_kpis(impressions=imp, clicks=clk, cost=cost, revenue=rev)
         result[r.campaign_type] = MediaKPI(
             campaign_type=r.campaign_type,
             impressions=imp,
@@ -185,11 +193,11 @@ def _query_kpis(db: Session, year: int, month: int) -> dict[str, MediaKPI]:
             cost=cost,
             conversions=conv,
             revenue=rev,
-            ctr=_safe_div(clk, imp),
-            cpc=_safe_div(cost, clk),
+            ctr=round(kpis.ctr, 4),
+            cpc=round(kpis.cpc, 4),
             conv_rate=_safe_div(conv, clk),
             conv_cost=_safe_div(cost, conv),
-            roas=_safe_div(rev, cost),
+            roas=round(kpis.roas, 4),
         )
     return result
 

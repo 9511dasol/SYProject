@@ -1,5 +1,6 @@
 """이미지 리사이즈 라우터 — 얇은 HTTP 레이어."""
 
+import logging
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -27,6 +28,8 @@ from app.services.media_preset_service import (
     UnknownPresetError,
     batch_resize_zip,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/image-resize",
@@ -66,7 +69,12 @@ async def batch_endpoint(
     except UnknownPresetError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"이미지 처리 중 오류: {exc}") from exc
+        # 내부 예외 문자열을 그대로 내보내지 않는다 — 원인은 서버 로그에만 남긴다.
+        logger.exception("매체 규격 일괄 변환 실패 (filename=%s)", filename)
+        raise HTTPException(
+            status_code=422,
+            detail="이미지 처리 중 오류가 발생했습니다. 이미지 파일을 확인한 뒤 다시 시도해 주세요.",
+        ) from exc
 
     encoded_name = quote(download_name, safe="")
     return StreamingResponse(
@@ -98,7 +106,12 @@ async def resize_endpoint(
             use_ai_upscale=inp.use_ai_upscale,
         )
     except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"이미지 처리 중 오류: {exc}") from exc
+        # 내부 예외 문자열을 그대로 내보내지 않는다 — 원인은 서버 로그에만 남긴다.
+        logger.exception("이미지 리사이즈 실패 (filename=%s)", inp.filename)
+        raise HTTPException(
+            status_code=422,
+            detail="이미지 처리 중 오류가 발생했습니다. 이미지 파일을 확인한 뒤 다시 시도해 주세요.",
+        ) from exc
 
     # 순수 리사이즈(Pillow)는 Gemini를 호출하지 않으므로 로그 대상에서 제외 — 실제 AI 호출이 있었을 때만 기록
     if ai_upscale_used:

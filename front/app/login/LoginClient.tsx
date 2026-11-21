@@ -166,8 +166,10 @@ export default function LoginClient() {
               submitLabel="로그인"
               footer={
                 <>
-                  <p className="mt-4 text-center text-xs">
-                    <b className="text-slate-700">비밀번호를 잊으셨나요?</b>
+                  {/* 셀프서비스 재설정 플로우는 아직 없다 — 클릭돼 보이는 가짜 링크 대신
+                      실제로 할 수 있는 행동(관리자 문의)을 안내한다. */}
+                  <p className="mt-4 text-center text-xs text-slate-500">
+                    비밀번호를 잊으셨다면 관리자에게 재설정을 문의해 주세요.
                   </p>
                   <p className="mt-2 text-center text-xs text-slate-500">
                     <span>계정이 없으신가요? </span>
