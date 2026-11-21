@@ -1,10 +1,13 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, LargeBinary, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, Integer, LargeBinary, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+
+# 운영은 Postgres(JSONB), 로컬 검증·테스트는 SQLite — JSONB는 SQLite에서 렌더되지 않는다.
+_JSON = JSONB().with_variant(JSON(), "sqlite")
 
 
 class BackgroundTask(Base):
@@ -32,7 +35,7 @@ class BackgroundTask(Base):
     # 사용자가 취소를 요청했는지 — 워커 루프가 단계마다 확인한다
     cancelled: Mapped[bool] = mapped_column(Boolean, default=False)
     # 종류별 추가 결과 (saved_rows, undo_id, filename, step, total_steps 등)
-    result: Mapped[dict] = mapped_column(JSONB, default=dict)
+    result: Mapped[dict] = mapped_column(_JSON, default=dict)
     # Supabase Storage가 설정되지 않은 로컬 환경에서만 쓰는 결과 바이너리 폴백.
     # 운영에서는 Storage에 올리고 result["storage_path"]만 남긴다.
     result_blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)

@@ -1,10 +1,13 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import JSON, DateTime, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+
+# 운영은 Postgres(JSONB), 로컬 검증·테스트는 SQLite — JSONB는 SQLite에서 렌더되지 않는다.
+_JSON = JSONB().with_variant(JSON(), "sqlite")
 
 
 class UndoSnapshot(Base):
@@ -19,7 +22,7 @@ class UndoSnapshot(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)  # uuid4
     # 덮어쓰기 전의 marketing_data 행들 (JSON 직렬화를 위해 date→ISO 문자열로 변환해 저장)
-    rows: Mapped[list[dict]] = mapped_column(JSONB, default=list)
+    rows: Mapped[list[dict]] = mapped_column(_JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

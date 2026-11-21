@@ -7,6 +7,22 @@ from app.core.settings import settings
 # 형식: "postgresql+psycopg2://[유저명]:[비밀번호]@[호스트]:[포트]/[데이터베이스명]"
 SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
 
+# keepalive 계열은 psycopg2 전용 인자라 sqlite 드라이버가 거부한다.
+# DATABASE_URL=sqlite:/// 로 띄우는 로컬 검증(원격 DB가 잠든 상태) 경로를 막지 않도록
+# 방언에 맞는 인자만 넘긴다 — 운영(Postgres) 경로는 그대로다.
+_is_sqlite = SQLALCHEMY_DATABASE_URL.startswith("sqlite")
+_connect_args = (
+    {"check_same_thread": False}  # 스레드풀 엔드포인트가 세션을 다른 스레드에서 쓴다
+    if _is_sqlite
+    else {
+        "connect_timeout": 10,
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5,
+    }
+)
+
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     echo=settings.ENVIRONMENT != "production",  # 운영 환경에서는 SQL 로그 비활성화
@@ -16,13 +32,7 @@ engine = create_engine(
     # 지금은 스레드풀에서 병렬로 돌아 동시 커넥션 요구가 훨씬 커졌다.
     pool_size=settings.DB_POOL_SIZE,
     max_overflow=settings.DB_MAX_OVERFLOW,
-    connect_args={
-        "connect_timeout": 10,
-        "keepalives": 1,
-        "keepalives_idle": 30,
-        "keepalives_interval": 10,
-        "keepalives_count": 5,
-    },
+    connect_args=_connect_args,
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -1,10 +1,13 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, func
+from sqlalchemy import JSON, DateTime, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+
+# 운영은 Postgres(JSONB), 로컬 검증·테스트는 SQLite — JSONB는 SQLite에서 렌더되지 않는다.
+_JSON = JSONB().with_variant(JSON(), "sqlite")
 
 
 class HeadingSuggestion(Base):
@@ -24,7 +27,7 @@ class HeadingSuggestion(Base):
     # Supabase Storage 내 512px 썸네일의 object path (예: "headings/3/ab12.jpg"). 없으면 NULL.
     image_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # [{"id": 1, "platform": "Instagram", "text": "...", "desc": "..."}, ...]
-    headings: Mapped[list[dict]] = mapped_column(JSONB)
+    headings: Mapped[list[dict]] = mapped_column(_JSON)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )
