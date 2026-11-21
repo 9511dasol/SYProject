@@ -19,7 +19,12 @@ from app.core.settings import settings
 from app.models.ai_tool_usage_log_model import AIToolUsageLog as _ATUL  # noqa: F401
 from app.models.ai_usage_budget_model import AIUsageBudget as _AUB  # noqa: F401
 from app.models.background_task_model import BackgroundTask as _BT  # noqa: F401
+from app.models.keyword_watch_model import (  # noqa: F401
+    KeywordRankSnapshot as _KRS,
+    KeywordWatch as _KW,
+)
 from app.models.marketing_model import MarketingData as _MD, MarketingPeriodMeta as _MPM  # noqa: F401
+from app.models.rank_alert_log_model import RankAlertLog as _RAL  # noqa: F401
 from app.models.report_log_model import ReportLog as _RL  # noqa: F401,W0611
 from app.models.system_setting_model import SystemSetting as _SS  # noqa: F401
 from app.models.undo_snapshot_model import UndoSnapshot as _US  # noqa: F401
@@ -37,10 +42,12 @@ from app.routers import (
     image_resize_router,
     keyword_compare_router,
     marketing_router,
+    rank_monitor_router,
     system_setting_router,
     user_admin_router,
 )
 from app.services import task_store
+from app.services.rank.alert_factory import run_rank_alerts
 from app.services.report_factory import build_orchestrator
 
 configure_logging(settings.LOG_LEVEL)  # 아래 기동 로그가 실제로 남으려면 먼저 호출돼야 한다
@@ -56,6 +63,7 @@ _DEFAULT_FEATURE_FLAGS: dict[str, tuple[str, str]] = {
     "is_image_filter_enabled":   ("true", "이미지 정제 (/image-filter)"),
     "is_image_resize_enabled":   ("true", "이미지 리사이저 (/image-resize)"),
     "is_heading_suggest_enabled": ("true", "헤딩 문구 추천 (/heading-suggest)"),
+    "is_rank_monitor_enabled":   ("true", "키워드 순위 모니터링 (/rank-monitor)"),
 }
 
 
@@ -156,6 +164,28 @@ def _purge_expired_tasks() -> None:
         logger.info("만료 정리 — 작업 %d건, 되돌리기 스냅샷 %d건 삭제", tasks, undos)
 
 
+def _run_rank_alerts() -> None:
+    """APScheduler 가 호출하는 일일 순위 알림 평가.
+
+    업로드 직후에도 평가하지만, 그 경로만 두면 "하루 종일 아무도 올리지 않아
+    하락을 아무도 모르는" 날이 생긴다. API 수집(M2)이 붙으면 이 경로가 주 경로가 된다.
+    """
+    db = SessionLocal()
+    try:
+        result = run_rank_alerts(db)
+        db.commit()
+        if result.drops or result.recoveries:
+            logger.info(
+                "일일 순위 알림 — 하락 %d · 회복 %d (발송 %s, 사유 %s)",
+                result.drops, result.recoveries, result.sent, result.skipped_reason,
+            )
+    except Exception:
+        db.rollback()
+        logger.exception("일일 순위 알림 실패")
+    finally:
+        db.close()
+
+
 def _align_worker_threads_with_db_pool() -> None:
     """워커 스레드 수를 DB 커넥션 풀 크기에 맞춘다.
 
@@ -205,6 +235,17 @@ async def lifespan(_: FastAPI):
             replace_existing=True,
         )
         logger.info("monthly report cron active")
+
+        # 순위 알림은 매일 평가한다. 수신자가 비어 있으면 엔진이 보내지 않고
+        # 상태도 바꾸지 않으므로, 설정을 나중에 채워도 그 하락은 그대로 알려진다.
+        scheduler.add_job(
+            _run_rank_alerts,
+            trigger="cron",
+            hour=int(settings.RANK_ALERT_CRON_HOUR),
+            id="rank_alerts",
+            replace_existing=True,
+        )
+        logger.info("daily rank alert cron active")
     else:
         logger.info("MAIL_ENABLED=false — 메일 발송 기능 비활성화")
 
@@ -268,6 +309,7 @@ app.include_router(health_router.router)
 app.include_router(auth_router.router)
 app.include_router(marketing_router.router)
 app.include_router(keyword_compare_router.router)
+app.include_router(rank_monitor_router.router)
 app.include_router(image_resize_router.router)
 app.include_router(image_filter_router.router)
 app.include_router(heading_router.router)

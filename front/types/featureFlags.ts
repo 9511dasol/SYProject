@@ -5,7 +5,8 @@ export type FeatureFlagKey =
   | 'is_keyword_compare_enabled'
   | 'is_image_filter_enabled'
   | 'is_image_resize_enabled'
-  | 'is_heading_suggest_enabled';
+  | 'is_heading_suggest_enabled'
+  | 'is_rank_monitor_enabled';
 
 /** GET /api/settings/flags 응답 — key → on/off */
 export type FeatureFlags = Record<string, boolean>;

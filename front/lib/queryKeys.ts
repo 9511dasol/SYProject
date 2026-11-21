@@ -36,4 +36,11 @@ export const queryKeys = {
 
   /** 헤딩 문구 기록 */
   headingHistory: () => ['headingHistory'] as const,
+
+  /** 키워드 순위 모니터링 */
+  rankWatches: () => ['rankWatches'] as const,
+  rankWatchHistory: (id: number) => ['rankWatches', id, 'history'] as const,
+  rankWatchAlerts: (id: number) => ['rankWatches', id, 'alerts'] as const,
+  /** 목록과 모든 이력을 한 번에 무효화하는 접두 키 — 업로드는 어느 감시가 갱신됐는지 모른다 */
+  allRankWatches: () => ['rankWatches'] as const,
 } as const;

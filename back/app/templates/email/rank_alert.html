@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>키워드 순위 알림</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #f4f6f9; font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; color: #1e293b; }
+  .wrapper { max-width: 640px; margin: 32px auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,.08); }
+  .header { background: linear-gradient(135deg, #b91c1c 0%, #ef4444 100%); padding: 32px 40px; color: #fff; }
+  .header.recovered { background: linear-gradient(135deg, #15803d 0%, #22c55e 100%); }
+  .header h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+  .header p { margin-top: 6px; font-size: 13px; opacity: .85; }
+  .section { padding: 26px 40px; }
+  .section + .section { border-top: 1px solid #e2e8f0; }
+  h2 { font-size: 13px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: .6px; margin-bottom: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #f1f5f9; text-align: left; padding: 8px 10px; font-size: 11px; color: #64748b; font-weight: 700; letter-spacing: .4px; }
+  td { padding: 10px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+  tr:last-child td { border-bottom: none; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .kw { font-weight: 600; color: #0f172a; }
+  .device { font-size: 11px; color: #94a3b8; margin-left: 4px; }
+  .down { color: #dc2626; font-weight: 600; }
+  .up { color: #16a34a; font-weight: 600; }
+  .muted { color: #94a3b8; }
+  .footer { padding: 18px 40px; background: #f8fafc; border-top: 1px solid #e2e8f0; }
+  .footer p { font-size: 11px; color: #94a3b8; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+  <div class="header{% if not drops %} recovered{% endif %}">
+    {% if drops %}
+    <h1>⚠️ 키워드 {{ drops|length }}건이 목표 순위를 벗어났습니다</h1>
+    {% else %}
+    <h1>✅ 키워드 {{ recoveries|length }}건이 목표 순위로 돌아왔습니다</h1>
+    {% endif %}
+    <p>기준일 {{ stat_date or '-' }} · 연속 이탈이 설정한 횟수에 도달한 키워드만 알립니다</p>
+  </div>
+
+  {% if drops %}
+  <div class="section">
+    <h2>순위 하락</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>키워드</th>
+          <th style="text-align:right">직전</th>
+          <th style="text-align:right">현재</th>
+          <th style="text-align:right">목표</th>
+          <th style="text-align:right">연속 이탈</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in drops %}
+        <tr>
+          <td>
+            <span class="kw">{{ item.watch.keyword }}</span>
+            <span class="device">{{ device_label(item.watch.device) }}</span>
+          </td>
+          <td class="num muted">{{ rank_label(item.prev_rank) }}</td>
+          <td class="num down">{{ rank_label(item.curr_rank) }}</td>
+          <td class="num muted">{{ rank_label(item.watch.target_rank) }}</td>
+          <td class="num">{{ item.watch.breach_streak }}회</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if recoveries %}
+  <div class="section">
+    <h2>목표 복귀</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>키워드</th>
+          <th style="text-align:right">직전</th>
+          <th style="text-align:right">현재</th>
+          <th style="text-align:right">목표</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in recoveries %}
+        <tr>
+          <td>
+            <span class="kw">{{ item.watch.keyword }}</span>
+            <span class="device">{{ device_label(item.watch.device) }}</span>
+          </td>
+          <td class="num muted">{{ rank_label(item.prev_rank) }}</td>
+          <td class="num up">{{ rank_label(item.curr_rank) }}</td>
+          <td class="num muted">{{ rank_label(item.watch.target_rank) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="footer">
+    <p>
+      평균 노출 순위는 광고시스템 보고서 기준의 일 단위 집계입니다. 목표 순위와 허용 오차,
+      연속 이탈 기준은 키워드 순위 모니터링 화면에서 바꿀 수 있습니다.
+    </p>
+  </div>
+
+</div>
+</body>
+</html>

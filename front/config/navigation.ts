@@ -26,6 +26,14 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         href: '/keyword-compare',
         description: '이번/이전 기간 키워드 전환 성과를 자동 비교·분석',
       },
+      {
+        id: 'rank-monitor',
+        label: '키워드 순위 모니터링',
+        icon: 'bx-trending-up',
+        href: '/rank-monitor',
+        badge: 'NEW',
+        description: '키워드 노출 순위를 기록하고 목표 이탈을 감지',
+      },
     ],
   },
   {
