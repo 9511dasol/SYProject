@@ -46,6 +46,20 @@ class SendReportRequest(BaseModel):
         return v
 
 
+class PreviewReportRequest(BaseModel):
+    curr_year: int
+    curr_month: int
+    prev_year: int
+    prev_month: int
+    subject: str = ""
+
+
+class PreviewReportResponse(BaseModel):
+    subject: str
+    comment: str
+    html: str
+
+
 class LogResponse(BaseModel):
     id: int
     curr_year: int
@@ -62,6 +76,34 @@ class LogResponse(BaseModel):
 
 
 # ── 엔드포인트 ─────────────────────────────────────────────────────────────────
+
+@router.post(
+    "/preview",
+    response_model=PreviewReportResponse,
+    summary="리포트 미리보기 (발송 없음)",
+    dependencies=[Depends(require_ai_budget)],
+)
+def preview_report(
+    body: PreviewReportRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PreviewReportResponse:
+    """발송될 메일과 같은 제목·AI 코멘트·HTML 본문을 만들어 돌려준다.
+
+    검토되지 않은 AI 코멘트가 외부 수신자에게 바로 나가지 않도록, 화면은 이
+    결과를 보여준 뒤에 발송을 받는다. 여기서 생성된 코멘트는 캐시에 저장되어
+    뒤이은 발송이 그대로 재사용한다 — 미리보기를 거쳐도 비용이 두 번 들지 않는다.
+    """
+    orchestrator = build_orchestrator(db, user=current_user)
+    result = orchestrator.preview(
+        curr_year=body.curr_year,
+        curr_month=body.curr_month,
+        prev_year=body.prev_year,
+        prev_month=body.prev_month,
+        subject=body.subject,
+    )
+    return PreviewReportResponse(**result)
+
 
 @router.post(
     "/send",

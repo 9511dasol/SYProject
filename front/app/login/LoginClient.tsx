@@ -47,7 +47,10 @@ export default function LoginClient() {
       const result = await signIn('credentials', { email, password, redirect: false });
 
       if (result?.error) {
-        setSignInError('이메일 또는 비밀번호가 올바르지 않습니다.');
+        // code 에는 백엔드가 준 조치 가능한 사유(계정 잠금 등)가 실려 온다 —
+        // Auth.js 기본 에러 코드("credentials")는 사용자용 문구가 아니므로 거른다.
+        const reason = result.code && result.code !== 'credentials' ? result.code : null;
+        setSignInError(reason ?? '이메일 또는 비밀번호가 올바르지 않습니다.');
         return;
       }
 
@@ -90,6 +93,10 @@ export default function LoginClient() {
     } catch (err) {
       if (isAxiosError(err) && err.response?.status === 409) {
         setSignUpError('이미 가입된 이메일입니다.');
+      } else if (isAxiosError(err) && err.response?.status === 403) {
+        // 운영 환경은 백엔드가 가입을 막는다(development 전용) — 원인 불명
+        // "오류가 발생했습니다" 대신 실제 이유와 다음 행동을 안내한다.
+        setSignUpError('현재 환경에서는 회원가입이 비활성화되어 있습니다. 관리자에게 계정 발급을 문의해 주세요.');
       } else {
         setSignUpError('회원가입 중 오류가 발생했습니다.');
       }

@@ -4,10 +4,11 @@ import { useCallback, useMemo, useRef, useState } from 'react'; // useRef는 Ema
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDateTime } from '@/lib/format';
 import { getPeriods } from '@/lib/marketingClient';
-import { getReportLogs, sendReportMail } from '@/lib/reportMailClient';
-import type { ReportLog } from '@/lib/reportMailClient';
+import { getReportLogs, previewReportMail, sendReportMail } from '@/lib/reportMailClient';
+import type { PreviewReportResponse, ReportLog } from '@/lib/reportMailClient';
 import { queryKeys } from '@/lib/queryKeys';
 import { Input, Select } from '@/components/ui/Field';
+import Modal from '@/components/ui/Modal';
 import ScrollableTable from '@/components/ui/ScrollableTable';
 import { useToast } from '@/components/providers/ToastProvider';
 
@@ -311,10 +312,22 @@ export default function ReportEmailClient() {
     refetchInterval: 10_000,
   });
 
+  // 발송 전 미리보기 — 검토되지 않은 AI 코멘트가 외부 수신자에게 바로 나가지 않게,
+  // 실제로 나갈 메일과 같은 HTML 을 먼저 보여준다. 여기서 생성된 코멘트는 서버
+  // 캐시에 저장되어 뒤이은 발송이 재사용한다(비용이 두 번 들지 않는다).
+  const [preview, setPreview] = useState<PreviewReportResponse | null>(null);
+
+  const previewMutation = useMutation({
+    mutationFn: previewReportMail,
+    onSuccess: setPreview,
+    onError: (err: Error) => toast('error', err.message),
+  });
+
   // 발송 mutation
   const sendMutation = useMutation({
     mutationFn: sendReportMail,
     onSuccess: (data) => {
+      setPreview(null);
       toast('success', data.message ?? '리포트 메일 발송이 시작되었습니다.');
       setTimeout(() => queryClient.invalidateQueries({ queryKey: queryKeys.reportLogs() }), 3000);
     },
@@ -322,6 +335,20 @@ export default function ReportEmailClient() {
       toast('error', err.message);
     },
   });
+
+  const handlePreview = useCallback(() => {
+    if (!curr || !prev) {
+      toast('error', 'DB에 저장된 기간이 2개 이상 있어야 비교 발송이 가능합니다.');
+      return;
+    }
+    previewMutation.mutate({
+      curr_year: curr.year,
+      curr_month: curr.month,
+      prev_year: prev.year,
+      prev_month: prev.month,
+      subject: subject.trim(),
+    });
+  }, [curr, prev, subject, previewMutation, toast]);
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
@@ -378,7 +405,7 @@ export default function ReportEmailClient() {
             <SectionHeader
               step="01"
               title="리포트 발송"
-              description="비교할 기간을 선택하고 수신자를 입력한 뒤 발송 버튼을 누르세요. AI 코멘트 생성 후 메일이 자동 발송됩니다."
+              description="비교할 기간을 선택하고 미리보기로 AI 코멘트와 본문을 확인한 뒤 발송하세요. 미리보기에서 만든 코멘트는 발송 시 그대로 재사용됩니다."
             />
 
             <form onSubmit={handleSubmit} className="space-y-5">
@@ -432,29 +459,49 @@ export default function ReportEmailClient() {
                 hint={`비우면 자동 생성: ${defaultSubjectPreview}`}
               />
 
-              {/* 발송 버튼 */}
-              <div className="flex items-center justify-between gap-4 pt-1">
+              {/* 미리보기 · 발송 버튼 */}
+              <div className="flex items-center justify-between gap-4 pt-1 flex-wrap">
                 <div className="flex items-center gap-2 text-xs text-fg-subtle">
                   <i className="bx bx-time-five text-sm" />
-                  <span>AI 코멘트 생성 후 백그라운드로 발송됩니다 (30초~2분 소요)</span>
+                  <span>미리보기에서 AI 코멘트를 확인한 뒤 발송하는 것을 권합니다 (생성 30초~2분)</span>
                 </div>
-                <button
-                  type="submit"
-                  disabled={sendMutation.isPending || recipients.length === 0}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none shadow-sm shadow-blue-600/20 shrink-0"
-                >
-                  {sendMutation.isPending ? (
-                    <>
-                      <span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
-                      발송 중…
-                    </>
-                  ) : (
-                    <>
-                      <i className="bx bx-mail-send text-base" />
-                      리포트 발송
-                    </>
-                  )}
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handlePreview}
+                    disabled={previewMutation.isPending || sendMutation.isPending}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border border-border bg-surface text-fg hover:bg-surface-2 active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    {previewMutation.isPending ? (
+                      <>
+                        <span className="w-4 h-4 rounded-full border-2 border-border border-t-blue-500 animate-spin" />
+                        생성 중…
+                      </>
+                    ) : (
+                      <>
+                        <i className="bx bx-show text-base" />
+                        미리보기
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={sendMutation.isPending || recipients.length === 0}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none shadow-sm shadow-blue-600/20"
+                  >
+                    {sendMutation.isPending ? (
+                      <>
+                        <span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                        발송 중…
+                      </>
+                    ) : (
+                      <>
+                        <i className="bx bx-mail-send text-base" />
+                        리포트 발송
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -476,6 +523,82 @@ export default function ReportEmailClient() {
             <LogTable logs={logs} />
           </div>
         </section>
+
+        {/* 미리보기 모달 — 발송될 메일과 같은 HTML 을 확인하고 그 자리에서 발송한다 */}
+        <Modal
+          open={preview !== null}
+          onClose={() => setPreview(null)}
+          title={
+            preview && (
+              <>
+                발송 미리보기
+                <span className="text-xs font-normal text-fg-subtle">{preview.subject}</span>
+              </>
+            )
+          }
+          icon="bx-show"
+          size="lg"
+          busy={sendMutation.isPending}
+          footer={
+            <>
+              <span className="mr-auto text-xs text-fg-subtle">
+                {recipients.length > 0
+                  ? `수신자 ${recipients.length}명에게 발송됩니다`
+                  : '발송하려면 먼저 수신자를 입력하세요'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPreview(null)}
+                disabled={sendMutation.isPending}
+                className="px-4 py-2 rounded-xl text-sm font-semibold border border-border bg-surface text-fg hover:bg-surface-2 transition-colors disabled:opacity-50"
+              >
+                닫기
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!curr || !prev || recipients.length === 0) {
+                    toast('error', '수신자 이메일을 1개 이상 입력하세요.');
+                    return;
+                  }
+                  sendMutation.mutate({
+                    curr_year: curr.year,
+                    curr_month: curr.month,
+                    prev_year: prev.year,
+                    prev_month: prev.month,
+                    recipients,
+                    subject: subject.trim(),
+                  });
+                }}
+                disabled={sendMutation.isPending || recipients.length === 0}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                {sendMutation.isPending ? (
+                  <>
+                    <span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                    발송 중…
+                  </>
+                ) : (
+                  <>
+                    <i className="bx bx-mail-send text-base" />
+                    이대로 발송
+                  </>
+                )}
+              </button>
+            </>
+          }
+        >
+          {preview && (
+            // 메일 HTML 은 자체 스타일을 가진 완결 문서라 iframe 에 격리해 그대로 보여준다.
+            // sandbox="" 로 스크립트 실행을 막는다 — 보는 용도만 필요하다.
+            <iframe
+              title="리포트 메일 미리보기"
+              sandbox=""
+              srcDoc={preview.html}
+              className="w-full h-[55vh] rounded-lg border border-border bg-white"
+            />
+          )}
+        </Modal>
 
         {/* 자동 발송 안내 */}
         <section>

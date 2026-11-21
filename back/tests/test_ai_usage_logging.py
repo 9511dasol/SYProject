@@ -123,6 +123,49 @@ class TestReportOrchestratorLogsUsage:
         logged.assert_called_once()
 
 
+class TestReportOrchestratorPreview:
+    """미리보기는 발송 없이 같은 코멘트 경로를 지난다 — 비용은 잡히고, 메일·발송 기록은 없어야 한다."""
+
+    def test_preview_builds_subject_comment_and_html_without_sending(self, mocker):
+        mocker.patch("app.services.report_orchestrator.log_ai_usage")
+        orch = TestReportOrchestratorLogsUsage._orchestrator(mocker)
+        orch.builder.build.return_value = "<html>본문</html>"
+
+        result = orch.preview(2026, 7, 2026, 6)
+
+        assert result == {
+            "subject": "[마케팅 리포트] 2026년 7월 성과 요약",
+            "comment": "코멘트",
+            "html": "<html>본문</html>",
+        }
+        orch.mail.send.assert_not_called()
+
+    def test_preview_keeps_a_custom_subject(self, mocker):
+        mocker.patch("app.services.report_orchestrator.log_ai_usage")
+        orch = TestReportOrchestratorLogsUsage._orchestrator(mocker)
+
+        assert orch.preview(2026, 7, 2026, 6, subject="커스텀 제목")["subject"] == "커스텀 제목"
+
+    def test_preview_comment_cost_is_still_logged(self, mocker):
+        """미리보기도 LLM 을 부른다 — 예산 집계에서 빠지면 안 된다."""
+        logged = mocker.patch("app.services.report_orchestrator.log_ai_usage")
+        orch = TestReportOrchestratorLogsUsage._orchestrator(mocker)
+
+        orch.preview(2026, 7, 2026, 6)
+
+        assert logged.call_args.kwargs["usage"] == _USAGE
+
+    def test_preview_does_not_write_a_report_log(self, mocker):
+        """ReportLog 는 발송 이력이다 — 미리보기가 줄을 남기면 '보낸 적 없는 발송'이 생긴다."""
+        mocker.patch("app.services.report_orchestrator.log_ai_usage")
+        orch = TestReportOrchestratorLogsUsage._orchestrator(mocker)
+        saved = mocker.patch("app.services.report_orchestrator._save_report_log")
+
+        orch.preview(2026, 7, 2026, 6)
+
+        saved.assert_not_called()
+
+
 class TestToolKeys:
     def test_tool_keys_fit_the_column(self):
         """ai_tool_usage_logs.tool 은 String(30) 이다."""

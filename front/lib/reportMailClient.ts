@@ -40,6 +40,33 @@ export interface ReportLog {
   created_at: string;
 }
 
+export interface PreviewReportPayload {
+  curr_year: number;
+  curr_month: number;
+  prev_year: number;
+  prev_month: number;
+  subject?: string;
+}
+
+export interface PreviewReportResponse {
+  subject: string;
+  comment: string;
+  html: string;
+}
+
+/**
+ * 발송 전 미리보기 — 실제로 나갈 메일과 같은 제목·AI 코멘트·HTML을 받아온다.
+ * 코멘트는 서버 캐시에 저장되어 뒤이은 발송이 재사용하므로 비용이 두 번 들지 않는다.
+ */
+export async function previewReportMail(payload: PreviewReportPayload): Promise<PreviewReportResponse> {
+  try {
+    const { data } = await api.post<PreviewReportResponse>('/api/report-mail/preview', payload);
+    return data;
+  } catch (err) {
+    throw new Error(extractError(err, '리포트 미리보기 생성 실패'));
+  }
+}
+
 export async function sendReportMail(payload: SendReportPayload): Promise<SendReportResponse> {
   try {
     const { data } = await api.post<SendReportResponse>('/api/report-mail/send', payload);

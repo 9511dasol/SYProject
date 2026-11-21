@@ -27,6 +27,7 @@ import type {
   SnapshotUploadResponse,
   WatchCreateResult,
   WatchDevice,
+  WatchUpdatePayload,
 } from '@/types/rankMonitor';
 import RankTrendChart from './RankTrendChart';
 
@@ -92,16 +93,20 @@ function StatusBadge({ watch }: { watch: RankWatch }) {
   return <span className="badge badge-success whitespace-nowrap"><i className="bx bx-check text-sm" />정상</span>;
 }
 
-/** 등록 폼 입력값 — 숫자는 검증 전까지 문자열로 둔다 */
-interface RegisterForm {
-  keywords: string;
-  device: WatchDevice;
+/** 등록·수정 모달이 공유하는 감시 설정 입력값 — 숫자는 검증 전까지 문자열로 둔다 */
+interface WatchSettingsForm {
   targetRank: string;
   tolerance: string;
   breachesRequired: string;
   cooldownHours: string;
   alertOnNoImpression: boolean;
   colorTag: string;
+}
+
+/** 등록 폼 — 공통 설정에 키워드·디바이스가 더해진다 */
+interface RegisterForm extends WatchSettingsForm {
+  keywords: string;
+  device: WatchDevice;
 }
 
 const EMPTY_FORM: RegisterForm = {
@@ -114,6 +119,120 @@ const EMPTY_FORM: RegisterForm = {
   alertOnNoImpression: true,
   colorTag: '',
 };
+
+/** 설정 입력을 검증해 등록/PATCH 공용 형태로 바꾼다 — 등록·수정의 규칙이 갈라지지 않게 한 곳에 둔다. */
+function parseWatchSettings(form: WatchSettingsForm):
+  | { error: string; values?: undefined }
+  | {
+      error: null;
+      values: {
+        target_rank: number;
+        tolerance: number;
+        breaches_required: number;
+        cooldown_hours: number;
+        alert_on_no_impression: boolean;
+        color_tag: string | null;
+      };
+    } {
+  const targetRank = Number(form.targetRank);
+  const tolerance = Number(form.tolerance);
+  const breachesRequired = Number(form.breachesRequired);
+  const cooldownHours = Number(form.cooldownHours);
+  if (!Number.isFinite(targetRank) || targetRank < 1 || targetRank > 100) {
+    return { error: '목표 순위는 1~100 사이 숫자여야 합니다.' };
+  }
+  if (!Number.isFinite(tolerance) || tolerance < 0 || tolerance > 20) {
+    return { error: '허용 오차는 0~20 사이 숫자여야 합니다.' };
+  }
+  if (!Number.isInteger(breachesRequired) || breachesRequired < 1 || breachesRequired > 10) {
+    return { error: '연속 이탈 기준은 1~10 사이 정수여야 합니다.' };
+  }
+  if (!Number.isInteger(cooldownHours) || cooldownHours < 1 || cooldownHours > 720) {
+    return { error: '재알림 간격은 1~720 사이 정수(시간)여야 합니다.' };
+  }
+  return {
+    error: null,
+    values: {
+      target_rank: targetRank,
+      tolerance,
+      breaches_required: breachesRequired,
+      cooldown_hours: cooldownHours,
+      alert_on_no_impression: form.alertOnNoImpression,
+      color_tag: form.colorTag || null,
+    },
+  };
+}
+
+/** 등록·수정 모달이 공유하는 설정 필드 묶음. children 은 그리드 첫 칸에 들어간다(등록의 디바이스 선택). */
+function WatchSettingsFields({
+  form,
+  onChange,
+  children,
+}: {
+  form: WatchSettingsForm;
+  onChange: (patch: Partial<WatchSettingsForm>) => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      {children}
+      <Select
+        label="중요도 색상"
+        value={form.colorTag}
+        onChange={(e) => onChange({ colorTag: e.target.value })}
+      >
+        {COLOR_TAGS.map((c) => (
+          <option key={c.value} value={c.value}>{c.label}</option>
+        ))}
+      </Select>
+      <Input
+        label="목표 순위"
+        type="number"
+        min={1}
+        max={100}
+        value={form.targetRank}
+        onChange={(e) => onChange({ targetRank: e.target.value })}
+      />
+      <Input
+        label="허용 오차"
+        type="number"
+        min={0}
+        max={20}
+        step={0.5}
+        value={form.tolerance}
+        onChange={(e) => onChange({ tolerance: e.target.value })}
+        hint="목표 3위·오차 0.5면 3.5위까지는 정상"
+      />
+      <Input
+        label="연속 이탈 기준 (회)"
+        type="number"
+        min={1}
+        max={10}
+        value={form.breachesRequired}
+        onChange={(e) => onChange({ breachesRequired: e.target.value })}
+        hint="연속 몇 번의 기록이 이탈하면 알릴지 — 한 번 튄 값으로 '하락'이 되지 않게"
+      />
+      <Input
+        label="재알림 간격 (시간)"
+        type="number"
+        min={1}
+        max={720}
+        value={form.cooldownHours}
+        onChange={(e) => onChange({ cooldownHours: e.target.value })}
+        hint="오르내림을 반복해도 이 시간 안에는 다시 알리지 않습니다"
+      />
+      <label className="flex items-center gap-2 pt-6 text-sm text-fg-muted cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={form.alertOnNoImpression}
+          onChange={(e) => onChange({ alertOnNoImpression: e.target.checked })}
+          className="w-4 h-4 rounded accent-blue-600"
+        />
+        노출 없음도 이탈로 본다
+      </label>
+    </div>
+  );
+}
 
 export default function RankMonitorClient() {
   const queryClient = useQueryClient();
@@ -134,6 +253,12 @@ export default function RankMonitorClient() {
   const [detailWatchId, setDetailWatchId] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<RankWatch | null>(null);
 
+  // 수정 모달 — 삭제 후 재등록 없이 목표·알림 설정을 바꿀 수 있게 한다
+  // (재등록은 쌓인 순위 이력을 전부 잃는다). 폼은 여는 시점의 값으로 채운다.
+  const [editWatchId, setEditWatchId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<WatchSettingsForm | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+
   /* ── 목록 ─────────────────────────────────────────────────────────────── */
   const watchesQuery = useQuery({
     queryKey: queryKeys.rankWatches(),
@@ -142,6 +267,7 @@ export default function RankMonitorClient() {
   const watches = watchesQuery.data?.items ?? null;
   // 목록이 갱신되면 열려 있는 상세도 같이 최신이 된다. 삭제됐으면 null 이 되어 닫힌다.
   const detailWatch = watches?.find((w) => w.id === detailWatchId) ?? null;
+  const editWatch = watches?.find((w) => w.id === editWatchId) ?? null;
 
   const invalidateAll = () =>
     queryClient.invalidateQueries({ queryKey: queryKeys.allRankWatches() });
@@ -194,39 +320,57 @@ export default function RankMonitorClient() {
       setFormError('감시할 키워드를 한 줄에 하나씩 입력해 주세요.');
       return;
     }
-    const targetRank = Number(form.targetRank);
-    const tolerance = Number(form.tolerance);
-    const breachesRequired = Number(form.breachesRequired);
-    if (!Number.isFinite(targetRank) || targetRank < 1 || targetRank > 100) {
-      setFormError('목표 순위는 1~100 사이 숫자여야 합니다.');
-      return;
-    }
-    if (!Number.isFinite(tolerance) || tolerance < 0 || tolerance > 20) {
-      setFormError('허용 오차는 0~20 사이 숫자여야 합니다.');
-      return;
-    }
-    if (!Number.isInteger(breachesRequired) || breachesRequired < 1 || breachesRequired > 10) {
-      setFormError('연속 이탈 기준은 1~10 사이 정수여야 합니다.');
-      return;
-    }
-    const cooldownHours = Number(form.cooldownHours);
-    if (!Number.isInteger(cooldownHours) || cooldownHours < 1 || cooldownHours > 720) {
-      setFormError('재알림 간격은 1~720 사이 정수(시간)여야 합니다.');
+    const parsed = parseWatchSettings(form);
+    if (parsed.error !== null) {
+      setFormError(parsed.error);
       return;
     }
     setFormError(null);
     create.mutate(
-      keywords.map((keyword) => ({
-        keyword,
-        device: form.device,
-        target_rank: targetRank,
-        tolerance,
-        breaches_required: breachesRequired,
-        cooldown_hours: cooldownHours,
-        alert_on_no_impression: form.alertOnNoImpression,
-        color_tag: form.colorTag || null,
-      })),
+      keywords.map((keyword) => ({ keyword, device: form.device, ...parsed.values })),
     );
+  };
+
+  /* ── 설정 수정 ────────────────────────────────────────────────────────── */
+  const openEdit = (w: RankWatch) => {
+    setEditWatchId(w.id);
+    setEditForm({
+      targetRank: String(w.target_rank),
+      tolerance: String(w.tolerance),
+      breachesRequired: String(w.breaches_required),
+      cooldownHours: String(w.cooldown_hours),
+      alertOnNoImpression: w.alert_on_no_impression,
+      colorTag: w.color_tag ?? '',
+    });
+    setEditError(null);
+  };
+
+  const closeEdit = () => {
+    setEditWatchId(null);
+    setEditForm(null);
+    setEditError(null);
+  };
+
+  const update = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: WatchUpdatePayload }) =>
+      updateRankWatch(id, payload),
+    onSuccess: () => {
+      invalidateAll();
+      pushToast('success', '감시 설정을 수정했습니다.');
+      closeEdit();
+    },
+    onError: (err) => pushToast('error', err.message),
+  });
+
+  const handleEditSave = () => {
+    if (editWatchId === null || !editForm) return;
+    const parsed = parseWatchSettings(editForm);
+    if (parsed.error !== null) {
+      setEditError(parsed.error);
+      return;
+    }
+    setEditError(null);
+    update.mutate({ id: editWatchId, payload: parsed.values });
   };
 
   /* ── 보고서 업로드 ────────────────────────────────────────────────────── */
@@ -386,6 +530,15 @@ export default function RankMonitorClient() {
       align: 'right',
       cell: (w) => (
         <span className="inline-flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => openEdit(w)}
+            title="목표 순위·알림 설정 수정 (이력은 유지됩니다)"
+          >
+            <i className="bx bx-edit-alt text-sm" />
+            수정
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -572,7 +725,10 @@ export default function RankMonitorClient() {
             hint="한 줄에 하나씩 — 여러 개를 한 번에 등록할 수 있습니다. 아래 설정은 모든 키워드에 같이 적용됩니다."
           />
 
-          <div className="grid grid-cols-2 gap-3">
+          <WatchSettingsFields
+            form={form}
+            onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+          >
             <Select
               label="디바이스"
               value={form.device}
@@ -582,61 +738,7 @@ export default function RankMonitorClient() {
               <option value="pc">PC</option>
               <option value="mobile">모바일</option>
             </Select>
-            <Select
-              label="중요도 색상"
-              value={form.colorTag}
-              onChange={(e) => setForm((f) => ({ ...f, colorTag: e.target.value }))}
-            >
-              {COLOR_TAGS.map((c) => (
-                <option key={c.value} value={c.value}>{c.label}</option>
-              ))}
-            </Select>
-            <Input
-              label="목표 순위"
-              type="number"
-              min={1}
-              max={100}
-              value={form.targetRank}
-              onChange={(e) => setForm((f) => ({ ...f, targetRank: e.target.value }))}
-            />
-            <Input
-              label="허용 오차"
-              type="number"
-              min={0}
-              max={20}
-              step={0.5}
-              value={form.tolerance}
-              onChange={(e) => setForm((f) => ({ ...f, tolerance: e.target.value }))}
-              hint="목표 3위·오차 0.5면 3.5위까지는 정상"
-            />
-            <Input
-              label="연속 이탈 기준 (회)"
-              type="number"
-              min={1}
-              max={10}
-              value={form.breachesRequired}
-              onChange={(e) => setForm((f) => ({ ...f, breachesRequired: e.target.value }))}
-              hint="연속 몇 번의 기록이 이탈하면 알릴지 — 한 번 튄 값으로 '하락'이 되지 않게"
-            />
-            <Input
-              label="재알림 간격 (시간)"
-              type="number"
-              min={1}
-              max={720}
-              value={form.cooldownHours}
-              onChange={(e) => setForm((f) => ({ ...f, cooldownHours: e.target.value }))}
-              hint="오르내림을 반복해도 이 시간 안에는 다시 알리지 않습니다"
-            />
-            <label className="flex items-center gap-2 pt-6 text-sm text-fg-muted cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={form.alertOnNoImpression}
-                onChange={(e) => setForm((f) => ({ ...f, alertOnNoImpression: e.target.checked }))}
-                className="w-4 h-4 rounded accent-blue-600"
-              />
-              노출 없음도 이탈로 본다
-            </label>
-          </div>
+          </WatchSettingsFields>
 
           {formError && (
             <p role="alert" className="text-xs text-badge-danger-fg">{formError}</p>
@@ -655,6 +757,50 @@ export default function RankMonitorClient() {
             </div>
           )}
         </div>
+      </Modal>
+
+      {/* ── 설정 수정 모달 ─────────────────────────────────────────────── */}
+      <Modal
+        open={editWatch !== null && editForm !== null}
+        onClose={closeEdit}
+        title={
+          editWatch && (
+            <>
+              {editWatch.keyword}
+              <span className="text-xs font-normal text-fg-subtle">
+                {DEVICE_LABELS[editWatch.device]} · 설정 수정
+              </span>
+            </>
+          )
+        }
+        icon="bx-edit-alt"
+        busy={update.isPending}
+        footer={
+          <>
+            <Button variant="outline" size="md" onClick={closeEdit} disabled={update.isPending}>
+              취소
+            </Button>
+            <Button size="md" onClick={handleEditSave} isLoading={update.isPending}>
+              저장
+            </Button>
+          </>
+        }
+      >
+        {editForm && (
+          <div className="space-y-4">
+            <WatchSettingsFields
+              form={editForm}
+              onChange={(patch) => setEditForm((f) => (f ? { ...f, ...patch } : f))}
+            />
+            <p className="text-xs text-fg-subtle">
+              판정 기준(목표 순위·허용 오차·연속 이탈)을 바꾸면 연속 이탈 횟수가 새 기준으로
+              즉시 다시 계산됩니다. 쌓인 순위 이력은 그대로 유지됩니다.
+            </p>
+            {editError && (
+              <p role="alert" className="text-xs text-badge-danger-fg">{editError}</p>
+            )}
+          </div>
+        )}
       </Modal>
 
       {/* ── 상세(순위 추이) 모달 ────────────────────────────────────────── */}

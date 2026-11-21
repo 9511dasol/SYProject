@@ -1,4 +1,4 @@
-import NextAuth from 'next-auth';
+import NextAuth, { CredentialsSignin } from 'next-auth';
 import type { JWT } from '@auth/core/jwt';
 import Credentials from 'next-auth/providers/credentials';
 import { isAxiosError } from 'axios';
@@ -14,6 +14,20 @@ function readAccessTokenExpiry(accessToken: string): number {
   const payloadSegment = accessToken.split('.')[1];
   const payload = JSON.parse(Buffer.from(payloadSegment, 'base64url').toString('utf-8')) as { exp: number };
   return payload.exp * 1000;
+}
+
+/**
+ * 백엔드가 준 로그인 거부 사유를 클라이언트까지 실어 나르는 통로.
+ *
+ * Auth.js 는 authorize 의 일반 예외를 CallbackRouteError 로 감싸 원문을 지운다.
+ * CredentialsSignin 하위 클래스의 code 만 signIn(redirect:false) 응답에 살아남으므로,
+ * 계정 잠금(429)의 "N분 후 다시 시도" 같은 조치 가능한 안내는 여기에 싣는다.
+ */
+class LoginRejected extends CredentialsSignin {
+  constructor(code: string) {
+    super();
+    this.code = code;
+  }
 }
 
 /** FastAPI /api/auth/refresh로 accessToken을 재발급받는다. 실패하면 token.error를 세팅해 클라이언트가 재로그인을 유도하게 한다. */
@@ -69,6 +83,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           };
         } catch (err) {
           if (isAxiosError(err) && err.response?.status === 401) return null;
+
+          // 계정 잠금(429)의 안내문은 사용자가 조치할 수 있는 정보다 — 예전에는
+          // 일반 예외로 던져져 로그인 화면이 전부 "비밀번호 틀림"으로 안내했다.
+          if (isAxiosError(err) && err.response?.status === 429) {
+            const detail: unknown = (err.response.data as { detail?: unknown } | undefined)?.detail;
+            throw new LoginRejected(
+              typeof detail === 'string'
+                ? detail
+                : '로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.',
+            );
+          }
 
           // 응답 자체가 없으면 자격 증명 문제가 아니라 백엔드에 도달하지 못한 것이다.
           // Auth.js가 CallbackRouteError로 감싸버리면 원인이 보이지 않으므로 여기서 명시적으로 남긴다.

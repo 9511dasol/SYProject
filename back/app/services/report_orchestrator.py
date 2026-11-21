@@ -79,6 +79,27 @@ class ReportOrchestrator:
         comment_cache.save(curr_year, curr_month, prompt_hash, result.text)
         return result.text
 
+    def preview(
+        self,
+        curr_year: int,
+        curr_month: int,
+        prev_year: int,
+        prev_month: int,
+        subject: str = "",
+    ) -> dict:
+        """발송 없이, 실제로 나갈 메일과 같은 제목·코멘트·HTML 을 만든다.
+
+        코멘트는 발송과 같은 캐시 경로(_comment_for)를 지난다 — 미리보기에서
+        생성·캐시된 코멘트를 뒤이은 발송이 그대로 재사용하므로, 미리보기를 거쳐도
+        코멘트 비용이 두 번 들지 않는다. 발송 기록(ReportLog)은 남기지 않는다.
+        """
+        if not subject:
+            subject = f"[마케팅 리포트] {curr_year}년 {curr_month}월 성과 요약"
+        comparison = self.analysis.compare(curr_year, curr_month, prev_year, prev_month)
+        comment = self._comment_for(comparison, curr_year, curr_month)
+        html = self.builder.build(comparison, comment)
+        return {"subject": subject, "comment": comment, "html": html}
+
     def run(
         self,
         curr_year: int,
