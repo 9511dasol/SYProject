@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import HeadingGrid from '@/components/heading-suggest/HeadingGrid';
 import PlatformTabs from '@/components/heading-suggest/PlatformTabs';
@@ -35,8 +35,11 @@ export default function HeadingHistoryClient() {
   const [records, setRecords] = useState<HeadingSuggestionRecord[] | null>(null);
   const [total, setTotal] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  // 서버 검색은 타이핑마다 날리지 않는다 — 잠깐 멈췄을 때(300ms) 한 번만.
+  const [debouncedQuery, setDebouncedQuery] = useState('');
 
   const [detail, setDetail] = useState<HeadingSuggestionRecord | null>(null);
   const [detailTab, setDetailTab] = useState<PlatformFilter>('전체');
@@ -44,29 +47,42 @@ export default function HeadingHistoryClient() {
 
   const { toast: pushToast } = useToast();
 
-  /* ── 첫 페이지 ─────────────────────────────────────────────────────────── */
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  /* ── 첫 페이지 · 검색 ──────────────────────────────────────────────────
+     검색은 서버가 전체 기록에서 한다 — 예전에는 불러온 기록만 걸러서,
+     오래된 문구는 "더 보기"로 전부 로드해야만 찾을 수 있었다.
+     검색 중에는 기존 목록을 그대로 둔 채 표시만 바꿔 깜빡임을 피한다. */
   useEffect(() => {
     let cancelled = false;
-    fetchHeadingHistoryPage(PAGE_SIZE, 0)
+    setSearching(true);
+    fetchHeadingHistoryPage(PAGE_SIZE, 0, debouncedQuery || undefined)
       .then((data) => {
         if (cancelled) return;
         setRecords(data.items);
         setTotal(data.total);
+        setError(null);
       })
       .catch((err) => {
         if (cancelled) return;
         setRecords([]);
         setError(err instanceof Error ? err.message : '기록을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setSearching(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [debouncedQuery]);
 
   /* ── 더 보기 ──────────────────────────────────────────────────────────── */
   const handleLoadMore = async () => {
     if (!records) return;
     setLoadingMore(true);
     try {
-      const data = await fetchHeadingHistoryPage(PAGE_SIZE, records.length);
+      const data = await fetchHeadingHistoryPage(PAGE_SIZE, records.length, debouncedQuery || undefined);
       // 사이에 새 기록이 생기면 같은 항목이 다음 페이지에도 올 수 있어 id로 걸러낸다.
       setRecords((prev) => {
         const seen = new Set((prev ?? []).map((r) => r.id));
@@ -114,17 +130,6 @@ export default function HeadingHistoryClient() {
     }
   };
 
-  /* ── 검색 (파일명 · 문구 본문) ────────────────────────────────────────── */
-  const visible = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
-    if (!keyword || !records) return records ?? [];
-    return records.filter(
-      (r) =>
-        r.image_filename.toLowerCase().includes(keyword) ||
-        r.headings.some((h) => h.text.toLowerCase().includes(keyword)),
-    );
-  }, [records, query]);
-
   const hasMore = records !== null && records.length < total;
 
   /* ── 렌더 ─────────────────────────────────────────────────────────────── */
@@ -157,24 +162,31 @@ export default function HeadingHistoryClient() {
           </div>
         </header>
 
-        {/* 검색 */}
-        {records !== null && records.length > 0 && (
+        {/* 검색 — 서버가 전체 기록(파일명·문구 본문)에서 찾는다.
+            결과가 0건이어도 입력을 지울 수 있어야 하므로 검색 중에는 계속 보여준다. */}
+        {records !== null && (records.length > 0 || query.trim() !== '') && (
           <div className="flex items-center gap-3 flex-wrap">
             <div className="relative flex-1 min-w-60">
               <i className="bx bx-search absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="파일명 또는 문구 내용으로 검색"
+                placeholder="파일명 또는 문구 내용으로 전체 기록에서 검색"
                 aria-label="기록 검색"
                 className="w-full rounded-xl border border-border bg-surface
                   py-2.5 pl-9 pr-3 text-sm text-fg-body
                   focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
+              {searching && (
+                <span
+                  aria-label="검색 중"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full border-2 border-amber-200 border-t-amber-500 animate-spin"
+                />
+              )}
             </div>
             <span className="text-xs text-fg-subtle whitespace-nowrap">
-              {query.trim()
-                ? `${visible.length}건 검색됨 (불러온 ${records.length}건 중)`
+              {debouncedQuery
+                ? `전체 기록에서 ${total}건 검색됨`
                 : `${records.length} / ${total}건`}
             </span>
           </div>
@@ -191,6 +203,11 @@ export default function HeadingHistoryClient() {
           <div className="flex justify-center py-16">
             <Spinner size="lg" />
           </div>
+        ) : records.length === 0 && debouncedQuery ? (
+          <div className="flex flex-col items-center gap-3 py-16 text-fg-subtle">
+            <i className="bx bx-search-alt text-4xl" />
+            <p className="text-sm">전체 기록에서 검색했지만 결과가 없습니다.</p>
+          </div>
         ) : records.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
             <i className="bx bx-image-alt text-4xl text-fg-disabled" />
@@ -204,15 +221,10 @@ export default function HeadingHistoryClient() {
               문구 만들러 가기 <i className="bx bx-right-arrow-alt align-middle" />
             </Link>
           </div>
-        ) : visible.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-16 text-fg-subtle">
-            <i className="bx bx-search-alt text-4xl" />
-            <p className="text-sm">검색 결과가 없습니다.</p>
-          </div>
         ) : (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-              {visible.map((record) => (
+              {records.map((record) => (
                 <div
                   key={record.id}
                   className="group relative rounded-2xl overflow-hidden border border-border
@@ -265,7 +277,7 @@ export default function HeadingHistoryClient() {
               ))}
             </div>
 
-            {hasMore && !query.trim() && (
+            {hasMore && (
               <div className="flex justify-center pt-2">
                 <button
                   type="button"
@@ -283,12 +295,6 @@ export default function HeadingHistoryClient() {
                   더 보기 ({total - records.length}건 남음)
                 </button>
               </div>
-            )}
-
-            {hasMore && query.trim() && (
-              <p className="text-center text-xs text-fg-subtle">
-                검색은 지금까지 불러온 {records.length}건에서만 이뤄집니다. 더 보기로 기록을 추가하면 검색 범위도 넓어집니다.
-              </p>
             )}
           </>
         )}

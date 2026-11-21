@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AgentComposer from '@/components/image-filter/AgentComposer';
 import Button from '@/components/ui/Button';
 import type {
@@ -95,11 +95,17 @@ export default function ImageFilterClient() {
     (value: string) => setDrafts((prev) => ({ ...prev, [draftKey]: value })),
     [draftKey],
   );
-  // 글이 남아 있는 요소는 선택 목록에서 표시해 준다 (안 그러면 저장된 줄 모른다)
-  const draftedElementIds = new Set(
-    Object.entries(drafts)
-      .filter(([key, text]) => key !== ALL_ELEMENTS_KEY && text.trim())
-      .map(([key]) => Number(key)),
+  // 글이 남아 있는 요소는 선택 목록에서 표시해 준다 (안 그러면 저장된 줄 모른다).
+  // 매 렌더 새 Set 을 만들면 키 입력마다 ElementPicker(memo)가 깨진다 — 집합의
+  // "내용"은 글이 생기거나 비워질 때만 바뀌므로, 내용 키로 참조를 안정시킨다.
+  const draftedIdsKey = Object.entries(drafts)
+    .filter(([key, text]) => key !== ALL_ELEMENTS_KEY && text.trim())
+    .map(([key]) => key)
+    .sort()
+    .join(',');
+  const draftedElementIds = useMemo(
+    () => new Set(draftedIdsKey ? draftedIdsKey.split(',').map(Number) : []),
+    [draftedIdsKey],
   );
 
   // 진행 중인 AI 요청의 취소 핸들 — 이미지 생성은 수십 초라 끊을 수단이 필요하다

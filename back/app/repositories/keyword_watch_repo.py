@@ -100,6 +100,28 @@ class KeywordWatchRepository:
             .one_or_none()
         )
 
+    def get_snapshots_bulk(
+        self, watch_ids: list[int], stat_date: date, source: str
+    ) -> dict[int, KeywordRankSnapshot]:
+        """같은 날짜·출처의 스냅샷을 감시 여러 건에 대해 한 쿼리로.
+
+        적재 핫패스용 — 감시마다 get_snapshot 을 부르면 보고서 업로드 한 번에
+        감시 수만큼 왕복이 생긴다. (watch_id, stat_date, source) 는 유니크라
+        감시당 최대 1건이다.
+        """
+        if not watch_ids:
+            return {}
+        rows = (
+            self.db.query(KeywordRankSnapshot)
+            .filter(
+                KeywordRankSnapshot.watch_id.in_(watch_ids),
+                KeywordRankSnapshot.stat_date == stat_date,
+                KeywordRankSnapshot.source == source,
+            )
+            .all()
+        )
+        return {row.watch_id: row for row in rows}
+
     def latest_snapshots(self, watch_ids: list[int]) -> dict[int, KeywordRankSnapshot]:
         """감시별 가장 최근 스냅샷 — 목록 화면의 '현재 순위' 열.
 
@@ -147,6 +169,22 @@ class KeywordWatchRepository:
         )
         return list(reversed(rows))
 
+    @staticmethod
+    def _dedupe_dates_desc(
+        rows: list[KeywordRankSnapshot], limit: int
+    ) -> list[KeywordRankSnapshot]:
+        """내림차순 행에서 날짜당 1건(먼저 나온 = 나중 수집분)만 limit개 남긴다."""
+        deduped: list[KeywordRankSnapshot] = []
+        seen_dates: set[date] = set()
+        for row in rows:
+            if row.stat_date in seen_dates:
+                continue
+            seen_dates.add(row.stat_date)
+            deduped.append(row)
+            if len(deduped) >= limit:
+                break
+        return deduped
+
     def recent_desc(self, watch_id: int, limit: int = 30) -> list[KeywordRankSnapshot]:
         """연속 이탈 재계산용 — 날짜 내림차순, 날짜당 1건(나중 수집분 우선)."""
         rows = (
@@ -160,13 +198,53 @@ class KeywordWatchRepository:
             .limit(limit * 2)  # 날짜당 출처가 2개여도 limit일치를 확보
             .all()
         )
-        deduped: list[KeywordRankSnapshot] = []
-        seen_dates: set[date] = set()
+        return self._dedupe_dates_desc(rows, limit)
+
+    def recent_desc_bulk(
+        self, watch_ids: list[int], limit: int = 30
+    ) -> dict[int, list[KeywordRankSnapshot]]:
+        """recent_desc 를 감시 여러 건에 대해 한 쿼리로 — 정렬·중복 제거 규칙은 같다.
+
+        적재·알림 평가가 감시마다 이력을 따로 조회하면 업로드 한 번에 감시 수만큼
+        왕복이 생긴다. 윈도 함수(row_number)로 감시별 최근 limit×2 건만 끊어 온 뒤
+        파이썬에서 recent_desc 와 같은 규칙으로 날짜당 1건을 남긴다.
+        (SQLite 3.25+/PostgreSQL 모두 지원.)
+        """
+        if not watch_ids:
+            return {}
+        rn = (
+            func.row_number()
+            .over(
+                partition_by=KeywordRankSnapshot.watch_id,
+                order_by=(
+                    KeywordRankSnapshot.stat_date.desc(),
+                    KeywordRankSnapshot.collected_at.desc(),
+                    KeywordRankSnapshot.id.desc(),
+                ),
+            )
+            .label("rn")
+        )
+        ranked = (
+            self.db.query(KeywordRankSnapshot.id.label("snap_id"), rn)
+            .filter(KeywordRankSnapshot.watch_id.in_(watch_ids))
+            .subquery()
+        )
+        rows = (
+            self.db.query(KeywordRankSnapshot)
+            .join(ranked, KeywordRankSnapshot.id == ranked.c.snap_id)
+            .filter(ranked.c.rn <= limit * 2)
+            .order_by(
+                KeywordRankSnapshot.watch_id.asc(),
+                KeywordRankSnapshot.stat_date.desc(),
+                KeywordRankSnapshot.collected_at.desc(),
+                KeywordRankSnapshot.id.desc(),
+            )
+            .all()
+        )
+        grouped: dict[int, list[KeywordRankSnapshot]] = {}
         for row in rows:
-            if row.stat_date in seen_dates:
-                continue
-            seen_dates.add(row.stat_date)
-            deduped.append(row)
-            if len(deduped) >= limit:
-                break
-        return deduped
+            grouped.setdefault(row.watch_id, []).append(row)
+        return {
+            watch_id: self._dedupe_dates_desc(group, limit)
+            for watch_id, group in grouped.items()
+        }

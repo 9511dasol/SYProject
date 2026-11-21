@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import type { ImageElement } from '@/types/imageFilter';
 
 /**
@@ -8,8 +9,12 @@ import type { ImageElement } from '@/types/imageFilter';
  * 좌표는 서버가 주는 0~1 비율값이라 CSS 퍼센트로 그대로 매핑한다 — 이미지가
  * 어떤 크기로 렌더되든 박스가 따라붙는다. 같은 요소를 다시 클릭하면 해제되어
  * 기존의 "이미지 전체 편집" 모드로 돌아간다.
+ *
+ * memo: 패널을 연 채 프롬프트를 타이핑하면 부모(컴포저)가 키 입력마다 렌더된다.
+ * 이미지 + 박스 N개를 매번 다시 그릴 이유가 없다 — props 가 전부 안정적이라
+ * (draftedIds 는 부모가 내용 키로 참조를 고정) memo 가 실제로 걸린다.
  */
-export default function ElementPicker({
+function ElementPicker({
   previewUrl,
   elements,
   selectedId,
@@ -107,3 +112,5 @@ export default function ElementPicker({
     </div>
   );
 }
+
+export default memo(ElementPicker);

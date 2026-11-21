@@ -94,15 +94,21 @@ async def suggest_headings(
 def heading_history(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, max_length=100, description="파일명·문구 검색어"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> HeadingHistoryResponse:
-    """로그인한 사용자가 과거에 생성한 문구 기록을 최신순으로 반환한다."""
+    """로그인한 사용자가 과거에 생성한 문구 기록을 최신순으로 반환한다.
+
+    q 를 주면 파일명과 문구 본문에서 서버가 검색한다 — 화면이 이미 불러온
+    기록만 거르면 오래된 기록은 전부 로드해야만 찾을 수 있었다. total 도
+    검색 조건 기준이라 "더 보기" 페이지네이션이 검색 중에도 올바르게 끝난다.
+    """
     repo = HeadingSuggestionRepository(db)
-    records = repo.list_for_user(current_user.id, limit=limit, offset=offset)
+    records = repo.list_for_user(current_user.id, limit=limit, offset=offset, q=q)
     return HeadingHistoryResponse(
         items=[HeadingSuggestionRecord.model_validate(r) for r in records],
-        total=repo.count_for_user(current_user.id),
+        total=repo.count_for_user(current_user.id, q=q),
     )
 
 

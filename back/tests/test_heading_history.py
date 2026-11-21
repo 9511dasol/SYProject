@@ -41,13 +41,20 @@ def db():
         engine.dispose()
 
 
-def _add(db, user_id: int, *, minutes_ago: int, filename: str = "img.jpg") -> HeadingSuggestion:
+def _add(
+    db,
+    user_id: int,
+    *,
+    minutes_ago: int,
+    filename: str = "img.jpg",
+    headings: list[dict] | None = None,
+) -> HeadingSuggestion:
     record = HeadingSuggestion(
         user_id=user_id,
         user_email=f"user{user_id}@example.com",
         image_filename=filename,
         image_path=None,
-        headings=_HEADINGS,
+        headings=headings if headings is not None else _HEADINGS,
         created_at=datetime.now(timezone.utc) - timedelta(minutes=minutes_ago),
     )
     db.add(record)
@@ -111,3 +118,45 @@ def test_other_users_records_are_not_visible(db):
 def test_offset_past_end_returns_empty(db):
     _add(db, 1, minutes_ago=1)
     assert HeadingSuggestionRepository(db).list_for_user(1, offset=10) == []
+
+
+# ── 서버측 검색 — 화면이 불러온 기록만 거르면 오래된 기록은 찾을 수 없다 ──────
+
+
+def test_search_matches_filename(db):
+    _add(db, 1, minutes_ago=2, filename="브랜드A_배너.jpg")
+    _add(db, 1, minutes_ago=1, filename="other.jpg")
+
+    repo = HeadingSuggestionRepository(db)
+    assert [r.image_filename for r in repo.list_for_user(1, q="브랜드A")] == ["브랜드A_배너.jpg"]
+    assert repo.count_for_user(1, q="브랜드A") == 1
+
+
+def test_search_matches_heading_body(db):
+    """문구 본문도 검색 대상이다.
+
+    SQLite 는 JSON 을 ASCII 이스케이프로 저장해 본문의 한글은 로컬에서 안 걸린다 —
+    운영 Postgres(JSONB)는 원문 그대로 저장돼 걸린다. 여기서는 영문으로 검증한다.
+    """
+    hit = _add(db, 1, minutes_ago=2, filename="a.jpg",
+               headings=[{"id": 1, "platform": "Blog", "text": "Summer Sale", "desc": "d"}])
+    _add(db, 1, minutes_ago=1, filename="b.jpg")
+
+    repo = HeadingSuggestionRepository(db)
+    assert [r.id for r in repo.list_for_user(1, q="Summer")] == [hit.id]
+    assert repo.count_for_user(1, q="Summer") == 1
+
+
+def test_search_is_scoped_to_the_user(db):
+    _add(db, 1, minutes_ago=1, filename="mine.jpg")
+    _add(db, 2, minutes_ago=1, filename="mine.jpg")
+
+    assert HeadingSuggestionRepository(db).count_for_user(1, q="mine") == 1
+
+
+def test_blank_query_behaves_like_no_query(db):
+    """빈 문자열은 '검색 안 함'이어야 한다 — %% 패턴으로 전부 거르면 안 된다."""
+    _add(db, 1, minutes_ago=1)
+
+    repo = HeadingSuggestionRepository(db)
+    assert repo.count_for_user(1, q="") == repo.count_for_user(1, q=None) == 1

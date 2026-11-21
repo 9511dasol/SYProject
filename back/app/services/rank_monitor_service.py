@@ -119,11 +119,12 @@ def ingest_observations(
 
     matched_keywords: set[str] = set()
     now = datetime.now(timezone.utc)
-    touched: list[KeywordWatch] = []
 
-    # 1단계 — 스냅샷을 모두 쓴다. 연속 이탈 재계산은 뒤로 미룬다.
-    # (예전에는 감시 하나마다 flush 하고 이력을 조회했다. 수백 개를 감시하면
-    #  flush 도 조회도 그만큼 반복돼, 적재가 느린 이유가 여기였다.)
+    # 1단계 — 매칭만 먼저 끝낸다. 스냅샷 조회·이력 조회를 감시마다 반복하지 않고
+    # 매칭된 것들에 대해 한 번씩만 날리기 위해서다.
+    # (예전에는 감시 하나마다 get_snapshot 1쿼리 + recent_desc 1쿼리가 돌아,
+    #  감시 N건이면 업로드마다 1+2N 쿼리였다.)
+    matched: list[tuple[KeywordWatch, list[RankObservation]]] = []
     for watch in watches:
         key = normalize_keyword(watch.keyword)
         rows = _rows_for_watch(watch, by_keyword.get(key, []))
@@ -135,10 +136,15 @@ def ingest_observations(
             continue
         matched_keywords.add(key)
         summary.matched_watches += 1
-        touched.append(watch)
+        matched.append((watch, rows))
 
+    # 2단계 — 같은 날짜·출처의 기존 스냅샷을 한 쿼리로 가져와 upsert 한다.
+    existing_by_watch = repo.get_snapshots_bulk(
+        [w.id for w, _ in matched], stat_date, source
+    )
+    for watch, rows in matched:
         avg_rank, impressions, clicks = _merge_observations(rows)
-        existing = repo.get_snapshot(watch.id, stat_date, source)
+        existing = existing_by_watch.get(watch.id)
         if existing is None:
             db.add(
                 KeywordRankSnapshot(
@@ -160,13 +166,17 @@ def ingest_observations(
 
         watch.last_checked_at = now
 
-    # 2단계 — 새 스냅샷이 조회에 보이도록 한 번만 flush 하고 이력 기준으로 재계산한다.
-    if touched:
+    # 3단계 — 새 스냅샷이 조회에 보이도록 한 번만 flush 하고, 감시별 최근 이력을
+    # 한 쿼리로 끌어와 연속 이탈을 재계산한다.
+    if matched:
         db.flush()
-        for watch in touched:
+        history_by_watch = repo.recent_desc_bulk(
+            [w.id for w, _ in matched], _STREAK_WINDOW
+        )
+        for watch, _ in matched:
             if watch.status == "active":
                 watch.breach_streak = compute_streak(
-                    watch, repo.recent_desc(watch.id, _STREAK_WINDOW)
+                    watch, history_by_watch.get(watch.id, [])
                 )
 
     summary.unmatched_keywords = sorted(

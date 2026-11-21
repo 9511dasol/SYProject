@@ -104,6 +104,9 @@ def collect_alerts(db: Session, now: datetime) -> list[AlertItem]:
     repo = KeywordWatchRepository(db)
     candidates = [w for w in repo.list_all() if decide_alert(w, now) is not None]
     locked = repo.lock_for_alert([w.id for w in candidates])
+    # 직전·현재 순위는 후보 전체를 한 쿼리로 — 첫 대량 업로드처럼 여럿이 동시에
+    # 이탈하면 후보마다 조회하던 예전 방식은 후보 수만큼 왕복이 생겼다.
+    recent_by_watch = repo.recent_desc_bulk([w.id for w in candidates], 2)
 
     items: list[AlertItem] = []
     for candidate in candidates:
@@ -112,7 +115,7 @@ def collect_alerts(db: Session, now: datetime) -> list[AlertItem]:
         alert_type = decide_alert(watch, now)
         if alert_type is None:
             continue
-        recent = repo.recent_desc(watch.id, 2)
+        recent = recent_by_watch.get(watch.id, [])
         curr = recent[0] if recent else None
         prev = recent[1] if len(recent) > 1 else None
         items.append(

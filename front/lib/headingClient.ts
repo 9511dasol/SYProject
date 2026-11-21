@@ -39,12 +39,16 @@ export async function fetchHeadings(
 /**
  * 히스토리를 페이지 단위로 가져옵니다 (전체 건수 포함).
  * 오래된 기록까지 이어서 볼 수 있어야 해서 offset/total 이 필요합니다.
+ * q 를 주면 서버가 파일명·문구 본문에서 검색합니다 — 화면에 불러온 기록만
+ * 거르는 방식으로는 오래된 기록을 찾을 수 없었습니다.
  */
 export async function fetchHeadingHistoryPage(
   limit: number,
   offset: number,
+  q?: string,
 ): Promise<HeadingHistoryResponse> {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (q) params.set('q', q);
   const res = await authFetch(`/api/heading/history?${params.toString()}`, { method: 'GET' });
   if (!res.ok) {
     throw new Error(await extractResponseError(res, `기록을 불러오지 못했습니다 (${res.status})`));
