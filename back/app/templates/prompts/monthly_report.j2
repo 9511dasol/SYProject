@@ -5,6 +5,10 @@
 아래의 {{ c.curr_year }}년 {{ c.curr_month }}월 vs {{ c.prev_year }}년 {{ c.prev_month }}월 광고 성과 비교 데이터를 바탕으로
 {% endif %}
 경영진이 바로 읽을 수 있는 월간 성과 요약 코멘트를 작성해 주세요.
+{% if not c.prev_is_exact %}
+
+주의: 달력상 전월 데이터가 없어, 직전 보유 월인 {{ c.prev_year }}년 {{ c.prev_month }}월과 비교합니다. 코멘트에서 "전월"이라 쓰지 말고 "{{ c.prev_month }}월"처럼 실제 달을 밝혀 주세요.
+{% endif %}
 
 {% if c.has_prev2 %}
 ## 전체 합산 (최근 3개월 추이)
@@ -23,6 +27,16 @@
 | 총 전환수 | {{ c.prev_conversions }}건 | {{ c.curr_conversions }}건 | {{ c.conv_chg }}% |
 | 총 전환매출 | {{ "{:,.0f}".format(c.prev_revenue) }}원 | {{ "{:,.0f}".format(c.curr_revenue) }}원 | {{ c.revenue_chg }}% |
 {% endif %}
+{% if c.has_yoy %}
+
+## 전년 동월 대비{% if not c.yoy_is_exact %} — 전년 동월 데이터가 없어 가장 가까운 {{ c.yoy_year }}년 {{ c.yoy_month }}월과 비교{% endif %}
+
+| 지표 | {{ c.yoy_year }}년 {{ c.yoy_month }}월 | {{ c.curr_year }}년 {{ c.curr_month }}월 | 변화율 |
+|------|------|------|--------|
+| 총 광고비 | {{ "{:,.0f}".format(c.yoy_cost) }}원 | {{ "{:,.0f}".format(c.curr_cost) }}원 | {{ c.yoy_cost_chg }}% |
+| 총 전환수 | {{ c.yoy_conversions }}건 | {{ c.curr_conversions }}건 | {{ c.yoy_conv_chg }}% |
+| 총 전환매출 | {{ "{:,.0f}".format(c.yoy_revenue) }}원 | {{ "{:,.0f}".format(c.curr_revenue) }}원 | {{ c.yoy_revenue_chg }}% |
+{% endif %}
 
 ## 매체별 상세
 {% for m in c.by_media %}
@@ -40,6 +54,11 @@
 - 클릭수: {{ m.prev.clicks }}회 → {{ m.curr.clicks }}회
 - CPC: {{ "{:,.0f}".format(m.prev.cpc) }}원 → {{ "{:,.0f}".format(m.curr.cpc) }}원
 - ROAS: {{ "{:.2f}".format(m.prev.roas) }} → {{ "{:.2f}".format(m.curr.roas) }}
+{% if c.has_yoy and not m.yoy_missing %}
+- {{ c.yoy_year }}년 {{ c.yoy_month }}월 대비: 광고비 {{ "{:,.0f}".format(m.yoy.cost) }}원 → {{ "{:,.0f}".format(m.curr.cost) }}원 ({{ m.yoy_cost_chg }}%), 전환수 {{ m.yoy.conversions }}건 → {{ m.curr.conversions }}건 ({{ m.yoy_conv_chg }}%), 매출 {{ "{:,.0f}".format(m.yoy.revenue) }}원 → {{ "{:,.0f}".format(m.curr.revenue) }}원 ({{ m.yoy_revenue_chg }}%)
+{% elif c.has_yoy %}
+- {{ c.yoy_year }}년 {{ c.yoy_month }}월 대비: 당시 데이터 없음 (신규 매체)
+{% endif %}
 {% endfor %}
 
 ## 작성 지침
@@ -54,6 +73,9 @@
 {% else %}
 2. **주목할 매체**: 전월 대비 유의미하게 개선/악화된 매체와 원인 가설
 3. **다음 달 제언**: 예산 조정 또는 운영 방향 2~3가지
+{% endif %}
+{% if c.has_yoy %}
+추가. **전년 동월 해석**: 광고는 계절성이 있습니다. 전월 대비와 {{ c.yoy_year }}년 {{ c.yoy_month }}월 대비가 엇갈리면(예: 전월 대비 하락·전년 대비 상승) 계절 요인을 먼저 짚고 과잉 해석하지 마세요.{% if not c.yoy_is_exact %} 비교 기준은 정확한 전년 동월이 아니라 {{ c.yoy_year }}년 {{ c.yoy_month }}월이므로, 코멘트에서 "전년 동월"이라 쓰지 말고 실제 연·월을 밝혀 주세요.{% endif %}
 {% endif %}
 
 공통 규칙: 수치는 원문 그대로 활용하고 한국어로 작성하세요. 주어진 데이터에 없는 수치는 만들지 마세요.

@@ -870,13 +870,25 @@ async def update_comment(
     실적이 그대로인데 버튼을 다시 누르면 AI 에게 글자 하나까지 같은 질문을 하는
     셈이라, 저장된 코멘트를 그대로 돌려준다(`cached: true`). 문구가 마음에 들지
     않아 다른 답을 받고 싶을 때는 force=true 로 다시 뽑는다.
+
+    비교 대상은 전월과 **전년 동월**이다 — 광고는 계절성이 강해 전월 비교만으로는
+    판단이 왜곡된다. 달력상 그 달에 데이터가 없으면 가장 가까운 보유 월로 대신하고,
+    대신한 사실은 프롬프트에 그대로 밝힌다.
     """
-    prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
 
     def _resolve() -> tuple[str, TokenUsage | None, datetime | None, bool]:
         db = SessionLocal()
         try:
-            comparison = AnalysisService(db).compare(year, month, prev_year, prev_month)
+            analysis = AnalysisService(db)
+            periods = analysis.resolve_comment_periods(year, month)
+            comparison = analysis.compare(
+                year,
+                month,
+                periods.prev_year,
+                periods.prev_month,
+                yoy_year=periods.yoy_year,
+                yoy_month=periods.yoy_month,
+            )
             service = CommentService(llm=build_llm())
             prompt_hash = comment_cache.fingerprint(service.build_prompt(comparison))
         except Exception as exc:
