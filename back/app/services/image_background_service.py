@@ -29,6 +29,13 @@ class BackgroundSuggestion(BaseModel):
     variants: list[BackgroundVariant]
 
 
+class BackgroundStyle(BaseModel):
+    """선택 화면에 뿌릴 스타일 목록 한 줄 (서버가 단일 출처)."""
+
+    key: str
+    label: str
+
+
 # (키, 화면 라벨, 배경 묘사) — 광고 소재에서 수요가 많은 순서
 PRESETS: list[tuple[str, str, str]] = [
     ("studio", "스튜디오 화이트", "깔끔한 스튜디오 흰색 배경과 부드러운 그림자"),
@@ -36,6 +43,26 @@ PRESETS: list[tuple[str, str, str]] = [
     ("outdoor", "자연광 야외", "자연광이 비치는 야외 풍경 배경 (얕은 심도로 흐리게)"),
     ("luxury", "럭셔리 다크", "고급스러운 어두운 톤 배경과 은은한 스포트라이트 조명"),
 ]
+
+
+def available_styles() -> list[BackgroundStyle]:
+    return [BackgroundStyle(key=key, label=label) for key, label, _ in PRESETS]
+
+
+def _selected_presets(styles: list[str] | None) -> list[tuple[str, str, str]]:
+    """고른 스타일만 남긴다 — 스타일 하나당 이미지 생성 1회라 그대로 비용이다.
+
+    지정하지 않으면 전체(기존 동작). 모르는 키는 조용히 버리고, 그 결과
+    아무것도 남지 않으면 전체로 되돌리지 않고 오류를 낸다 — 사용자가 고른 적
+    없는 4장을 만들어 과금하는 것보다 실패가 낫다.
+    """
+    if not styles:
+        return PRESETS
+    wanted = {s.strip() for s in styles if s.strip()}
+    chosen = [preset for preset in PRESETS if preset[0] in wanted]
+    if not chosen:
+        raise ImageBackgroundError("선택한 배경 스타일을 찾을 수 없습니다.")
+    return chosen
 
 
 def _prompt(style_desc: str) -> str:
@@ -61,16 +88,18 @@ def _merge_usage(usages: list[TokenUsage | None]) -> TokenUsage | None:
 async def suggest_backgrounds(
     file_bytes: bytes,
     mime_type: str = "image/png",
+    styles: list[str] | None = None,
 ) -> tuple[BackgroundSuggestion, TokenUsage | None]:
-    """프리셋별 배경 시안과 (성공 호출 합산) 토큰 사용량을 반환."""
+    """고른 스타일의 배경 시안과 (성공 호출 합산) 토큰 사용량을 반환."""
+    presets = _selected_presets(styles)
     results: list[ImageGenResult | None] = await asyncio.gather(
         *(asyncio.to_thread(generate_image, file_bytes, _prompt(desc), mime_type)
-          for _, _, desc in PRESETS)
+          for _, _, desc in presets)
     )
 
     variants: list[BackgroundVariant] = []
     usages: list[TokenUsage | None] = []
-    for (key, label, _), result in zip(PRESETS, results):
+    for (key, label, _), result in zip(presets, results):
         if result is None:
             continue
         variants.append(BackgroundVariant(

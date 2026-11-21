@@ -3,16 +3,8 @@
 import { useRef, useState, useCallback } from 'react';
 import type { ChangeEvent } from 'react';
 import { useFileDrop } from '@/hooks/useFileDrop';
+import { validateImageFile } from '@/lib/imageFile';
 import type { DropZoneProps } from '@/types/imageResize';
-
-const ACCEPTED_MIME = new Set([
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'image/gif',
-  'image/bmp',
-]);
-const MAX_BYTES = 50 * 1024 * 1024;
 
 export default function DropZone({
   file,
@@ -25,20 +17,14 @@ export default function DropZone({
   const inputRef = useRef<HTMLInputElement>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  const validate = useCallback((f: File): string | null => {
-    if (!ACCEPTED_MIME.has(f.type)) return 'JPEG · PNG · WebP · GIF · BMP 파일만 지원됩니다.';
-    if (f.size > MAX_BYTES) return '파일 크기는 50MB 이하여야 합니다.';
-    return null;
-  }, []);
-
   const handleSelect = useCallback(
     (f: File) => {
-      const err = validate(f);
+      const err = validateImageFile(f);
       if (err) { setValidationError(err); return; }
       setValidationError(null);
       onFileSelect(f);
     },
-    [validate, onFileSelect]
+    [onFileSelect]
   );
 
   const onFiles = useCallback((files: File[]) => handleSelect(files[0]), [handleSelect]);

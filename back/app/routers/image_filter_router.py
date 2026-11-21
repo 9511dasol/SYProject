@@ -2,7 +2,7 @@
 
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
@@ -16,8 +16,10 @@ from app.schemas.image_filter_schema import EditInput, get_edit_input
 from app.schemas.image_resize_schema import read_and_check_file, validate_content_length
 from app.services.ai_usage import log_ai_usage
 from app.services.image_background_service import (
+    BackgroundStyle,
     BackgroundSuggestion,
     ImageBackgroundError,
+    available_styles,
     suggest_backgrounds,
 )
 from app.services.image_element_service import (
@@ -67,19 +69,29 @@ async def analyze_endpoint(
     return analysis
 
 
+@router.get("/background-styles", response_model=list[BackgroundStyle])
+def background_styles_endpoint() -> list[BackgroundStyle]:
+    """고를 수 있는 배경 스타일 목록 — 프런트가 선택 UI를 그릴 때 쓴다."""
+    return available_styles()
+
+
 @router.post("/backgrounds", response_model=BackgroundSuggestion)
 @limiter.limit(settings.RATE_LIMIT_AI)
 async def backgrounds_endpoint(
     request: Request,
     file: UploadFile = File(..., description="배경 시안을 만들 이미지"),
+    styles: str = Form("", description="생성할 스타일 키 (쉼표 구분, 비우면 전체)"),
     current_user: User = Depends(get_current_user),
 ) -> BackgroundSuggestion:
-    """피사체는 유지하고 배경만 바꾼 시안 여러 장을 생성해 돌려준다."""
+    """피사체는 유지하고 배경만 바꾼 시안을 고른 스타일 수만큼 생성해 돌려준다."""
     validate_content_length(request)
     file_bytes, filename = await read_and_check_file(file)
 
     try:
-        suggestion, usage = await suggest_backgrounds(file_bytes)
+        suggestion, usage = await suggest_backgrounds(
+            file_bytes,
+            styles=[s for s in styles.split(",") if s.strip()],
+        )
     except ImageBackgroundError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

@@ -30,7 +30,10 @@ class EditInput:
 async def get_edit_input(
     request: Request,
     file:    UploadFile   = File(..., description="편집할 이미지"),
-    prompt:  str          = Form(..., min_length=1, max_length=500, description="AI 편집 프롬프트"),
+    # 사용자가 한 칸에 쓰는 글은 500자(프런트 maxLength)지만, 프런트는 요소마다
+    # 써 둔 지시를 좌표 설명과 함께 한 번에 묶어 보낸다 — 요소 수만큼 늘어나므로
+    # 그 합을 수용할 만큼 열어 둔다(텍스트 토큰 비용은 이미지 생성에 비해 미미하다).
+    prompt:  str          = Form(..., min_length=1, max_length=4000, description="AI 편집 프롬프트"),
     width:   int | None   = Form(None, ge=1, le=99_999, description="목표 가로 (px)"),
     height:  int | None   = Form(None, ge=1, le=99_999, description="목표 세로 (px)"),
     format:  str          = Form("jpeg", description="출력 포맷: jpeg | png | webp"),

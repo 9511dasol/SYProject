@@ -23,7 +23,13 @@ export function useFileDrop(onFiles: (files: File[]) => void, disabled = false) 
     [disabled],
   );
 
-  const onDragLeave = useCallback(() => setIsDragging(false), []);
+  const onDragLeave = useCallback((e: DragEvent<HTMLElement>) => {
+    // dragleave 는 자식 요소로 들어갈 때도 발화한다 — 영역을 실제로 벗어날
+    // 때만 꺼야 페이지 전체를 드롭 영역으로 쓰는 화면에서 오버레이가 깜빡이지
+    // 않는다. relatedTarget 이 null 이면(창 밖으로 나감) 끈다.
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setIsDragging(false);
+  }, []);
 
   const onDrop = useCallback(
     (e: DragEvent<HTMLElement>) => {

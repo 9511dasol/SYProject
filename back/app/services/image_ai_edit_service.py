@@ -20,9 +20,11 @@ _client: genai.Client | None = None
 
 def _gemini() -> genai.Client | None:
     global _client
-    if _client is None and settings.GEMINI_API_KEY:
+    # 전용 키/공용 키 폴백은 GEMINI_IMAGE_KEY 가 결정한다 — 여기서 공용 키만
+    # 검사하면 이미지 전용 키만 설정한 배포에서 기능이 조용히 죽는다.
+    if _client is None and settings.GEMINI_IMAGE_KEY:
         # 이미지 생성은 텍스트보다 오래 걸려 전용(더 긴) 타임아웃을 쓴다.
-        _client = build_genai_client(settings.GEMINI_API_KEY, image=True)
+        _client = build_genai_client(settings.GEMINI_IMAGE_KEY, image=True)
     return _client
 
 

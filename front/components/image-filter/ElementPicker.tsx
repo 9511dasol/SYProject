@@ -14,12 +14,15 @@ export default function ElementPicker({
   elements,
   selectedId,
   onSelect,
+  draftedIds,
   disabled,
 }: {
   previewUrl: string;
   elements: ImageElement[];
   selectedId: number | null;
   onSelect: (id: number | null) => void;
+  /** 작성해 둔 프롬프트가 있는 요소 id */
+  draftedIds?: Set<number>;
   disabled?: boolean;
 }) {
   const toggle = (id: number) => {
@@ -70,19 +73,27 @@ export default function ElementPicker({
       <div className="flex flex-wrap gap-1.5">
         {elements.map((el) => {
           const selected = el.id === selectedId;
+          const drafted = draftedIds?.has(el.id);
           return (
             <button
               key={el.id}
               type="button"
               onClick={() => toggle(el.id)}
               disabled={disabled}
-              className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+              title={drafted ? '작성해 둔 프롬프트가 있습니다' : undefined}
+              className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-colors ${
                 selected
                   ? 'bg-indigo-500 text-white border-indigo-500'
                   : 'bg-surface-2 text-fg-muted border-border hover:border-indigo-300'
               }`}
             >
               {el.label}
+              {drafted && (
+                <i
+                  aria-label="작성 중인 프롬프트 있음"
+                  className={`bx bxs-edit text-[10px] ${selected ? 'text-white/80' : 'text-indigo-400'}`}
+                />
+              )}
             </button>
           );
         })}
@@ -90,8 +101,8 @@ export default function ElementPicker({
 
       <p className="text-xs text-fg-subtle">
         {selectedId !== null
-          ? '선택한 요소만 수정됩니다. 같은 요소를 다시 누르면 선택이 해제됩니다.'
-          : '요소를 클릭하면 그 부분만 수정합니다. 선택하지 않으면 이미지 전체에 프롬프트가 적용됩니다.'}
+          ? '선택한 요소만 수정됩니다. 같은 요소를 다시 누르면 선택이 해제되고 이미지 전체에 대한 프롬프트로 돌아갑니다.'
+          : '요소를 클릭하면 그 부분만 수정합니다. 요소마다 쓰던 프롬프트는 따로 보관돼 다시 고르면 그대로 돌아옵니다.'}
       </p>
     </div>
   );
