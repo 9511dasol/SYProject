@@ -9,4 +9,6 @@ work/
 .env
 .env.local
 .env*.local
+# .env 백업본 (예: back/.env.bak-20261118) — 비밀값이 들어 있어 커밋 금지
+.env.bak*
 env
