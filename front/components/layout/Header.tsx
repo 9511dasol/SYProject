@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { NAV_GROUPS } from '@/config/navigation';
 import type { NavItem } from '@/types/navigation';
+import AlertCenter from '@/components/layout/AlertCenter';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
@@ -91,6 +92,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
 
       {/* 우측 액션 */}
       <div className="ml-auto flex items-center gap-1.5">
+        <AlertCenter />
         <ThemeToggle />
       </div>
     </header>

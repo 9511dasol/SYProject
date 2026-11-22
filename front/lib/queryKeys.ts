@@ -30,6 +30,11 @@ export const queryKeys = {
     ['admin', 'reportLogs', status, offset] as const,
   /** 필터·페이지가 다른 목록까지 한 번에 무효화하는 접두 키 */
   allAdminReportLogs: () => ['admin', 'reportLogs'] as const,
+  /**
+   * 헤더 알림 센터가 쓰는 최근 발송 실패 — 목록 화면과 같은 엔드포인트지만
+   * limit 이 달라 응답 모양이 다르다. 키를 섞으면 서로의 캐시를 덮어쓴다.
+   */
+  adminRecentSendFailures: () => ['admin', 'alerts', 'sendFailures'] as const,
 
   /** 프로필 (내 정보) */
   me: () => ['me'] as const,
