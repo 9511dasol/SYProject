@@ -28,12 +28,15 @@ const DATE_OPTIONS: Intl.DateTimeFormatOptions = {
 // ── 날짜 ──────────────────────────────────────────────────────────────────────
 
 /**
- * ISO 문자열 → "2026. 08. 31. 14:20".
+ * ISO 문자열 또는 epoch 밀리초 → "2026. 08. 31. 14:20".
  * 파싱에 실패하면 fallback을 돌려준다 — 예전 구현 일부가 그대로 두면
  * 화면에 "Invalid Date"를 뿌렸다.
+ *
+ * epoch 를 받는 이유: File.lastModified 처럼 서버를 거치지 않은 값도 같은 서식으로
+ * 찍어야 한다. 호출부에서 ISO 로 바꿔 넘기면 포맷터가 다시 파싱하는 왕복이 된다.
  */
 export function formatDateTime(
-  value: string | null | undefined,
+  value: string | number | null | undefined,
   fallback = '-',
 ): string {
   if (!value) return fallback;

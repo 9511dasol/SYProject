@@ -295,9 +295,18 @@ function MediaTable({ data }: { data: MediaSheetData }) {
 // ── 메인 ──────────────────────────────────────────────────────────────────────
 export default function ExcelReportView({
   data,
+  fileModifiedAt,
   onClose,
 }: {
   data: ExcelReport;
+  /**
+   * 원본 파일의 최종 수정 시각(epoch ms).
+   *
+   * 이 화면의 코멘트는 summary 시트 셀에서 그대로 읽은 값이라 서버에 '갱신 시각'이
+   * 없다. 가장 가까운 사실이 파일이 마지막으로 저장된 때이므로 그걸 보여주고,
+   * 라벨도 "파일 기준"으로 적어 DB 리포트의 갱신 시각과 구분한다.
+   */
+  fileModifiedAt?: number;
   onClose?: () => void;
 }) {
   const mediaLabels = orderedMediaKeys(data.media);
@@ -350,7 +359,11 @@ export default function ExcelReportView({
             액션 가이드라서 표 아래가 아니라 맨 위에 둔다 */}
         {activeTab === 'summary' && (
           <>
-            <CommentSection text={data.comment} />
+            <CommentSection
+              text={data.comment}
+              updatedAt={fileModifiedAt}
+              updatedLabel="파일 기준"
+            />
             {data.sa_total?.rows?.length > 0 && (
               <div>
                 <h3 className="text-sm font-semibold text-fg-muted mb-2">■ SA 전체 비교 (전년/전월/당월/YOY/MOM/전주/금주/WoW)</h3>

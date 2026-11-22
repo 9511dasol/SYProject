@@ -12,10 +12,17 @@ import { formatDateTime } from '@/lib/format';
 export default function CommentSection({
   text,
   updatedAt,
+  updatedLabel = '업데이트',
   defaultOpen = true,
 }: {
   text: string;
-  updatedAt?: string | null;
+  /** ISO 문자열 또는 epoch 밀리초 */
+  updatedAt?: string | number | null;
+  /**
+   * 시각 뒤에 붙는 말. 출처가 다르면 바꾼다 — DB 리포트는 서버가 기록한 갱신 시각이지만,
+   * 가져온 엑셀은 파일의 수정 시각이라 "업데이트"라고 하면 거짓이 된다.
+   */
+  updatedLabel?: string;
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -33,7 +40,9 @@ export default function CommentSection({
           <i className="bx bx-comment-detail" />
           코멘트
           {updatedAt && (
-            <span className="text-xs font-normal opacity-80">{formatDateTime(updatedAt)} 업데이트</span>
+            <span className="text-xs font-normal opacity-80">
+              {formatDateTime(updatedAt)} {updatedLabel}
+            </span>
           )}
         </span>
         <i className={`bx ${open ? 'bx-chevron-up' : 'bx-chevron-down'}`} />

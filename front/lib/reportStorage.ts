@@ -13,6 +13,13 @@ interface StoredReport {
   period?: string;
   fileName: string;
   fileType: string;
+  /**
+   * 원본 파일의 최종 수정 시각. 화면이 코멘트 옆에 "파일 기준 …"으로 쓴다.
+   * 이걸 담지 않으면 복원할 때 새로 만든 File 이 '지금'을 수정 시각으로 갖게 되어,
+   * 새로고침만 했을 뿐인데 코멘트가 방금 갱신된 것처럼 보인다.
+   * 예전 버전에서 저장된 항목에는 없다 — 복원 시 createdAt 으로 폴백한다.
+   */
+  fileLastModified?: number;
   data: ExcelReport;
   fileBuffer: ArrayBuffer;
   createdAt: number;
@@ -94,6 +101,7 @@ export async function persistReport(report: ImportedReport): Promise<void> {
     period: report.period ?? report.data.period,
     fileName: report.file.name,
     fileType: report.file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    fileLastModified: report.file.lastModified,
     data: report.data,
     fileBuffer,
     createdAt: Date.now(),
@@ -133,7 +141,11 @@ export async function loadPersistedReports(): Promise<ImportedReport[]> {
       label: s.label,
       period: s.period ?? s.data.period,
       data: s.data,
-      file: new File([s.fileBuffer], s.fileName, { type: s.fileType }),
+      file: new File([s.fileBuffer], s.fileName, {
+        type: s.fileType,
+        // 폴백이 createdAt 인 이유 — 불러온 시각이 '지금'보다는 원본에 가깝다
+        lastModified: s.fileLastModified ?? s.createdAt,
+      }),
     }));
 }
 

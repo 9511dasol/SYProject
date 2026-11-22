@@ -181,7 +181,10 @@ export default function ReportDashboard({
             </div>
           )}
 
-          <ExcelReportView data={activeReport.data} />
+          <ExcelReportView
+            data={activeReport.data}
+            fileModifiedAt={activeReport.file.lastModified}
+          />
         </div>
       ) : null}
     </div>
