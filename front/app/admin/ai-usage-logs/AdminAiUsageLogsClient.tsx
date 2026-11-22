@@ -11,6 +11,7 @@ import DataTable, { type Column } from '@/components/ui/DataTable';
 import { Input, Select } from '@/components/ui/Field';
 import Pagination from '@/components/ui/Pagination';
 import Spinner from '@/components/ui/Spinner';
+import { useToast } from '@/components/providers/ToastProvider';
 import type { AIToolKey, AIToolUsageLogItem, AIToolUsageLogListResponse, AIUsageSummary } from '@/types/aiUsageLog';
 
 const TOOL_LABELS: Record<AIToolKey, string> = {
@@ -34,6 +35,7 @@ function meterColor(ratio: number): string {
 
 function UsageSummaryPanel() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const summaryQuery = useQuery({
     queryKey: queryKeys.adminAiUsageSummary(),
@@ -57,6 +59,8 @@ function UsageSummaryPanel() {
       queryClient.setQueryData(queryKeys.adminAiUsageSummary(), data);
       // 저장이 끝나면 다시 서버 값에서 파생되게 되돌린다
       setDraftBudget(null);
+      // 입력칸이 서버 값으로 돌아갈 뿐이라, 토스트가 없으면 저장이 됐는지 알 수 없다
+      toast('success', `월 토큰 예산을 ${formatCount(data.monthly_token_budget)}로 저장했습니다.`);
     },
   });
 
@@ -74,7 +78,10 @@ function UsageSummaryPanel() {
   const handleSaveBudget = (e: React.FormEvent) => {
     e.preventDefault();
     const value = Number(budgetInput);
-    if (!Number.isFinite(value) || value < 0) return;
+    if (!Number.isFinite(value) || value < 0) {
+      toast('error', '예산은 0 이상의 숫자로 입력하세요.');
+      return;
+    }
     saveBudget.mutate(value);
   };
 

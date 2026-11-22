@@ -90,7 +90,13 @@ export default function MediaBudgetModal({ year, month, onClose, onSaved, onErro
     data !== null && data.inherited_from !== null && data.inherited_from !== periodKey(year, month);
 
   return (
-    <Modal open onClose={onClose} title={`매체별 예산 · ${year}년 ${month}월`} icon="bx-wallet">
+    <Modal
+      open
+      onClose={onClose}
+      title={`매체별 예산 · ${year}년 ${month}월`}
+      icon="bx-wallet"
+      busy={saving}
+    >
       {!data ? (
         <div className="flex justify-center py-10">
           <Spinner />

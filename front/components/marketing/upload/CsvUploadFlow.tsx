@@ -3,6 +3,7 @@
 import { useMutation } from '@tanstack/react-query';
 import Alert from '@/components/ui/Alert';
 import Button from '@/components/ui/Button';
+import { useToast } from '@/components/providers/ToastProvider';
 import { downloadBlob, exportToExcel, previewReport } from '@/lib/marketingClient';
 
 interface CsvUploadFlowProps {
@@ -26,6 +27,8 @@ export default function CsvUploadFlow({
   onSaved,
   onError,
 }: CsvUploadFlowProps) {
+  const { toast } = useToast();
+
   const save = useMutation({
     mutationFn: () => previewReport(files),
     onSuccess: (data) => onSaved('데이터가 DB에 저장되었습니다.', data.undo_id),
@@ -34,8 +37,12 @@ export default function CsvUploadFlow({
 
   const exportOnly = useMutation({
     mutationFn: () => exportToExcel(files),
-    onSuccess: (blob) =>
-      downloadBlob(blob, `마케팅분석_${new Date().toISOString().slice(0, 10)}.xlsx`),
+    onSuccess: (blob) => {
+      downloadBlob(blob, `마케팅분석_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      // DB 저장 쪽은 토스트가 뜨는데 이쪽만 조용했다 — 브라우저가 다운로드를
+      // 숨겨 받으면 버튼을 눌러도 아무 일이 없는 것처럼 보인다
+      toast('success', '엑셀 파일을 내려받았습니다. 저장되지 않은 분석 결과입니다.');
+    },
   });
 
   const busy = save.isPending || exportOnly.isPending;

@@ -183,9 +183,24 @@ export default function ExcelUploadFlow({
             )}
           </>
         ) : (
-          <p className="text-xs text-fg-muted leading-relaxed">
-            기간을 읽지 못했습니다. 그대로 저장하면 파일에 담긴 모든 기간이 들어갑니다.
-          </p>
+          <div className="space-y-2">
+            <p className="text-xs text-fg-muted leading-relaxed">
+              기간을 읽지 못했습니다. 그대로 저장하면 파일에 담긴 모든 기간이 들어갑니다.
+            </p>
+            {/* retry:false 라 자동 재시도가 없다 — 대용량 파일 파싱이 한 번 실패하면
+                모달을 닫고 다시 여는 것 말고는 길이 없었다 */}
+            {analysis.isError && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => analysis.refetch()}
+                isLoading={analysis.isFetching}
+              >
+                {!analysis.isFetching && <i className="bx bx-refresh text-sm" />}
+                기간 다시 읽기
+              </Button>
+            )}
+          </div>
         )}
       </div>
 
@@ -213,6 +228,14 @@ export default function ExcelUploadFlow({
       )}
 
       {error && <Alert>{error.message}</Alert>}
+
+      {/* 저장 버튼이 회색으로 잠긴 이유를 버튼 옆에서 말해 준다 — 라벨은 'DB에 저장'
+          그대로라 왜 눌리지 않는지 알 길이 없었다 */}
+      {nothingSelected && (
+        <Alert tone="info" className="px-3 py-2 text-xs">
+          저장할 기간을 1개 이상 선택하세요.
+        </Alert>
+      )}
 
       <div className="flex flex-col-reverse sm:flex-row sm:items-center gap-2 pt-1">
         {onRequestLoad && (

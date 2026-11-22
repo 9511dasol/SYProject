@@ -53,10 +53,28 @@ function toStringForm(data: RowFormData): StringForm {
   };
 }
 
+/**
+ * 숫자 칸 하나를 검사한다.
+ *
+ * 예전에는 `Number(v) || 0` 으로 바로 넘겼다 — "1o0" 같은 오타가 NaN 이 되고,
+ * NaN 은 falsy 라 경고 없이 0 으로 저장됐다. 광고비 한 칸이 조용히 0이 되면
+ * 그 달 리포트의 ROAS·CPC가 전부 틀어진다.
+ */
+function numberError(raw: string, label: string): string | null {
+  if (raw.trim() === '') return null; // 빈 칸은 0 으로 본다
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return `${label}에 숫자가 아닌 값이 들어 있습니다.`;
+  if (n < 0) return `${label}는 0 이상이어야 합니다.`;
+  return null;
+}
+
 export default function RowEditorModal({ mode, initialData, year, month, onClose, onSubmit }: Props) {
   const [form, setForm] = useState<StringForm>(toStringForm(initialData));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 문제가 있는 칸 옆에 직접 띄운다 — 폼 맨 아래 한 줄로는 어느 칸인지 알 수 없고,
+  // 칸이 8개까지 늘어나면 메시지가 스크롤 밖으로 밀린다
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FormKey, string>>>({});
 
   const isKakao = form.campaign_type === KAKAO_TYPE;
   const fields = isKakao ? FIELDS_BASE : [...FIELDS_BASE, ...FIELDS_CONV];
@@ -68,14 +86,25 @@ export default function RowEditorModal({ mode, initialData, year, month, onClose
 
   function handleChange(key: FormKey, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
+    // 고치는 중에 빨간 테두리가 남아 있으면 이미 해결됐는지 알 수 없다
+    setFieldErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.report_date) {
-      setError('날짜를 입력해 주세요.');
+
+    const errors: Partial<Record<FormKey, string>> = {};
+    if (!form.report_date) errors.report_date = '날짜를 입력해 주세요.';
+    for (const f of fields) {
+      const msg = numberError(form[f.key], f.label);
+      if (msg) errors[f.key] = msg;
+    }
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setError(null);
       return;
     }
+
     setLoading(true);
     setError(null);
     try {
@@ -131,6 +160,7 @@ export default function RowEditorModal({ mode, initialData, year, month, onClose
           onChange={(e) => handleChange('report_date', e.target.value)}
           disabled={mode === 'edit'}
           required
+          error={fieldErrors.report_date ?? null}
         />
 
         {fields.map((f) => (
@@ -141,8 +171,9 @@ export default function RowEditorModal({ mode, initialData, year, month, onClose
             value={form[f.key]}
             onChange={(e) => handleChange(f.key, e.target.value)}
             min="0"
-            step="1"
+            step={f.isFloat ? 'any' : '1'}
             className="tabular-nums"
+            error={fieldErrors[f.key] ?? null}
           />
         ))}
 

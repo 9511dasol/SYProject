@@ -201,7 +201,15 @@ export default function AdminPeriodsClient() {
         />
       )}
 
-      <Modal open={target !== null} onClose={closeModal} title="기간 데이터 삭제" icon="bx-trash">
+      {/* busy 를 넘겨야 삭제가 도는 동안 Escape·오버레이로 닫히지 않는다 —
+          삭제는 30초를 넘길 수 있고, 모달이 닫히면 진행 상황을 볼 곳이 사라진다 */}
+      <Modal
+        open={target !== null}
+        onClose={closeModal}
+        title="기간 데이터 삭제"
+        icon="bx-trash"
+        busy={deleting}
+      >
         {target && (
           <div className="space-y-4">
             <Alert>
