@@ -1,12 +1,14 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import MediaShareBars from '@/components/charts/MediaShareBars';
 import TrendChart from '@/components/charts/TrendChart';
 import CommentSection from '@/components/marketing/CommentSection';
 import RowEditorModal from '@/components/marketing/RowEditorModal';
+import ActionBanner from '@/components/marketing/report/ActionBanner';
 import ActionSuggestions from '@/components/marketing/report/ActionSuggestions';
+import { buildActionSuggestions } from '@/components/marketing/report/actions';
 import DailyTable from '@/components/marketing/report/DailyTable';
 import KpiGrid from '@/components/marketing/report/KpiGrid';
 import PeriodCompareTable from '@/components/marketing/report/PeriodCompareTable';
@@ -14,6 +16,7 @@ import ReportTabs from '@/components/marketing/report/ReportTabs';
 import SummaryTable from '@/components/marketing/report/SummaryTable';
 import Alert from '@/components/ui/Alert';
 import Button from '@/components/ui/Button';
+import { useToast } from '@/components/providers/ToastProvider';
 import { usePendingRows } from '@/hooks/usePendingRows';
 import { mergeDailyTotals, toTrendPoints } from '@/lib/chartData';
 import { updateComment } from '@/lib/marketingClient';
@@ -56,6 +59,7 @@ export default function ReportView({
 
   const [activeTab, setActiveTab] = useState<string>(SUMMARY_TAB);
   const [editor, setEditor] = useState<EditorState>(null);
+  const { toast } = useToast();
 
   const pendingRows = usePendingRows(data.daily, onRefresh);
 
@@ -63,10 +67,29 @@ export default function ReportView({
   // 미저장 편집 때문에 그래프와 표의 합계가 서로 어긋나는 일이 없다
   const totalTrend = useMemo(() => mergeDailyTotals(data.daily), [data.daily]);
 
+  // 배너(건수)와 카드(목록)가 같은 결과를 봐야 한다 — 한 번만 계산해서 둘에 나눠 준다
+  const suggestions = useMemo(() => buildActionSuggestions(data), [data]);
+  const actionSectionRef = useRef<HTMLDivElement>(null);
+
   const comment = useMutation({
     mutationFn: (force: boolean = false) => updateComment(year!, month!, force),
-    onSuccess: () => onRefresh?.(),
+    onSuccess: (res) => {
+      onRefresh?.();
+      // 코멘트 박스는 화면 어딘가에서 조용히 내용만 바뀐다 — 토스트가 없으면
+      // 버튼을 눌러도 아무 일이 없었던 것처럼 보여서 사용자가 계속 다시 누른다
+      toast(
+        'success',
+        res?.cached ? '실적이 그대로라 기존 코멘트를 유지했습니다.' : 'AI 코멘트를 새로 만들었습니다.',
+      );
+    },
   });
+
+  const handleCommit = async () => {
+    const { saved, failed } = await pendingRows.commit();
+    if (failed === 0) toast('success', `변경한 ${saved}건을 DB에 저장했습니다.`);
+    else if (saved > 0) toast('error', `${saved}건 저장, ${failed}건 실패했습니다.`);
+    else toast('error', `${failed}건을 저장하지 못했습니다.`);
+  };
 
   // 서버가 저장된 코멘트를 그대로 돌려줬다 = 실적이 그대로라 AI 를 부르지 않았다.
   // 버튼을 눌렀는데 아무 일도 안 일어난 것처럼 보이면 사용자는 계속 다시 누른다.
@@ -83,8 +106,14 @@ export default function ReportView({
   };
 
   const openAdd = (tab: string) => {
+    // 기본 날짜는 오늘이지만, 지난 달 리포트에서는 오늘이 그 달 밖이라
+    // 입력칸의 min·max 에 걸려 브라우저가 저장을 막는다(원인은 안 알려준다).
+    // 보고 있는 기간을 벗어나면 그 달 1일로 맞춘다.
     const today = new Date().toISOString().slice(0, 10);
-    setEditor({ mode: 'add', data: emptyRowForm(tab, today) });
+    const inPeriod =
+      !year || !month || today.startsWith(`${year}-${String(month).padStart(2, '0')}`);
+    const fallback = year && month ? `${year}-${String(month).padStart(2, '0')}-01` : today;
+    setEditor({ mode: 'add', data: emptyRowForm(tab, inPeriod ? today : fallback) });
   };
 
   const hasDiff = Object.values(data.diff ?? {}).some(
@@ -126,7 +155,7 @@ export default function ReportView({
             {editable && pendingRows.pendingCount > 0 && (
               <Button
                 size="sm"
-                onClick={() => pendingRows.commit()}
+                onClick={handleCommit}
                 isLoading={pendingRows.isCommitting}
               >
                 {!pendingRows.isCommitting && <i className="bx bx-save text-base" />}
@@ -160,12 +189,72 @@ export default function ReportView({
           {commitFailureMessage && <Alert>{commitFailureMessage}</Alert>}
 
           {activeTab === SUMMARY_TAB ? (
+            /*
+             * 배치 순서가 곧 우선순위다. 예전에는 액션 제안이 네 번째, AI 코멘트가 맨
+             * 끝(그것도 접힌 채)이라 "무엇을 해야 하는지"를 스크롤 끝에서야 만났다.
+             * 지금은 경고 배너 → 지표 요약 → 할 일(제안·코멘트) → 근거(차트·표) 순이다.
+             */
             <>
+              <ActionBanner
+                items={suggestions}
+                onJump={() =>
+                  actionSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+              />
+
               <KpiGrid
                 total={data.total}
                 mom={data.compare_mom?.total}
                 yoy={data.compare_yoy?.total}
               />
+
+              <div ref={actionSectionRef} className="space-y-5 scroll-mt-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-fg mb-2 flex items-center gap-2">
+                    <i className="bx bx-task text-primary" aria-hidden />
+                    액션 제안
+                    {suggestions.length > 0 && (
+                      <span className="badge badge-neutral">{suggestions.length}</span>
+                    )}
+                  </h3>
+                  <ActionSuggestions items={suggestions} />
+                </div>
+
+                <div className="space-y-2">
+                  {editable && year && month && (
+                    <div className="flex items-center justify-end gap-2">
+                      {reusedExisting && (
+                        <span className="text-xs text-fg-subtle">
+                          실적이 그대로라 기존 코멘트를 유지했습니다.
+                        </span>
+                      )}
+                      <Button
+                        tone="amber"
+                        size="sm"
+                        onClick={() => comment.mutate(false)}
+                        isLoading={comment.isPending}
+                      >
+                        {!comment.isPending && <i className="bx bx-comment-detail text-sm" />}
+                        코멘트 업데이트
+                      </Button>
+                      {/* 재사용했을 때만 보여준다 — 평소에는 선택지를 늘리지 않는다 */}
+                      {reusedExisting && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => comment.mutate(true)}
+                          isLoading={comment.isPending}
+                        >
+                          {!comment.isPending && <i className="bx bx-refresh text-sm" />}
+                          새로 생성
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                  {comment.error && <Alert>{comment.error.message}</Alert>}
+                  <CommentSection text={data.comment ?? ''} updatedAt={data.comment_updated_at} />
+                </div>
+              </div>
 
               <div className="grid gap-4 xl:grid-cols-2">
                 <TrendChart points={totalTrend} title="일별 추이" />
@@ -185,48 +274,8 @@ export default function ReportView({
               )}
 
               <div>
-                <h3 className="text-sm font-medium text-fg-muted mb-2">액션 제안</h3>
-                <ActionSuggestions data={data} />
-              </div>
-
-              <div>
                 <h3 className="text-sm font-medium text-fg-muted mb-2">매체별 현황</h3>
                 <SummaryTable rows={data.by_media} />
-              </div>
-
-              <div className="space-y-2">
-                {editable && year && month && (
-                  <div className="flex items-center justify-end gap-2">
-                    {reusedExisting && (
-                      <span className="text-xs text-fg-subtle">
-                        실적이 그대로라 기존 코멘트를 유지했습니다.
-                      </span>
-                    )}
-                    <Button
-                      tone="amber"
-                      size="sm"
-                      onClick={() => comment.mutate(false)}
-                      isLoading={comment.isPending}
-                    >
-                      {!comment.isPending && <i className="bx bx-comment-detail text-sm" />}
-                      코멘트 업데이트
-                    </Button>
-                    {/* 재사용했을 때만 보여준다 — 평소에는 선택지를 늘리지 않는다 */}
-                    {reusedExisting && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => comment.mutate(true)}
-                        isLoading={comment.isPending}
-                      >
-                        {!comment.isPending && <i className="bx bx-refresh text-sm" />}
-                        새로 생성
-                      </Button>
-                    )}
-                  </div>
-                )}
-                {comment.error && <Alert>{comment.error.message}</Alert>}
-                <CommentSection text={data.comment ?? ''} updatedAt={data.comment_updated_at} />
               </div>
             </>
           ) : (

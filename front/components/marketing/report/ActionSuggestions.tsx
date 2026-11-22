@@ -1,13 +1,13 @@
-import type { ReportData } from '@/types/marketing';
-import { type ActionSuggestion, buildActionSuggestions } from './actions';
+import type { ActionSuggestion } from './actions';
 
 /**
  * 요약 탭의 "액션 제안" — CTR·ROAS 등 지표 상태를 읽고 다음 행동을 제시한다.
  * 룰과 임계값은 actions.ts 에 있다. 제안이 하나도 없으면 조용한 안내 한 줄만 보여준다.
+ *
+ * 제안 목록은 호출부가 만들어 넘긴다 — 같은 목록을 위쪽 ActionBanner 도 세기 때문에
+ * 여기서 다시 계산하면 배너의 건수와 카드 수가 어긋날 수 있다.
  */
-export default function ActionSuggestions({ data }: { data: ReportData }) {
-  const items = buildActionSuggestions(data);
-
+export default function ActionSuggestions({ items }: { items: ActionSuggestion[] }) {
   if (items.length === 0) {
     return (
       <p className="text-sm text-fg-subtle rounded-xl bg-surface-2 border border-border px-4 py-3">

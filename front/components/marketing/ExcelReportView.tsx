@@ -46,6 +46,17 @@ const CATEGORY_LABEL: Record<string, string> = {
 const IS_TOTAL = (cat: string) =>
   cat.toLowerCase().includes('total') || cat === 'TOAL';
 
+/** 행이 없을 때 머리글만 덩그러니 뜬 표가 남지 않게 깔아 주는 안내 한 줄 */
+function EmptyRow({ colSpan }: { colSpan: number }) {
+  return (
+    <tr>
+      <td colSpan={colSpan} className="px-3 py-8 text-center text-fg-subtle">
+        데이터 없음 — 업로드한 파일에 이 시트가 비어 있습니다
+      </td>
+    </tr>
+  );
+}
+
 // ── 기간 헤더 ─────────────────────────────────────────────────────────────────
 function PeriodBar({ period, info }: { period: string; info: ExcelReport['period_info'] }) {
   const prog = Math.round((info.elapsed_days / info.total_days) * 100);
@@ -142,13 +153,15 @@ function SaTotalTable({ data }: { data: SaTotal }) {
 }
 
 // ── 예산 현황 테이블 ───────────────────────────────────────────────────────────
+const BUDGET_HEADERS = ['매체', '예산', '집행액', '소진율', '노출', '클릭', '광고비(VAT)', '전환수', '전환율', '전환단가'];
+
 function BudgetTable({ rows }: { rows: BudgetRow[] }) {
   return (
     <ScrollableTable hint="옆으로 밀어서 나머지 지표를 볼 수 있어요">
       <table className="min-w-full text-sm">
         <thead>
           <tr>
-            {['매체', '예산', '집행액', '소진율', '노출', '클릭', '광고비(VAT)', '전환수', '전환율', '전환단가'].map((h) => (
+            {BUDGET_HEADERS.map((h) => (
               <th key={h} className="px-3 py-2.5 text-xs font-semibold text-right first:text-left whitespace-nowrap">
                 {h}
               </th>
@@ -184,6 +197,7 @@ function BudgetTable({ rows }: { rows: BudgetRow[] }) {
               </tr>
             );
           })}
+          {rows.length === 0 && <EmptyRow colSpan={BUDGET_HEADERS.length} />}
         </tbody>
       </table>
     </ScrollableTable>
@@ -191,6 +205,8 @@ function BudgetTable({ rows }: { rows: BudgetRow[] }) {
 }
 
 // ── 일별 합산 테이블 ───────────────────────────────────────────────────────────
+const DAILY_TOTAL_HEADERS = ['날짜', '노출', '클릭', 'CTR', 'CPC', '광고비', '전환수', '전환율', '전환단가'];
+
 function DailyTotalTable({ rows }: { rows: DailyTotalRow[] }) {
   return (
     <ScrollableTable
@@ -200,7 +216,7 @@ function DailyTotalTable({ rows }: { rows: DailyTotalRow[] }) {
       <table className="min-w-full text-xs">
         <thead className="sticky top-0 sticky-head">
           <tr>
-            {['날짜', '노출', '클릭', 'CTR', 'CPC', '광고비', '전환수', '전환율', '전환단가'].map((h) => (
+            {DAILY_TOTAL_HEADERS.map((h) => (
               <th key={h} className="px-3 py-2 font-semibold text-right first:text-left whitespace-nowrap">
                 {h}
               </th>
@@ -223,6 +239,7 @@ function DailyTotalTable({ rows }: { rows: DailyTotalRow[] }) {
               </td>
             </tr>
           ))}
+          {rows.length === 0 && <EmptyRow colSpan={DAILY_TOTAL_HEADERS.length} />}
         </tbody>
       </table>
     </ScrollableTable>
@@ -268,6 +285,7 @@ function MediaTable({ data }: { data: MediaSheetData }) {
               ))}
             </tr>
           ))}
+          {data.daily.length === 0 && <EmptyRow colSpan={data.headers.length} />}
         </tbody>
       </table>
     </ScrollableTable>
@@ -328,9 +346,11 @@ export default function ExcelReportView({
       </div>
 
       <div className="p-5 space-y-5">
-        {/* 요약 탭 */}
+        {/* 요약 탭 — 가져온 리포트에는 룰 기반 액션 제안이 없다. 코멘트가 유일한
+            액션 가이드라서 표 아래가 아니라 맨 위에 둔다 */}
         {activeTab === 'summary' && (
           <>
+            <CommentSection text={data.comment} />
             {data.sa_total?.rows?.length > 0 && (
               <div>
                 <h3 className="text-sm font-semibold text-fg-muted mb-2">■ SA 전체 비교 (전년/전월/당월/YOY/MOM/전주/금주/WoW)</h3>
@@ -345,7 +365,6 @@ export default function ExcelReportView({
               <h3 className="text-sm font-semibold text-fg-muted mb-2">■ SA 일별 합산</h3>
               <DailyTotalTable rows={data.daily_total} />
             </div>
-            <CommentSection text={data.comment} />
           </>
         )}
 

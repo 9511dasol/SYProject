@@ -3,8 +3,22 @@
 import { useState } from 'react';
 import { formatDateTime } from '@/lib/format';
 
-export default function CommentSection({ text, updatedAt }: { text: string; updatedAt?: string | null }) {
-  const [open, setOpen] = useState(false);
+/**
+ * AI 코멘트 박스.
+ *
+ * 예전에는 항상 접힌 채로 리포트 맨 아래에 있었다 — 담당자가 "무슨 액션을 취해야
+ * 하는지"를 가장 늦게 알게 되는 자리였다. 지금은 위로 올라왔고 기본으로 펼친다.
+ */
+export default function CommentSection({
+  text,
+  updatedAt,
+  defaultOpen = true,
+}: {
+  text: string;
+  updatedAt?: string | null;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   if (!text) return null;
   const preview = text.slice(0, 120) + (text.length > 120 ? '...' : '');
   return (
