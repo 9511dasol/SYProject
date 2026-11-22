@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Button from '@/components/ui/Button';
 import DataTable, { type Column } from '@/components/ui/DataTable';
@@ -73,24 +73,135 @@ function alertSentence(alerts: AlertSummary): string | null {
     : `${what}이 감지됐지만 보내지 못했습니다 — ${alerts.skipped_reason ?? '알 수 없는 사유'}`;
 }
 
-/** 목록의 상태 뱃지 — 백엔드 판정(is_breached·streak)을 번역만 한다 */
+/**
+ * 감시 하나의 상태 — 백엔드 판정(status·latest·is_breached·streak)을 한 값으로 접는다.
+ * 뱃지·요약 배너·필터·정렬이 전부 이 하나를 보게 해서 서로 어긋나지 않게 한다.
+ */
+type WatchState = 'breached' | 'warning' | 'no_impression' | 'ok' | 'no_data' | 'paused';
+
+/** order 는 목록 기본 정렬 순서다 — 손봐야 할 것이 위로 온다 */
+const WATCH_STATE_META: Record<
+  WatchState,
+  { label: string; badge: string; icon: string; order: number }
+> = {
+  breached: { label: '하락', badge: 'badge-danger', icon: 'bx-trending-down', order: 0 },
+  warning: { label: '주의', badge: 'badge-amber', icon: 'bx-error', order: 1 },
+  no_impression: { label: '노출 없음', badge: 'badge-warn', icon: 'bx-low-vision', order: 2 },
+  ok: { label: '정상', badge: 'badge-success', icon: 'bx-check', order: 3 },
+  no_data: { label: '기록 없음', badge: 'badge-neutral', icon: 'bx-time-five', order: 4 },
+  paused: { label: '일시정지', badge: 'badge-neutral', icon: 'bx-pause', order: 5 },
+};
+
+/** 요약 배너·필터 칩에 띄울 상태 — '정상'은 손댈 일이 없어 뺀다 */
+const ATTENTION_STATES: WatchState[] = ['breached', 'warning', 'no_impression'];
+
+function watchState(w: RankWatch): WatchState {
+  if (w.status === 'paused') return 'paused';
+  if (!w.latest) return 'no_data';
+  if (w.is_breached) return 'breached';
+  if (w.breach_streak > 0) return 'warning';
+  if (w.latest.avg_rank === null) return 'no_impression';
+  return 'ok';
+}
+
+/** 목록의 상태 뱃지 */
 function StatusBadge({ watch }: { watch: RankWatch }) {
-  if (watch.status === 'paused') {
-    return <span className="badge badge-neutral whitespace-nowrap"><i className="bx bx-pause text-sm" />일시정지</span>;
-  }
-  if (!watch.latest) {
-    return <span className="badge badge-neutral whitespace-nowrap"><i className="bx bx-time-five text-sm" />기록 없음</span>;
-  }
-  if (watch.is_breached) {
-    return <span className="badge badge-danger whitespace-nowrap"><i className="bx bx-trending-down text-sm" />하락</span>;
-  }
-  if (watch.breach_streak > 0) {
-    return <span className="badge badge-amber whitespace-nowrap"><i className="bx bx-error text-sm" />주의</span>;
-  }
-  if (watch.latest.avg_rank === null) {
-    return <span className="badge badge-warn whitespace-nowrap"><i className="bx bx-low-vision text-sm" />노출 없음</span>;
-  }
-  return <span className="badge badge-success whitespace-nowrap"><i className="bx bx-check text-sm" />정상</span>;
+  const meta = WATCH_STATE_META[watchState(watch)];
+  return (
+    <span className={`badge ${meta.badge} whitespace-nowrap`}>
+      <i className={`bx ${meta.icon} text-sm`} />
+      {meta.label}
+    </span>
+  );
+}
+
+/**
+ * 목록 위의 상태 요약 + 필터 칩.
+ *
+ * 예전에는 "하락"이 표 안 어딘가에만 떴다 — 수백 건을 감시하면 스크롤로 눈에 띄길
+ * 기다려야 했다. 지금은 건수를 먼저 보여주고, 누르면 그 상태만 남긴다.
+ */
+function WatchStatusBar({
+  counts,
+  total,
+  active,
+  onSelect,
+}: {
+  counts: Record<WatchState, number>;
+  total: number;
+  active: WatchState | null;
+  onSelect: (s: WatchState | null) => void;
+}) {
+  const attention = ATTENTION_STATES.filter((s) => counts[s] > 0);
+  const urgent = counts.breached + counts.warning;
+
+  return (
+    <div
+      className={cx(
+        'rounded-2xl border px-4 py-3 space-y-2',
+        urgent > 0
+          ? 'border-badge-danger-bdr bg-badge-danger-bg'
+          : 'border-border bg-surface-2/60',
+      )}
+    >
+      <p
+        className={cx(
+          'text-sm font-semibold flex items-center gap-2',
+          urgent > 0 ? 'text-badge-danger-fg' : 'text-fg-muted',
+        )}
+      >
+        <i className={`bx ${urgent > 0 ? 'bx-error' : 'bx-check-circle'} text-base`} aria-hidden />
+        {urgent > 0
+          ? `목표를 벗어난 키워드 ${urgent}건`
+          : '목표를 벗어난 키워드가 없습니다'}
+        <span className="font-normal opacity-80">· 전체 {total}건 감시 중</span>
+      </p>
+
+      {attention.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <FilterChip label={`전체 ${total}`} on={active === null} onClick={() => onSelect(null)} />
+          {attention.map((s) => (
+            <FilterChip
+              key={s}
+              label={`${WATCH_STATE_META[s].label} ${counts[s]}`}
+              icon={WATCH_STATE_META[s].icon}
+              on={active === s}
+              onClick={() => onSelect(active === s ? null : s)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FilterChip({
+  label,
+  icon,
+  on,
+  onClick,
+}: {
+  label: string;
+  icon?: string;
+  on: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={on}
+      className={cx(
+        'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+        on
+          ? 'border-primary bg-primary text-white'
+          : 'border-border bg-surface text-fg-muted hover:text-fg hover:border-border-strong',
+      )}
+    >
+      {icon && <i className={`bx ${icon} text-sm`} aria-hidden />}
+      {label}
+    </button>
+  );
 }
 
 /** 등록·수정 모달이 공유하는 감시 설정 입력값 — 숫자는 검증 전까지 문자열로 둔다 */
@@ -268,6 +379,28 @@ export default function RankMonitorClient() {
   // 목록이 갱신되면 열려 있는 상세도 같이 최신이 된다. 삭제됐으면 null 이 되어 닫힌다.
   const detailWatch = watches?.find((w) => w.id === detailWatchId) ?? null;
   const editWatch = watches?.find((w) => w.id === editWatchId) ?? null;
+
+  /* ── 상태 요약·정렬·필터 ──────────────────────────────────────────────── */
+  const [stateFilter, setStateFilter] = useState<WatchState | null>(null);
+
+  const stateCounts = useMemo(() => {
+    const zero = Object.fromEntries(
+      Object.keys(WATCH_STATE_META).map((k) => [k, 0]),
+    ) as Record<WatchState, number>;
+    for (const w of watches ?? []) zero[watchState(w)] += 1;
+    return zero;
+  }, [watches]);
+
+  // 서버가 준 순서는 등록순이라 하락이 아래에 묻힌다. 손봐야 할 것부터 올리고,
+  // 같은 상태면 연속 이탈이 긴 쪽을 먼저 보여준다.
+  const visibleWatches = useMemo(() => {
+    if (!watches) return null;
+    const sorted = [...watches].sort((a, b) => {
+      const byState = WATCH_STATE_META[watchState(a)].order - WATCH_STATE_META[watchState(b)].order;
+      return byState !== 0 ? byState : b.breach_streak - a.breach_streak;
+    });
+    return stateFilter === null ? sorted : sorted.filter((w) => watchState(w) === stateFilter);
+  }, [watches, stateFilter]);
 
   const invalidateAll = () =>
     queryClient.invalidateQueries({ queryKey: queryKeys.allRankWatches() });
@@ -680,20 +813,51 @@ export default function RankMonitorClient() {
       {watchesQuery.error ? (
         <div className="flex items-start gap-3 rounded-xl bg-badge-danger-bg border border-badge-danger-bdr px-4 py-3">
           <i className="bx bx-error-circle text-badge-danger-fg shrink-0 mt-0.5" />
-          <p className="text-sm text-badge-danger-fg">{watchesQuery.error.message}</p>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm text-badge-danger-fg">{watchesQuery.error.message}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              onClick={() => watchesQuery.refetch()}
+              isLoading={watchesQuery.isFetching}
+            >
+              {!watchesQuery.isFetching && <i className="bx bx-refresh text-sm" />}
+              다시 시도
+            </Button>
+          </div>
         </div>
       ) : (
-        <DataTable
-          rows={watches}
-          rowKey={(w) => w.id}
-          columns={columns}
-          minWidth="min-w-150"
-          empty={{
-            icon: 'bx-trending-up',
-            title: '감시 중인 키워드가 없습니다',
-            description: '감시 키워드를 등록하고 키워드 보고서를 올리면 순위 추적이 시작됩니다.',
-          }}
-        />
+        <>
+          {watches && watches.length > 0 && (
+            <WatchStatusBar
+              counts={stateCounts}
+              total={watches.length}
+              active={stateFilter}
+              onSelect={setStateFilter}
+            />
+          )}
+          <DataTable
+            rows={visibleWatches}
+            rowKey={(w) => w.id}
+            columns={columns}
+            minWidth="min-w-150"
+            empty={
+              stateFilter
+                ? {
+                    icon: 'bx-filter-alt',
+                    title: `'${WATCH_STATE_META[stateFilter].label}' 상태인 키워드가 없습니다`,
+                    description: '위의 필터를 해제하면 전체 목록을 볼 수 있습니다.',
+                  }
+                : {
+                    icon: 'bx-trending-up',
+                    title: '감시 중인 키워드가 없습니다',
+                    description:
+                      '감시 키워드를 등록하고 키워드 보고서를 올리면 순위 추적이 시작됩니다.',
+                  }
+            }
+          />
+        </>
       )}
 
       {/* ── 등록 모달 ──────────────────────────────────────────────────── */}

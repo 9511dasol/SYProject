@@ -72,18 +72,47 @@ export function KpiCard({
   value,
   sub,
   deltas,
+  warning,
 }: {
   label: string;
   value: string;
   sub?: string;
   /** 기간 비교 칩 줄 — 비교 데이터가 있을 때만 내려온다 */
   deltas?: React.ReactNode;
+  /**
+   * 임계값을 벗어났을 때의 한 줄 설명(예: "광고비가 매출보다 큽니다").
+   * 같은 내용이 아래 액션 제안에도 나오지만, 지표를 훑는 사람은 카드만 보고
+   * 지나가므로 숫자 바로 옆에서도 한 번 말해 준다.
+   */
+  warning?: string;
 }) {
   return (
-    <div className="rounded-xl bg-surface-2 border border-border shadow-card px-4 py-3 flex flex-col gap-0.5">
-      <span className="text-xs text-fg-subtle">{label}</span>
-      <span className="text-lg font-semibold text-fg tabular-nums">{value}</span>
+    <div
+      className={
+        warning
+          ? 'rounded-xl bg-badge-danger-bg border border-badge-danger-bdr shadow-card px-4 py-3 flex flex-col gap-0.5'
+          : 'rounded-xl bg-surface-2 border border-border shadow-card px-4 py-3 flex flex-col gap-0.5'
+      }
+    >
+      <span className={warning ? 'text-xs text-badge-danger-fg' : 'text-xs text-fg-subtle'}>
+        {label}
+      </span>
+      <span
+        className={
+          warning
+            ? 'text-lg font-semibold text-badge-danger-fg tabular-nums'
+            : 'text-lg font-semibold text-fg tabular-nums'
+        }
+      >
+        {value}
+      </span>
       {sub && <span className="text-xs text-fg-subtle tabular-nums">{sub}</span>}
+      {warning && (
+        <span className="text-[11px] font-medium text-badge-danger-fg flex items-start gap-1 mt-0.5">
+          <i className="bx bx-error shrink-0 mt-px" aria-hidden />
+          {warning}
+        </span>
+      )}
       {deltas && <span className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">{deltas}</span>}
     </div>
   );

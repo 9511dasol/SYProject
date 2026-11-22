@@ -259,6 +259,72 @@ function SummaryCards({ sheet }: { sheet: CompareSheet }) {
   );
 }
 
+// ── 하락 키워드 배너 ──────────────────────────────────────────────────────────
+
+/** 배너에 이름을 직접 적을 키워드 수 */
+const DECLINE_PREVIEW = 5;
+
+/**
+ * 전환이 가장 많이 빠진 키워드를 표 위로 끌어올린다.
+ *
+ * 표의 기본 정렬만으로는 부족하다 — 시트가 수천 행이면 "감소 몇 건인지"도 요약
+ * 카드의 숫자 하나일 뿐이고, 어느 키워드인지는 결국 스크롤해야 나온다.
+ */
+function DeclineBanner({
+  sheet,
+  onShowDeclines,
+}: {
+  sheet: CompareSheet;
+  onShowDeclines: () => void;
+}) {
+  const top = useMemo(
+    () =>
+      sheet.rows
+        .filter((r) => r.status === 'down')
+        .sort((a, b) => a.diff_conv - b.diff_conv)
+        .slice(0, DECLINE_PREVIEW),
+    [sheet],
+  );
+
+  if (top.length === 0) return null;
+
+  const totalDown = sheet.summary.count_down;
+
+  return (
+    <div className="rounded-2xl border border-rose-200 bg-rose-50 dark:border-rose-900/40 dark:bg-rose-950/20 p-4">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <p className="text-sm font-semibold text-rose-700 dark:text-rose-400 flex items-center gap-2">
+          <i className="bx bx-trending-down text-base" aria-hidden />
+          전환이 줄어든 키워드 {totalDown}건
+        </p>
+        <button
+          onClick={onShowDeclines}
+          className="inline-flex items-center gap-1 text-xs font-medium text-rose-700 dark:text-rose-400 hover:underline"
+        >
+          감소분만 보기
+          <i className="bx bx-right-arrow-alt" aria-hidden />
+        </button>
+      </div>
+      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+        {top.map((r, i) => (
+          <li
+            key={`${r.keyword}-${i}`}
+            className="text-xs text-rose-700/90 dark:text-rose-400/90 tabular-nums"
+          >
+            <span className="font-medium">{r.keyword}</span>
+            <span className="ml-1 opacity-80">{fmtDiff(r.diff_conv)}</span>
+          </li>
+        ))}
+        {totalDown > top.length && (
+          <li className="text-xs text-rose-700/70 dark:text-rose-400/70">
+            외 {totalDown - top.length}건
+          </li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
 // ── 필터 바 ───────────────────────────────────────────────────────────────────
 
 const STATUS_FILTERS: { value: RowStatus | 'all'; label: string }[] = [
@@ -568,9 +634,11 @@ function ResultView({
     campaignType: '',
     convType: '',
   });
+  // 기본은 전환 증감 오름차순 — 가장 많이 빠진 키워드가 맨 위로 온다.
+  // 예전 기본값(내림차순)은 손봐야 할 키워드를 표 맨 아래로 밀어냈다.
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({
     key: 'diff_conv',
-    dir: 'desc',
+    dir: 'asc',
   });
 
   const sheet = result.sheets[activeIdx];
@@ -689,6 +757,15 @@ function ResultView({
         </div>
       )}
 
+      {/* 하락 키워드 — 요약 카드보다 위다. 숫자를 읽기 전에 손댈 곳부터 보여준다 */}
+      <DeclineBanner
+        sheet={sheet}
+        onShowDeclines={() => {
+          handleFilterChange({ status: 'down' });
+          setSort({ key: 'diff_conv', dir: 'asc' });
+        }}
+      />
+
       {/* 요약 카드 */}
       <SummaryCards sheet={sheet} />
 
@@ -746,8 +823,12 @@ export default function FileCompareClient() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleFile = useCallback(async (file: File) => {
-    if (!file.name.match(/\.xlsx?$/i)) {
-      setError('Excel 파일(.xlsx)만 업로드할 수 있습니다.');
+    // .xls 는 서버가 파싱하지 못한다. 예전 정규식(`xlsx?`)은 이걸 통과시켜서
+    // 드래그&드롭으로 올린 사용자가 한참 뒤에 정체불명의 파싱 오류를 만났다.
+    if (!file.name.match(/\.xlsx$/i)) {
+      setError(
+        'Excel 파일(.xlsx)만 업로드할 수 있습니다. 구형 .xls 파일은 Excel에서 "다른 이름으로 저장 → .xlsx"로 변환해 주세요.',
+      );
       setPhase('error');
       return;
     }

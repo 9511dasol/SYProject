@@ -17,6 +17,11 @@ export default function KpiGrid({
 }) {
   const convRate = total.clicks > 0 ? total.total_conv / total.clicks : 0;
 
+  // ROAS 손익분기 미달은 액션 제안(actions.ts)도 잡지만, 거기까지 스크롤하지 않는
+  // 사람이 더 많다. 같은 임계값을 카드에서도 한 번 알린다.
+  const roasWarning =
+    total.cost > 0 && total.roas < 1 ? '광고비가 매출보다 큽니다' : undefined;
+
   const deltasOf = (key: (typeof COMPARE_METRICS)[number]['key']) => {
     if (!mom && !yoy) return undefined;
     const meta = COMPARE_METRICS.find((m) => m.key === key)!;
@@ -47,7 +52,12 @@ export default function KpiGrid({
         <KpiCard label="회원가입" value={fmt.dec(total.signup)} deltas={deltasOf('signup')} />
         <KpiCard label="구매완료" value={fmt.dec(total.purchase)} deltas={deltasOf('purchase')} />
         <KpiCard label="구매매출" value={fmt.won(total.revenue)} deltas={deltasOf('revenue')} />
-        <KpiCard label="ROAS" value={fmt.pct(total.roas)} deltas={deltasOf('roas')} />
+        <KpiCard
+          label="ROAS"
+          value={fmt.pct(total.roas)}
+          deltas={deltasOf('roas')}
+          warning={roasWarning}
+        />
       </div>
     </>
   );
