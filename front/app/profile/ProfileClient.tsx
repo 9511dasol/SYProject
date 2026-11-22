@@ -8,6 +8,7 @@ import { formatDate } from '@/lib/format';
 import { queryKeys } from '@/lib/queryKeys';
 import Alert from '@/components/ui/Alert';
 import Button from '@/components/ui/Button';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { Input } from '@/components/ui/Field';
 import Spinner from '@/components/ui/Spinner';
 import { useToast } from '@/components/providers/ToastProvider';
@@ -49,6 +50,8 @@ export default function ProfileClient() {
   const setEmail = setDraftEmail;
 
   const [profileTouched, setProfileTouched] = useState(false);
+  /** 이메일(=로그인 식별자) 변경 확인 단계 */
+  const [confirmEmailChange, setConfirmEmailChange] = useState(false);
 
   // ── 비밀번호 변경 폼 ──────────────────────────────────────────────────────────
   const [currentPassword, setCurrentPassword] = useState('');
@@ -73,11 +76,15 @@ export default function ProfileClient() {
       setDraftName(null);
       setDraftEmail(null);
       setProfileTouched(false);
+      setConfirmEmailChange(false);
       // 사이드바 프로필이 세션을 읽으므로 세션도 갱신해야 이름이 바로 바뀐다
       await update({ name: updated.name, email: updated.email });
       addToast('success', '프로필 정보를 수정했습니다.');
     },
-    onError: (err) => addToast('error', err.message),
+    onError: (err) => {
+      setConfirmEmailChange(false);
+      addToast('error', err.message);
+    },
   });
 
   const passwordMutation = useMutation({
@@ -116,6 +123,18 @@ export default function ProfileClient() {
     }
     if (!profile || !profileDirty) return;
 
+    // 이메일은 로그인 식별자다 — 바꾸면 다음 로그인부터 새 주소를 써야 하므로
+    // 저장 전에 한 번 확인한다. 이름만 바뀐 경우는 그냥 저장한다.
+    if (email !== profile.email) {
+      setConfirmEmailChange(true);
+      return;
+    }
+    profileMutation.mutate({ name });
+  };
+
+  /** 확인을 받은 뒤 실제 저장 — 이름과 이메일을 함께 보낸다 */
+  const submitProfileChange = () => {
+    if (!profile) return;
     const payload: ProfileUpdatePayload = {};
     if (name !== profile.name) payload.name = name;
     if (email !== profile.email) payload.email = email;
@@ -286,6 +305,24 @@ export default function ProfileClient() {
           </div>
         </form>
       </section>
+
+      <ConfirmDialog
+        open={confirmEmailChange}
+        onClose={() => setConfirmEmailChange(false)}
+        onConfirm={submitProfileChange}
+        busy={savingProfile}
+        title="로그인 이메일 변경"
+        icon="bx-envelope"
+        tone="warn"
+        confirmLabel="변경"
+        message={
+          <>
+            로그인 이메일을 <strong>{profile?.email}</strong> 에서 <strong>{email}</strong> 로
+            바꿉니다.
+          </>
+        }
+        detail="다음 로그인부터 새 이메일을 사용해야 합니다. 기존 이메일로는 로그인할 수 없습니다."
+      />
     </div>
   );
 }

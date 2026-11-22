@@ -8,6 +8,7 @@ import { getReportLogs, previewReportMail, sendReportMail } from '@/lib/reportMa
 import type { PreviewReportResponse, ReportLog } from '@/lib/reportMailClient';
 import { queryKeys } from '@/lib/queryKeys';
 import { Input, Select } from '@/components/ui/Field';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import Modal from '@/components/ui/Modal';
 import ScrollableTable from '@/components/ui/ScrollableTable';
 import { useToast } from '@/components/providers/ToastProvider';
@@ -282,6 +283,14 @@ export default function ReportEmailClient() {
   const [subject, setSubject] = useState('');
   const { toast } = useToast();
 
+  // 발송 전 미리보기 — 검토되지 않은 AI 코멘트가 외부 수신자에게 바로 나가지 않게,
+  // 실제로 나갈 메일과 같은 HTML 을 먼저 보여준다. 여기서 생성된 코멘트는 서버
+  // 캐시에 저장되어 뒤이은 발송이 재사용한다(비용이 두 번 들지 않는다).
+  const [preview, setPreview] = useState<PreviewReportResponse | null>(null);
+
+  /** 미리보기를 건너뛴 직접 발송의 확인 단계 */
+  const [confirmSend, setConfirmSend] = useState(false);
+
   // DB 저장 기간 목록 (최신순 정렬)
   const { data: periods = [], isLoading: periodsLoading } = useQuery({
     queryKey: queryKeys.periods(),
@@ -303,7 +312,15 @@ export default function ReportEmailClient() {
     setCurrPeriod(p);
     const idx = periods.findIndex((d) => periodKey(d) === periodKey(p));
     setPrevPeriod(periods[idx + 1] ?? null);
+    // 미리보기는 생성 시점의 기간으로 만든 HTML 이다 — 기간이 바뀌면 버린다.
+    // 그대로 두면 "이대로 발송"이 미리본 것과 다른 기간을 보내게 된다.
+    setPreview(null);
   }, [periods]);
+
+  const handlePrevChange = useCallback((p: Period) => {
+    setPrevPeriod(p);
+    setPreview(null);
+  }, []);
 
   // 발송 이력
   const { data: logs = [], isFetching: logsFetching } = useQuery({
@@ -311,11 +328,6 @@ export default function ReportEmailClient() {
     queryFn: () => getReportLogs(30),
     refetchInterval: 10_000,
   });
-
-  // 발송 전 미리보기 — 검토되지 않은 AI 코멘트가 외부 수신자에게 바로 나가지 않게,
-  // 실제로 나갈 메일과 같은 HTML 을 먼저 보여준다. 여기서 생성된 코멘트는 서버
-  // 캐시에 저장되어 뒤이은 발송이 재사용한다(비용이 두 번 들지 않는다).
-  const [preview, setPreview] = useState<PreviewReportResponse | null>(null);
 
   const previewMutation = useMutation({
     mutationFn: previewReportMail,
@@ -328,6 +340,7 @@ export default function ReportEmailClient() {
     mutationFn: sendReportMail,
     onSuccess: (data) => {
       setPreview(null);
+      setConfirmSend(false);
       toast('success', data.message ?? '리포트 메일 발송이 시작되었습니다.');
       setTimeout(() => queryClient.invalidateQueries({ queryKey: queryKeys.reportLogs() }), 3000);
     },
@@ -350,13 +363,8 @@ export default function ReportEmailClient() {
     });
   }, [curr, prev, subject, previewMutation, toast]);
 
-  const handleSubmit = useCallback((e: React.FormEvent) => {
-    e.preventDefault();
-    if (!curr || !prev) {
-      toast('error', 'DB에 저장된 기간이 2개 이상 있어야 비교 발송이 가능합니다.');
-      return;
-    }
-    if (recipients.length === 0) {
+  const runSend = useCallback(() => {
+    if (!curr || !prev || recipients.length === 0) {
       toast('error', '수신자 이메일을 1개 이상 입력하세요.');
       return;
     }
@@ -369,6 +377,21 @@ export default function ReportEmailClient() {
       subject: subject.trim(),
     });
   }, [curr, prev, recipients, subject, sendMutation, toast]);
+
+  // 미리보기를 거치지 않은 발송 — 검토되지 않은 AI 코멘트가 외부 수신자에게
+  // 그대로 나가는 경로라 확인을 한 번 받는다. 보낸 메일은 회수할 수 없다.
+  const handleSubmit = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    if (!curr || !prev) {
+      toast('error', 'DB에 저장된 기간이 2개 이상 있어야 비교 발송이 가능합니다.');
+      return;
+    }
+    if (recipients.length === 0) {
+      toast('error', '수신자 이메일을 1개 이상 입력하세요.');
+      return;
+    }
+    setConfirmSend(true);
+  }, [curr, prev, recipients, toast]);
 
   const defaultSubjectPreview = useMemo(
     () => curr
@@ -432,7 +455,7 @@ export default function ReportEmailClient() {
                     </span>
                   }
                   value={prev}
-                  onChange={setPrevPeriod}
+                  onChange={handlePrevChange}
                   periods={periods}
                   loading={periodsLoading}
                   excludeKey={curr ? periodKey(curr) : undefined}
@@ -461,9 +484,23 @@ export default function ReportEmailClient() {
 
               {/* 미리보기 · 발송 버튼 */}
               <div className="flex items-center justify-between gap-4 pt-1 flex-wrap">
-                <div className="flex items-center gap-2 text-xs text-fg-subtle">
-                  <i className="bx bx-time-five text-sm" />
-                  <span>미리보기에서 AI 코멘트를 확인한 뒤 발송하는 것을 권합니다 (생성 30초~2분)</span>
+                <div className="flex items-center gap-2 text-xs">
+                  {/* 수신자가 비면 발송 버튼이 회색으로 잠긴다 — 왜 잠겼는지 버튼 옆에서 말해 준다 */}
+                  {recipients.length === 0 ? (
+                    <>
+                      <i className="bx bx-info-circle text-sm text-badge-amber-fg" />
+                      <span className="text-badge-amber-fg">
+                        발송하려면 수신자를 1명 이상 입력하세요
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <i className="bx bx-time-five text-sm text-fg-subtle" />
+                      <span className="text-fg-subtle">
+                        미리보기에서 AI 코멘트를 확인한 뒤 발송하는 것을 권합니다 (생성 30초~2분)
+                      </span>
+                    </>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button
@@ -524,6 +561,32 @@ export default function ReportEmailClient() {
           </div>
         </section>
 
+        {/* 미리보기를 건너뛴 직접 발송 — 외부로 나가는 메일은 회수할 수 없다 */}
+        <ConfirmDialog
+          open={confirmSend}
+          onClose={() => setConfirmSend(false)}
+          onConfirm={runSend}
+          busy={sendMutation.isPending}
+          title="리포트 메일 발송"
+          icon="bx-mail-send"
+          tone="warn"
+          confirmLabel="발송"
+          message={
+            <>
+              수신자 <strong>{recipients.length}명</strong>에게{' '}
+              {curr ? `${curr.year}년 ${curr.month}월` : ''} 리포트를 발송합니다.
+            </>
+          }
+          detail={
+            <>
+              {recipients.join(', ')}
+              <br />
+              AI 코멘트를 아직 확인하지 않았습니다. 보낸 메일은 회수할 수 없습니다 — 취소하고
+              미리보기로 먼저 확인할 수 있습니다.
+            </>
+          }
+        />
+
         {/* 미리보기 모달 — 발송될 메일과 같은 HTML 을 확인하고 그 자리에서 발송한다 */}
         <Modal
           open={preview !== null}
@@ -556,20 +619,7 @@ export default function ReportEmailClient() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  if (!curr || !prev || recipients.length === 0) {
-                    toast('error', '수신자 이메일을 1개 이상 입력하세요.');
-                    return;
-                  }
-                  sendMutation.mutate({
-                    curr_year: curr.year,
-                    curr_month: curr.month,
-                    prev_year: prev.year,
-                    prev_month: prev.month,
-                    recipients,
-                    subject: subject.trim(),
-                  });
-                }}
+                onClick={runSend}
                 disabled={sendMutation.isPending || recipients.length === 0}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
               >

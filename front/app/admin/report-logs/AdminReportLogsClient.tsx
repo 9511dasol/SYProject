@@ -7,6 +7,7 @@ import { formatCount, formatDateTime } from '@/lib/format';
 import { queryKeys } from '@/lib/queryKeys';
 import Alert from '@/components/ui/Alert';
 import Button from '@/components/ui/Button';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import DataTable, { type Column } from '@/components/ui/DataTable';
 import { Select } from '@/components/ui/Field';
 import Pagination from '@/components/ui/Pagination';
@@ -44,6 +45,9 @@ export default function AdminReportLogsClient() {
 
   const [statusFilter, setStatusFilter] = useState<ReportLogStatus | ''>('');
   const [offset, setOffset] = useState(0);
+  // 재발송은 고객에게 메일이 한 통 더 나가는 일이라 확인을 받는다 —
+  // 특히 타임아웃으로 실패처럼 보이는 건은 서버에서 아직 돌고 있을 수 있다
+  const [resendTarget, setResendTarget] = useState<ReportLogItem | null>(null);
 
   const logsQuery = useQuery({
     queryKey: queryKeys.adminReportLogs(statusFilter, offset),
@@ -73,11 +77,15 @@ export default function AdminReportLogsClient() {
         { timeoutMs: NO_TIMEOUT },
       ),
     onSuccess: ({ recipients }) => {
+      setResendTarget(null);
       pushToast('success', `${recipients.length}명에게 재발송했습니다.`);
       // 재발송은 새 시도로 목록에 추가되므로 이 화면의 모든 페이지가 낡는다
       queryClient.invalidateQueries({ queryKey: queryKeys.allAdminReportLogs() });
     },
-    onError: (err) => pushToast('error', err.message),
+    onError: (err) => {
+      setResendTarget(null);
+      pushToast('error', err.message);
+    },
   });
 
   const logs = logsQuery.data?.items ?? null;
@@ -132,7 +140,7 @@ export default function AdminReportLogsClient() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => resend.mutate(log)}
+            onClick={() => setResendTarget(log)}
             disabled={resendingId !== null}
             isLoading={resendingId === log.id}
           >
@@ -207,6 +215,34 @@ export default function AdminReportLogsClient() {
           />
         </>
       )}
+
+      <ConfirmDialog
+        open={resendTarget !== null}
+        onClose={() => setResendTarget(null)}
+        onConfirm={() => resendTarget && resend.mutate(resendTarget)}
+        busy={resend.isPending}
+        title="리포트 재발송"
+        icon="bx-mail-send"
+        tone="warn"
+        confirmLabel="재발송"
+        message={
+          resendTarget && (
+            <>
+              {periodLabel(resendTarget)} 리포트를 다시 발송합니다.
+            </>
+          )
+        }
+        detail={
+          resendTarget && (
+            <>
+              수신자: {resendTarget.recipients || '(없음)'}
+              <br />
+              발송에는 30초 이상 걸릴 수 있습니다. 응답이 늦더라도 다시 누르지 마세요 — 같은
+              수신자에게 메일이 두 번 나갈 수 있습니다.
+            </>
+          )
+        }
+      />
     </div>
   );
 }

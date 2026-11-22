@@ -1,15 +1,23 @@
 'use client';
 
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchJson, sendJson } from '@/lib/api/authFetch';
 import { queryKeys } from '@/lib/queryKeys';
 import Alert from '@/components/ui/Alert';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import Spinner from '@/components/ui/Spinner';
+import { useToast } from '@/components/providers/ToastProvider';
 import type { AIStatus } from '@/types/aiStatus';
 import type { FeatureFlagItem } from '@/types/featureFlags';
 
 export default function AdminSettingsClient() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  // 끄기만 확인을 받는다 — 토글 한 번이 전 사용자에게 점검 안내를 띄운다.
+  // 다시 켜는 건 되돌리는 쪽이라 바로 보낸다.
+  const [pendingOff, setPendingOff] = useState<FeatureFlagItem | null>(null);
 
   const flagsQuery = useQuery({
     queryKey: queryKeys.adminSettings(),
@@ -26,6 +34,7 @@ export default function AdminSettingsClient() {
     mutationFn: ({ key, value }: { key: string; value: boolean }) =>
       sendJson<FeatureFlagItem>(`/api/admin/settings/${key}`, 'PATCH', { value }, '설정 변경 실패'),
     onSuccess: (updated) => {
+      setPendingOff(null);
       queryClient.setQueryData<FeatureFlagItem[]>(queryKeys.adminSettings(), (prev) =>
         prev?.map((f) => (f.key === updated.key ? updated : f)),
       );
@@ -35,12 +44,22 @@ export default function AdminSettingsClient() {
         관리자가 토글해도 새로고침 전까지는 화면이 예전 상태로 남았다.
       */
       queryClient.invalidateQueries({ queryKey: queryKeys.featureFlags() });
+      toast(
+        'success',
+        `${updated.description}을(를) ${updated.value ? '켰습니다' : '껐습니다'}.`,
+      );
+    },
+    // 실패를 페이지 맨 위 배너로만 알리면, 저 아래 토글을 누른 사용자는 아무 일도
+    // 일어나지 않은 것처럼 느낀다 — 토스트로 손이 있는 자리 가까이에서 알린다.
+    onError: (err) => {
+      setPendingOff(null);
+      toast('error', err.message);
     },
   });
 
   const flags = flagsQuery.data ?? null;
   const aiStatus = aiStatusQuery.data ?? null;
-  const error = flagsQuery.error ?? toggle.error;
+  const error = flagsQuery.error;
   const aiStatusError = aiStatusQuery.error;
   const togglingKey = toggle.isPending ? toggle.variables?.key : null;
 
@@ -129,7 +148,11 @@ export default function AdminSettingsClient() {
                 aria-checked={flag.value}
                 aria-label={flag.description}
                 disabled={togglingKey === flag.key}
-                onClick={() => toggle.mutate({ key: flag.key, value: !flag.value })}
+                onClick={() =>
+                  flag.value
+                    ? setPendingOff(flag)
+                    : toggle.mutate({ key: flag.key, value: true })
+                }
                 className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50
                   ${flag.value ? 'bg-primary' : 'bg-surface-3'}`}
               >
@@ -142,6 +165,18 @@ export default function AdminSettingsClient() {
           ))}
         </ul>
       )}
+
+      <ConfirmDialog
+        open={pendingOff !== null}
+        onClose={() => setPendingOff(null)}
+        onConfirm={() => pendingOff && toggle.mutate({ key: pendingOff.key, value: false })}
+        busy={toggle.isPending}
+        title="기능 끄기"
+        icon="bx-power-off"
+        confirmLabel="끄기"
+        message={pendingOff && <>{pendingOff.description} 기능을 끕니다.</>}
+        detail="모든 사용자에게 즉시 적용되어, 해당 페이지 대신 점검 안내가 표시됩니다. 다시 켜면 바로 복구됩니다."
+      />
     </div>
   );
 }

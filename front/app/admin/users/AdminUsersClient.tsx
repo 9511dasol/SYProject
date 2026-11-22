@@ -8,6 +8,7 @@ import { formatDate } from '@/lib/format';
 import { queryKeys } from '@/lib/queryKeys';
 import Alert from '@/components/ui/Alert';
 import Button from '@/components/ui/Button';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import DataTable, { type Column } from '@/components/ui/DataTable';
 import { Input, Select, controlClassName } from '@/components/ui/Field';
 import Modal from '@/components/ui/Modal';
@@ -27,6 +28,16 @@ const ROLE_LABELS: Record<UserRole, string> = {
 
 const EMPTY_FORM: AdminUserCreatePayload = { email: '', password: '', name: '', role: 'user' };
 
+/**
+ * 확인을 기다리는 위험 액션.
+ *
+ * 권한 드롭다운과 활성 스위치는 둘 다 조작 즉시 적용됐다 — 손이 미끄러지면
+ * 남의 계정이 관리자가 되거나 로그인이 막히는데 되돌릴 장치가 없었다.
+ */
+type PendingAction =
+  | { kind: 'role'; user: AdminUserItem; role: UserRole }
+  | { kind: 'deactivate'; user: AdminUserItem };
+
 export default function AdminUsersClient() {
   const { data: session } = useSession();
   const queryClient = useQueryClient();
@@ -43,6 +54,8 @@ export default function AdminUsersClient() {
     newPassword: '',
   });
   const [editError, setEditError] = useState<string | null>(null);
+
+  const [pending, setPending] = useState<PendingAction | null>(null);
 
   // 자기 자신의 권한·활성 상태는 바꿀 수 없게 막는 데 쓴다
   const currentUserId = session?.user.id;
@@ -64,9 +77,13 @@ export default function AdminUsersClient() {
       sendJson<AdminUserItem>(`/api/admin/users/${user.id}/role`, 'PATCH', { role }, '권한 변경 실패'),
     onSuccess: (updated) => {
       replaceUser(updated);
+      setPending(null);
       addToast('success', `${updated.email}의 권한을 ${ROLE_LABELS[updated.role]}로 변경했습니다.`);
     },
-    onError: (err) => addToast('error', err.message),
+    onError: (err) => {
+      setPending(null);
+      addToast('error', err.message);
+    },
   });
 
   const activeMutation = useMutation({
@@ -79,9 +96,13 @@ export default function AdminUsersClient() {
       ),
     onSuccess: (updated) => {
       replaceUser(updated);
+      setPending(null);
       addToast('success', `${updated.email} 계정을 ${updated.is_active ? '활성화' : '비활성화'}했습니다.`);
     },
-    onError: (err) => addToast('error', err.message),
+    onError: (err) => {
+      setPending(null);
+      addToast('error', err.message);
+    },
   });
 
   const editMutation = useMutation({
@@ -143,7 +164,20 @@ export default function AdminUsersClient() {
 
   const handleRoleChange = (user: AdminUserItem, role: UserRole) => {
     if (role === user.role) return;
-    roleMutation.mutate({ user, role });
+    // 바로 보내지 않는다 — select 는 제어 컴포넌트라 확인을 취소하면 원래 값으로 돌아간다
+    setPending({ kind: 'role', user, role });
+  };
+
+  /** 비활성화만 확인을 받는다. 다시 켜는 건 되돌리는 쪽이라 바로 보낸다 */
+  const handleActiveToggle = (user: AdminUserItem) => {
+    if (user.is_active) setPending({ kind: 'deactivate', user });
+    else activeMutation.mutate(user);
+  };
+
+  const runPending = () => {
+    if (!pending) return;
+    if (pending.kind === 'role') roleMutation.mutate({ user: pending.user, role: pending.role });
+    else activeMutation.mutate(pending.user);
   };
 
   const handleEditOpen = (user: AdminUserItem) => {
@@ -225,7 +259,7 @@ export default function AdminUsersClient() {
           aria-checked={user.is_active}
           aria-label={`${user.email} 활성 상태`}
           disabled={currentUserId === String(user.id) || updatingId === user.id}
-          onClick={() => activeMutation.mutate(user)}
+          onClick={() => handleActiveToggle(user)}
           className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors
             disabled:opacity-50 disabled:cursor-not-allowed
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface
@@ -289,6 +323,36 @@ export default function AdminUsersClient() {
         columns={columns}
         minWidth="min-w-160"
         empty={{ icon: 'bx-group', title: '등록된 계정이 없습니다.' }}
+      />
+
+      <ConfirmDialog
+        open={pending !== null}
+        onClose={() => setPending(null)}
+        onConfirm={runPending}
+        busy={roleMutation.isPending || activeMutation.isPending}
+        title={pending?.kind === 'role' ? '권한 변경' : '계정 비활성화'}
+        icon={pending?.kind === 'role' ? 'bx-shield-quarter' : 'bx-lock'}
+        confirmLabel={pending?.kind === 'role' ? '변경' : '비활성화'}
+        tone={pending?.kind === 'role' && pending.role === 'admin' ? 'warn' : 'danger'}
+        message={
+          pending === null ? null : pending.kind === 'role' ? (
+            <>
+              {pending.user.email} 계정의 권한을{' '}
+              <strong>{ROLE_LABELS[pending.role]}</strong>로 변경합니다.
+            </>
+          ) : (
+            <>{pending.user.email} 계정을 비활성화합니다.</>
+          )
+        }
+        detail={
+          pending === null
+            ? null
+            : pending.kind === 'role'
+              ? pending.role === 'admin'
+                ? '관리자는 모든 계정과 기능 설정을 변경할 수 있습니다.'
+                : '관리자 화면에 더 이상 접근할 수 없게 됩니다.'
+              : '이 계정은 즉시 로그인할 수 없게 됩니다. 스위치를 다시 켜면 복구됩니다.'
+        }
       />
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="계정 생성" icon="bx-user-plus" busy={createMutation.isPending}>
