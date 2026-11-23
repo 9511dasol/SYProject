@@ -78,14 +78,22 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """실제 DB에 접속해 마이그레이션 실행."""
+    # connect_timeout 은 psycopg2 전용 인자다. 방언을 보고 넘겨야 로컬(SQLite)에서
+    # 배포 리허설(`python scripts/migrate.py upgrade`)을 돌려 볼 수 있다 —
+    # 박아 두면 마이그레이션을 운영에서 처음 실행하게 되고, 그 자리가 가장 비싸다.
+    # (app/core/database.py 도 같은 이유로 방언별 connect_args 를 쓴다)
+    connect_args: dict = {}
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        # 앱 기동이 이 마이그레이션을 기다리므로, DB에 닿지 못하면 빨리 실패해야 한다.
+        # 타임아웃이 없으면 OS 기본 TCP 재시도(수 분)까지 매달려서, Cloud Run 쪽에는
+        # 원인 없는 "포트를 열지 못했다"로만 보인다.
+        connect_args["connect_timeout"] = 10
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
-        # 앱 기동이 이 마이그레이션을 기다리므로, DB에 닿지 못하면 빨리 실패해야 한다.
-        # 타임아웃이 없으면 OS 기본 TCP 재시도(수 분)까지 매달려서, Cloud Run 쪽에는
-        # 원인 없는 "포트를 열지 못했다"로만 보인다.
-        connect_args={"connect_timeout": 10},
+        connect_args=connect_args,
     )
     with connectable.connect() as connection:
         context.configure(
