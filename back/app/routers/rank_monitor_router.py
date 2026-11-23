@@ -22,6 +22,11 @@ from app.schemas.rank_monitor_schema import (
     AlertLogListResponse,
     AlertLogOut,
     AlertSummary,
+    BidEstimateResponse,
+    BidRowOut,
+    CollectResponse,
+    CollectStatus,
+    KeywordInsightResponse,
     SnapshotOut,
     SnapshotUploadResponse,
     WatchBulkCreateRequest,
@@ -33,8 +38,14 @@ from app.schemas.rank_monitor_schema import (
     WatchOut,
     WatchUpdate,
 )
+from app.core.settings import settings
 from app.services.rank.alert_engine import AlertRunResult
 from app.services.rank.alert_factory import run_rank_alerts
+from app.services.rank.base import RankProviderError
+from app.services.rank.bid_estimate import MAX_POSITION, BidEstimateService
+from app.services.rank.collector import collect_ranks
+from app.services.rank.keyword_insight import KeywordInsightService
+from app.services.rank.naver_client import ERR_NOT_CONFIGURED, error_message
 from app.services.rank.report_parser import (
     RankReportParseError,
     normalize_keyword,
@@ -76,6 +87,12 @@ def _to_watch_out(
         alerted=watch.alerted,
         last_alerted_at=watch.last_alerted_at,
         last_checked_at=watch.last_checked_at,
+        nv_linked=bool(watch.nv_keyword_ids),
+        nv_synced_at=watch.nv_synced_at,
+        last_error_code=watch.last_error_code,
+        last_error_message=(
+            error_message(watch.last_error_code) if watch.last_error_code else None
+        ),
         latest=SnapshotOut.model_validate(latest) if latest else None,
     )
 
@@ -333,6 +350,157 @@ def list_alerts(
         ],
         total=repo.count_alerts(watch_id=watch_id),
     )
+
+
+@router.get("/watches/{watch_id}/bid-estimate", response_model=BidEstimateResponse)
+async def watch_bid_estimate(
+    watch_id: int,
+    max_position: int = Query(5, ge=1, le=MAX_POSITION),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> BidEstimateResponse:
+    """이 키워드를 N위로 노출하려면 얼마가 드는지 — 목표 순위를 정할 근거.
+
+    외부 API 를 디바이스 수만큼 호출하므로 스레드풀에서 돈다.
+    """
+    repo = KeywordWatchRepository(db)
+    watch = repo.get(watch_id)
+    if watch is None:
+        raise HTTPException(status_code=404, detail="감시 키워드를 찾을 수 없습니다.")
+
+    service = BidEstimateService()
+    base = BidEstimateResponse(
+        keyword=watch.keyword,
+        device=watch.device,
+        target_rank=watch.target_rank,
+        rows=[],
+    )
+    if not service.is_configured:
+        base.skipped_reason = error_message(ERR_NOT_CONFIGURED)
+        return base
+
+    def _estimate() -> BidEstimateResponse:
+        try:
+            result = service.estimate(watch.keyword, watch.device, max_position)
+        except RankProviderError as exc:
+            # 입찰가를 못 받은 것으로 화면 전체를 깨뜨리지 않는다 — 순위 이력은 그대로 보여야 한다.
+            logger.warning("예상 입찰가 조회 실패 (%s): %s", watch.keyword, exc.code)
+            base.skipped_reason = exc.message
+            return base
+        base.rows = [
+            BidRowOut(position=r.position, pc=r.pc, mobile=r.mobile) for r in result.rows
+        ]
+        return base
+
+    return await run_in_threadpool(_estimate)
+
+
+@router.get("/watches/{watch_id}/insight", response_model=KeywordInsightResponse)
+async def watch_insight(
+    watch_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> KeywordInsightResponse:
+    """이 키워드가 얼마나 치열한가 — 검색량·경쟁정도·평균 노출 광고 수."""
+    repo = KeywordWatchRepository(db)
+    watch = repo.get(watch_id)
+    if watch is None:
+        raise HTTPException(status_code=404, detail="감시 키워드를 찾을 수 없습니다.")
+
+    service = KeywordInsightService()
+    if not service.is_configured:
+        return KeywordInsightResponse(
+            keyword=watch.keyword, skipped_reason=error_message(ERR_NOT_CONFIGURED)
+        )
+
+    def _fetch() -> KeywordInsightResponse:
+        try:
+            insight = service.fetch(watch.keyword)
+        except RankProviderError as exc:
+            logger.warning("경쟁 지표 조회 실패 (%s): %s", watch.keyword, exc.code)
+            return KeywordInsightResponse(keyword=watch.keyword, skipped_reason=exc.message)
+        if insight is None:
+            return KeywordInsightResponse(
+                keyword=watch.keyword,
+                skipped_reason="매체 키워드 도구에서 이 키워드를 찾지 못했습니다.",
+            )
+        return KeywordInsightResponse(
+            keyword=insight.keyword,
+            monthly_pc=insight.monthly_pc,
+            monthly_mobile=insight.monthly_mobile,
+            pc_low_volume=insight.pc_low_volume,
+            mobile_low_volume=insight.mobile_low_volume,
+            competition=insight.competition,
+            ad_depth=insight.ad_depth,
+            ctr_pc=insight.ctr_pc,
+            ctr_mobile=insight.ctr_mobile,
+        )
+
+    return await run_in_threadpool(_fetch)
+
+
+@router.get("/collect/status", response_model=CollectStatus)
+def collect_status(_user: User = Depends(get_current_user)) -> CollectStatus:
+    """자동 수집을 쓸 수 있는 상태인지 — 화면이 안내 문구를 고르는 데 쓴다."""
+    configured = settings.is_naver_searchad_configured
+    return CollectStatus(
+        configured=configured,
+        message=(
+            "네이버 광고 API가 연결되어 자동으로 순위를 받아옵니다."
+            if configured
+            else error_message(ERR_NOT_CONFIGURED)
+        ),
+    )
+
+
+@router.post("/collect/run", response_model=CollectResponse)
+async def run_collect_now(
+    stat_date: date | None = Query(None, description="수집할 날짜 (기본: 어제)"),
+    force_resolve: bool = Query(False, description="키워드 ID를 다시 찾는다"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CollectResponse:
+    """지금 네이버 API로 순위를 받아 적재하고, 이어서 알림까지 평가한다.
+
+    키워드 ID를 새로 찾아야 하면 광고 계정 전체를 훑느라 1분 안팎 걸릴 수 있다 —
+    그래서 스레드풀에서 돌리고, 프런트는 이 요청에 상한을 걸지 않는다.
+    """
+
+    def _run() -> CollectResponse:
+        try:
+            result = collect_ranks(
+                db, target_date=stat_date, force_resolve=force_resolve
+            )
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.exception("순위 자동 수집 실패")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"순위를 받아오지 못했습니다: {exc}",
+            ) from exc
+
+        # 받아온 직후가 하락이 확정되는 시점이다 — 바로 이어서 평가한다.
+        alerts = (
+            _evaluate_alerts(db)
+            if result.ingest is not None
+            else AlertSummary(skipped_reason=result.skipped_reason)
+        )
+        return CollectResponse(
+            stat_date=result.stat_date,
+            collected=result.collected,
+            resolved=result.resolved,
+            not_found=result.not_found[:100],
+            skipped_reason=result.skipped_reason,
+            alerts=alerts,
+        )
+
+    response = await run_in_threadpool(_run)
+    logger.info(
+        "%s 가 순위 자동 수집 실행 — %s, 적재 %d건 (ID 해석 %d)",
+        user.email, response.stat_date, response.collected, response.resolved,
+    )
+    return response
 
 
 @router.post("/alerts/run", response_model=AlertSummary)

@@ -103,6 +103,36 @@ class Settings(BaseSettings):
     RANK_ALERT_RECIPIENTS: str = ""  # 쉼표 구분. 비어 있으면 알림을 보내지 않는다.
     RANK_ALERT_CRON_HOUR: str = "9"  # 매일 이 시각에 평가 (업로드 직후에도 평가한다)
 
+    # 네이버 검색광고 API (M2 자동 수집). 비어 있으면 수집기가 비활성화되고
+    # 보고서 업로드만으로 동작한다 — 키 없이도 기능 전체가 돌아가야 한다.
+    NAVER_SEARCHAD_API_KEY: str = ""
+    NAVER_SEARCHAD_SECRET_KEY: str = ""
+    NAVER_SEARCHAD_CUSTOMER_ID: str = ""
+    NAVER_SEARCHAD_BASE_URL: str = "https://api.searchad.naver.com"
+    # 매일 이 시각에 전일 확정치를 수집한다. 알림 평가는 수집 직후 이어서 돈다.
+    RANK_COLLECT_CRON_HOUR: str = "8"
+
+    # ── 수집 튜닝 — 코드에 박아 두면 매체 정책이 바뀔 때마다 배포가 필요해진다 ──
+    # 통계 한 번에 묶는 키워드 ID 수 (매체 호출량 한도에 맞춰 조정)
+    NAVER_STATS_CHUNK: int = 100
+    # 디바이스 분리(breakdown)가 허용되는 기간. 매체 공지는 "최근 7일 이내"인데
+    # 경계일에서 거부되는 일이 없도록 하루 여유를 둔다. 이 값이 틀려도 수집기는
+    # 거부 응답을 받으면 합산 조회로 스스로 전환한다 — 이 값은 "뻔히 실패할 호출을
+    # 보내지 않는" 최적화일 뿐이다.
+    NAVER_BREAKDOWN_MAX_AGE_DAYS: int = 6
+    # 저장해 둔 광고 키워드 ID 를 며칠까지 믿을지 (광고그룹 개편 대비 재확인 주기)
+    RANK_ID_CACHE_DAYS: int = 7
+    # 월간 리포트의 순위 현황에 싣는 최대 키워드 수 (넘치면 "외 N개"로 알린다)
+    RANK_REPORT_MAX_ROWS: int = 8
+
+    @property
+    def is_naver_searchad_configured(self) -> bool:
+        return bool(
+            self.NAVER_SEARCHAD_API_KEY
+            and self.NAVER_SEARCHAD_SECRET_KEY
+            and self.NAVER_SEARCHAD_CUSTOMER_ID
+        )
+
     # Auth (JWT) — FastAPI가 발급/검증하는 access token 서명 키 (NextAuth의 AUTH_SECRET과는 독립된 값)
     SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"

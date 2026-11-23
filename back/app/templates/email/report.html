@@ -33,6 +33,11 @@
   /* AI 코멘트 */
   .comment-box { background: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 0 10px 10px 0; padding: 18px 20px; }
   .comment-box p { font-size: 14px; line-height: 1.8; color: #1e3a5f; white-space: pre-wrap; }
+  /* 순위 표 보조 스타일 */
+  .rank-note { font-size: 12px; color: #64748b; line-height: 1.7; margin-top: 10px; }
+  .rank-note:first-child { margin-top: 0; margin-bottom: 12px; }
+  .rank-device { font-size: 11px; color: #94a3b8; margin-left: 4px; }
+  .muted { color: #94a3b8; }
   /* footer */
   .footer { padding: 20px 40px; background: #f8fafc; border-top: 1px solid #e2e8f0; }
   .footer p { font-size: 11px; color: #94a3b8; line-height: 1.6; }
@@ -137,6 +142,63 @@
       <p>{{ comment }}</p>
     </div>
   </div>
+
+  {# 키워드 순위 현황 — 순위 모니터링을 쓰지 않으면 통째로 빠진다.
+     주석을 Jinja 문법으로 두는 이유: HTML 주석은 조건과 무관하게 늘 출력돼,
+     순위 기능을 안 쓰는 리포트에도 이 문구가 섞여 나간다. #}
+  {% if rank and rank.has_content %}
+  <div class="section">
+    <h2>키워드 순위 현황</h2>
+    {% if rank.rows %}
+    <p class="rank-note">
+      감시 중인 {{ rank.total_watched }}개 중 <strong>{{ rank.breached_total }}개</strong>가 목표 순위를 벗어났습니다.
+      목표가를 지키는 데 드는 예상 클릭당 비용을 함께 적었습니다.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>키워드</th>
+          <th style="text-align:right">현재</th>
+          <th style="text-align:right">목표</th>
+          <th style="text-align:right">연속</th>
+          <th style="text-align:right">목표가 유지 예상 CPC</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rank.rows %}
+        <tr>
+          <td>
+            <strong>{{ row.keyword }}</strong>
+            <span class="rank-device">{{ device_label(row.device) }}</span>
+          </td>
+          <td class="num down">{{ rank_label(row.current_rank) }}</td>
+          <td class="num muted">{{ rank_label(row.target_rank) }}</td>
+          <td class="num">{{ row.breach_streak }}회</td>
+          <td class="num">
+            {% if row.target_bid_pc is not none or row.target_bid_mobile is not none %}
+              {% if row.target_bid_pc is not none %}PC {{ "{:,}".format(row.target_bid_pc) }}원{% endif %}
+              {% if row.target_bid_pc is not none and row.target_bid_mobile is not none %} · {% endif %}
+              {% if row.target_bid_mobile is not none %}모바일 {{ "{:,}".format(row.target_bid_mobile) }}원{% endif %}
+            {% else %}
+              <span class="muted">-</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if rank.omitted %}
+    <p class="rank-note">외 {{ rank.omitted }}개가 더 목표를 벗어나 있습니다 — 전체는 순위 모니터링 화면에서 확인하세요.</p>
+    {% endif %}
+    {% else %}
+    <p class="rank-note">감시 중인 {{ rank.total_watched }}개 키워드가 모두 목표 순위를 지키고 있습니다.</p>
+    {% endif %}
+    <p class="rank-note">
+      순위는 <strong>이 메일을 보내는 시점</strong>의 최신 기록 기준이며(위 실적 기간과 다릅니다),
+      예상 CPC는 매체가 제공하는 추정치입니다.
+    </p>
+  </div>
+  {% endif %}
 
   <!-- 푸터 -->
   <div class="footer">

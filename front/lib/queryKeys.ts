@@ -46,6 +46,12 @@ export const queryKeys = {
   rankWatches: () => ['rankWatches'] as const,
   rankWatchHistory: (id: number) => ['rankWatches', id, 'history'] as const,
   rankWatchAlerts: (id: number) => ['rankWatches', id, 'alerts'] as const,
+  /** 예상 입찰가는 일부러 'rankWatches' 밖에 둔다 — 순위를 수집해도 시장 입찰가가
+   *  달라지는 건 아니라서, 목록 무효화에 휩쓸려 외부 API 를 다시 부르면 낭비다 */
+  rankWatchBids: (id: number) => ['rankBids', id] as const,
+  /** 경쟁 지표는 월 단위로 바뀌는 값이라 입찰가보다도 오래 들고 있어도 된다 */
+  rankWatchInsight: (id: number) => ['rankInsight', id] as const,
+  rankCollectStatus: () => ['rankCollectStatus'] as const,
   /** 목록과 모든 이력을 한 번에 무효화하는 접두 키 — 업로드는 어느 감시가 갱신됐는지 모른다 */
   allRankWatches: () => ['rankWatches'] as const,
 } as const;

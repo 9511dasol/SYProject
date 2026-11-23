@@ -8,21 +8,26 @@ import { Input, Select, Textarea } from '@/components/ui/Field';
 import Modal from '@/components/ui/Modal';
 import { useToast } from '@/components/providers/ToastProvider';
 import { useFileDrop } from '@/hooks/useFileDrop';
-import { formatCount, formatDate, formatDateTime } from '@/lib/format';
+import { formatCount, formatDate, formatDateTime, formatWon } from '@/lib/format';
 import { queryKeys } from '@/lib/queryKeys';
 import { cx } from '@/lib/cx';
 import {
   createRankWatches,
   deleteRankWatch,
+  fetchBidEstimate,
+  fetchCollectStatus,
+  fetchKeywordInsight,
   fetchRankAlerts,
   fetchRankHistory,
   fetchRankWatches,
   runRankAlerts,
+  runRankCollect,
   updateRankWatch,
   uploadRankReport,
 } from '@/lib/rankMonitorClient';
 import type {
   AlertSummary,
+  KeywordInsight,
   RankWatch,
   SnapshotUploadResponse,
   WatchCreateResult,
@@ -60,6 +65,29 @@ function rankText(rank: number | null): string {
   return `${(Math.round(rank * 10) / 10).toLocaleString('ko-KR')}위`;
 }
 
+/** 월간 검색 수 표기. 매체가 "10 미만"으로 뭉뚱그린 쪽은 그대로 알려 준다.
+ *
+ *  인자 타입이 `undefined` 까지 받는 이유: 이 응답은 조회 실패 시 사유만 담아
+ *  내려오므로 지표 필드가 비어 있을 수 있다 — 생성된 타입이 그 사실을 알려 준다. */
+function searchVolumeText(insight: KeywordInsight): string {
+  const part = (count: number | null | undefined, low: boolean | undefined) =>
+    low ? '10 미만' : count == null ? null : formatCount(count);
+  const pc = part(insight.monthly_pc, insight.pc_low_volume);
+  const mobile = part(insight.monthly_mobile, insight.mobile_low_volume);
+  if (pc === null && mobile === null) return '-';
+  return `PC ${pc ?? '-'} · 모바일 ${mobile ?? '-'}`;
+}
+
+/** 경쟁 지표 한 칸 */
+function InsightCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-surface-2/60 border border-border-soft px-2 py-2.5">
+      <dt className="text-[11px] text-fg-subtle">{label}</dt>
+      <dd className="mt-0.5 text-sm font-semibold text-fg tabular-nums">{value}</dd>
+    </div>
+  );
+}
+
 /** 알림 결과를 한 문장으로 — 보냈는지, 못 보냈다면 왜인지까지 같이 말한다 */
 function alertSentence(alerts: AlertSummary): string | null {
   const total = alerts.drops + alerts.recoveries;
@@ -77,7 +105,14 @@ function alertSentence(alerts: AlertSummary): string | null {
  * 감시 하나의 상태 — 백엔드 판정(status·latest·is_breached·streak)을 한 값으로 접는다.
  * 뱃지·요약 배너·필터·정렬이 전부 이 하나를 보게 해서 서로 어긋나지 않게 한다.
  */
-type WatchState = 'breached' | 'warning' | 'no_impression' | 'ok' | 'no_data' | 'paused';
+type WatchState =
+  | 'breached'
+  | 'collect_error'
+  | 'warning'
+  | 'no_impression'
+  | 'ok'
+  | 'no_data'
+  | 'paused';
 
 /** order 는 목록 기본 정렬 순서다 — 손봐야 할 것이 위로 온다 */
 const WATCH_STATE_META: Record<
@@ -85,18 +120,25 @@ const WATCH_STATE_META: Record<
   { label: string; badge: string; icon: string; order: number }
 > = {
   breached: { label: '하락', badge: 'badge-danger', icon: 'bx-trending-down', order: 0 },
-  warning: { label: '주의', badge: 'badge-amber', icon: 'bx-error', order: 1 },
-  no_impression: { label: '노출 없음', badge: 'badge-warn', icon: 'bx-low-vision', order: 2 },
-  ok: { label: '정상', badge: 'badge-success', icon: 'bx-check', order: 3 },
-  no_data: { label: '기록 없음', badge: 'badge-neutral', icon: 'bx-time-five', order: 4 },
-  paused: { label: '일시정지', badge: 'badge-neutral', icon: 'bx-pause', order: 5 },
+  // 수집이 막혀 있으면 순위 판정 자체가 낡은 값이다 — 손봐야 할 것 쪽에 둔다.
+  collect_error: { label: '수집 오류', badge: 'badge-warn', icon: 'bx-link-external', order: 1 },
+  warning: { label: '주의', badge: 'badge-amber', icon: 'bx-error', order: 2 },
+  no_impression: { label: '노출 없음', badge: 'badge-warn', icon: 'bx-low-vision', order: 3 },
+  ok: { label: '정상', badge: 'badge-success', icon: 'bx-check', order: 4 },
+  no_data: { label: '기록 없음', badge: 'badge-neutral', icon: 'bx-time-five', order: 5 },
+  paused: { label: '일시정지', badge: 'badge-neutral', icon: 'bx-pause', order: 6 },
 };
 
 /** 요약 배너·필터 칩에 띄울 상태 — '정상'은 손댈 일이 없어 뺀다 */
-const ATTENTION_STATES: WatchState[] = ['breached', 'warning', 'no_impression'];
+const ATTENTION_STATES: WatchState[] = [
+  'breached', 'collect_error', 'warning', 'no_impression',
+];
 
 function watchState(w: RankWatch): WatchState {
   if (w.status === 'paused') return 'paused';
+  // 수집이 실패하고 있으면 그 사실이 먼저다. 낡은 '정상'을 보여 주면
+  // 지금도 괜찮은 줄 알게 된다.
+  if (w.last_error_code) return 'collect_error';
   if (!w.latest) return 'no_data';
   if (w.is_breached) return 'breached';
   if (w.breach_streak > 0) return 'warning';
@@ -106,11 +148,20 @@ function watchState(w: RankWatch): WatchState {
 
 /** 목록의 상태 뱃지 */
 function StatusBadge({ watch }: { watch: RankWatch }) {
-  const meta = WATCH_STATE_META[watchState(watch)];
+  const state = watchState(watch);
+  const meta = WATCH_STATE_META[state];
+  // 수집 오류는 원인마다 할 일이 다르다 — 코드별 문구를 뱃지에 붙여 준다.
+  const label =
+    state === 'collect_error' && watch.last_error_code === 'KEYWORD_NOT_FOUND'
+      ? '계정에 없음'
+      : meta.label;
   return (
-    <span className={`badge ${meta.badge} whitespace-nowrap`}>
+    <span
+      className={`badge ${meta.badge} whitespace-nowrap`}
+      title={state === 'collect_error' ? watch.last_error_message ?? undefined : undefined}
+    >
       <i className={`bx ${meta.icon} text-sm`} />
-      {meta.label}
+      {label}
     </span>
   );
 }
@@ -527,6 +578,36 @@ export default function RankMonitorClient() {
     onError: (err) => pushToast('error', err.message),
   });
 
+  /* ── API 자동 수집 ────────────────────────────────────────────────────── */
+  const collectStatusQuery = useQuery({
+    queryKey: queryKeys.rankCollectStatus(),
+    queryFn: fetchCollectStatus,
+    staleTime: 5 * 60 * 1000,   // 서버 설정이라 자주 바뀌지 않는다
+  });
+  const collectReady = collectStatusQuery.data?.configured ?? false;
+
+  const collect = useMutation({
+    mutationFn: (forceResolve: boolean) => runRankCollect(forceResolve),
+    onSuccess: (res) => {
+      invalidateAll();
+      if (res.skipped_reason) {
+        pushToast('error', res.skipped_reason);
+        return;
+      }
+      const extra = [
+        res.resolved > 0 ? `키워드 ${res.resolved}개 연결` : null,
+        res.not_found.length > 0 ? `계정 미발견 ${res.not_found.length}건` : null,
+      ].filter(Boolean).join(' · ');
+      pushToast(
+        'success',
+        `${res.stat_date} 순위를 받아왔습니다 — ${res.collected}건${extra ? ` (${extra})` : ''}`,
+      );
+      const sentence = alertSentence(res.alerts);
+      if (sentence) pushToast(res.alerts.sent ? 'success' : 'error', sentence);
+    },
+    onError: (err) => pushToast('error', err.message),
+  });
+
   /* ── 알림 수동 평가 ───────────────────────────────────────────────────── */
   const runAlerts = useMutation({
     mutationFn: runRankAlerts,
@@ -594,6 +675,23 @@ export default function RankMonitorClient() {
     queryKey: queryKeys.rankWatchAlerts(detailWatchId ?? 0),
     queryFn: () => fetchRankAlerts(detailWatchId as number),
     enabled: detailWatchId !== null,
+  });
+
+  // 예상 입찰가는 외부 API 를 디바이스 수만큼 호출한다 — 모달을 열 때만 받고,
+  // 목록 무효화에 휩쓸려 다시 받지 않도록 따로 오래 들고 있는다.
+  const bidsQuery = useQuery({
+    queryKey: queryKeys.rankWatchBids(detailWatchId ?? 0),
+    queryFn: () => fetchBidEstimate(detailWatchId as number, 5),
+    enabled: detailWatchId !== null,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // 경쟁 지표(검색량·경쟁정도)는 월 단위로 움직이는 값이라 더 오래 들고 있는다.
+  const insightQuery = useQuery({
+    queryKey: queryKeys.rankWatchInsight(detailWatchId ?? 0),
+    queryFn: () => fetchKeywordInsight(detailWatchId as number),
+    enabled: detailWatchId !== null,
+    staleTime: 60 * 60 * 1000,
   });
 
   /* ── 표 컬럼 ──────────────────────────────────────────────────────────── */
@@ -708,7 +806,19 @@ export default function RankMonitorClient() {
             쌓이고 목표 이탈이 연속되면 표시됩니다.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {collectReady && (
+            <Button
+              variant="outline"
+              size="md"
+              onClick={() => collect.mutate(false)}
+              isLoading={collect.isPending}
+              title="네이버 광고 API로 어제 순위를 받아옵니다 (키워드를 처음 연결할 때는 1분가량 걸립니다)"
+            >
+              {!collect.isPending && <i className="bx bx-cloud-download text-base" />}
+              지금 수집
+            </Button>
+          )}
           <Button
             variant="outline"
             size="md"
@@ -725,6 +835,31 @@ export default function RankMonitorClient() {
           </Button>
         </div>
       </header>
+
+      {/* ── 자동 수집 상태 ────────────────────────────────────────────── */}
+      {collectStatusQuery.data && (
+        <div
+          className={cx(
+            'flex items-start gap-2.5 rounded-xl border px-4 py-3 text-sm',
+            collectReady
+              ? 'border-badge-success-bdr bg-badge-success-bg text-badge-success-fg'
+              : 'border-border bg-surface-2/60 text-fg-muted',
+          )}
+        >
+          <i
+            className={`bx ${collectReady ? 'bx-check-circle' : 'bx-info-circle'} text-base shrink-0 mt-0.5`}
+          />
+          <p>
+            {collectStatusQuery.data.message}
+            {collectReady && (
+              <span className="block mt-0.5 text-xs opacity-80">
+                매일 자동으로 전일 순위를 받아옵니다. 아래 보고서 업로드는 과거 데이터를
+                채우거나 수동으로 보정할 때 쓰시면 됩니다.
+              </span>
+            )}
+          </p>
+        </div>
+      )}
 
       {/* ── 보고서 업로드 ──────────────────────────────────────────────── */}
       <section
@@ -1008,6 +1143,98 @@ export default function RankMonitorClient() {
                 </div>
               </>
             )}
+
+            {/* 경쟁 지표 — "이 키워드가 얼마나 치열한가" */}
+            {insightQuery.data && !insightQuery.data.skipped_reason && (
+              <div className="border-t border-border-soft pt-4">
+                <h3 className="text-sm font-medium text-fg-muted mb-2">경쟁 지표</h3>
+                <dl className="grid grid-cols-3 gap-3 text-center">
+                  <InsightCell
+                    label="월간 검색"
+                    value={searchVolumeText(insightQuery.data)}
+                  />
+                  <InsightCell
+                    label="경쟁정도"
+                    value={insightQuery.data.competition ?? '-'}
+                  />
+                  <InsightCell
+                    label="평균 노출 광고"
+                    value={
+                      insightQuery.data.ad_depth === null
+                        ? '-'
+                        : `${insightQuery.data.ad_depth}개`
+                    }
+                  />
+                </dl>
+                <p className="mt-1.5 text-[11px] text-fg-subtle leading-relaxed">
+                  매체 키워드 도구 기준입니다. &lsquo;평균 노출 광고&rsquo;는 이 키워드에
+                  평균 몇 개의 광고가 함께 노출되는지를 뜻합니다 — 숫자가 클수록 경쟁이 빽빽합니다.
+                </p>
+              </div>
+            )}
+
+            {/* 순위별 예상 입찰가 — "목표를 N위로 잡으면 얼마가 드나" */}
+            <div className="border-t border-border-soft pt-4">
+              <h3 className="text-sm font-medium text-fg-muted mb-2">순위별 예상 입찰가</h3>
+              {bidsQuery.error ? (
+                <p className="text-xs text-badge-danger-fg">{bidsQuery.error.message}</p>
+              ) : !bidsQuery.data ? (
+                <p className="text-xs text-fg-subtle">불러오는 중…</p>
+              ) : bidsQuery.data.skipped_reason ? (
+                <p className="text-xs text-fg-subtle">{bidsQuery.data.skipped_reason}</p>
+              ) : bidsQuery.data.rows.length === 0 ? (
+                <p className="text-xs text-fg-subtle">예상 입찰가를 받지 못했습니다.</p>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs tabular-nums">
+                      <thead>
+                        <tr className="text-fg-subtle">
+                          <th className="text-left font-medium py-1">순위</th>
+                          <th className="text-right font-medium py-1">PC</th>
+                          <th className="text-right font-medium py-1">모바일</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bidsQuery.data.rows.map((row) => {
+                          // 목표 순위에 해당하는 줄을 짚어 준다 — 이게 지금 지불하려는 값이다
+                          const isTarget =
+                            Math.ceil(detailWatch.target_rank) === row.position;
+                          return (
+                            <tr
+                              key={row.position}
+                              className={cx(
+                                'border-t border-border-soft',
+                                isTarget && 'bg-primary-soft font-semibold text-fg',
+                              )}
+                            >
+                              <td className="py-1.5">
+                                {row.position}위
+                                {isTarget && (
+                                  <span className="ml-1.5 text-[10px] font-normal text-primary">
+                                    목표
+                                  </span>
+                                )}
+                              </td>
+                              <td className="text-right py-1.5">
+                                {row.pc === null ? '-' : formatWon(row.pc)}
+                              </td>
+                              <td className="text-right py-1.5">
+                                {row.mobile === null ? '-' : formatWon(row.mobile)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-fg-subtle leading-relaxed">
+                    매체가 제공하는 추정치(클릭당 비용)입니다. 실제 입찰 결과는 품질지수와
+                    경쟁 상황에 따라 달라집니다.
+                  </p>
+                </>
+              )}
+            </div>
 
             {/* 알림 이력 — 이 키워드로 언제 무엇이 나갔는지 */}
             <div className="border-t border-border-soft pt-4">

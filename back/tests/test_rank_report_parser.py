@@ -168,3 +168,31 @@ def test_repeated_header_and_subtotal_rows_are_skipped():
     )
     obs = parse_rank_report(_csv_bytes(csv), "report.csv", STAT_DATE)
     assert sorted(o.keyword for o in obs) == ["리포트자동화", "마케팅자동화"]
+
+
+def test_repeated_header_with_variant_labels_is_skipped():
+    """반복 헤더 판별은 이름 블랙리스트가 아니라 구조(순위 칸도 라벨)로 한다 —
+    '평균순위' 같은 변형 헤더도 데이터로 새지 않아야 한다."""
+    csv = (
+        "키워드,노출수,클릭수,평균노출순위\n"
+        "마케팅자동화,100,5,2.0\n"
+        "키 워 드,노출수,클릭수,평균순위\n"   # 공백·라벨 변형이 섞인 반복 헤더
+        "리포트자동화,200,10,4.0\n"
+    )
+    obs = parse_rank_report(_csv_bytes(csv), "report.csv", STAT_DATE)
+    assert sorted(o.keyword for o in obs) == ["리포트자동화", "마케팅자동화"]
+
+
+def test_keyword_literally_named_like_a_header_survives():
+    """순위 칸에 숫자가 있으면 데이터 행이다 — 키워드 이름이 '키워드'여도 버리면 안 된다.
+
+    예전 블랙리스트 방식에서는 이 행이 통째로 사라졌다. 브랜드 검색어로 충분히
+    있을 수 있는 이름이고, 파서가 임의로 걸러낼 권한은 없다.
+    """
+    csv = (
+        "키워드,노출수,클릭수,평균노출순위\n"
+        "키워드,100,5,2.0\n"
+    )
+    obs = parse_rank_report(_csv_bytes(csv), "report.csv", STAT_DATE)
+    assert [o.keyword for o in obs] == ["키워드"]
+    assert obs[0].avg_rank == 2.0

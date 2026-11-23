@@ -12,22 +12,9 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 from app.services.rank.alert_engine import ALERT_DROP, AlertItem
+from app.services.rank.formatting import device_label as _device_label, rank_label as _rank_label
 
 _TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates"
-
-_DEVICE_LABELS = {"all": "전체", "pc": "PC", "mobile": "모바일"}
-
-
-def _device_label(device: str) -> str:
-    return _DEVICE_LABELS.get(device, device)
-
-
-def _rank_label(rank: float | None) -> str:
-    """None 은 '노출 없음' — 0 으로 적으면 1위보다 좋은 순위처럼 읽힌다."""
-    if rank is None:
-        return "노출 없음"
-    rounded = round(rank, 1)
-    return f"{int(rounded)}위" if rounded == int(rounded) else f"{rounded}위"
 
 
 class RankAlertMailBuilder:

@@ -28,10 +28,11 @@ _IMP_LABELS = {"노출수", "노출"}
 _CLICK_LABELS = {"클릭수", "클릭"}
 _DEVICE_LABELS = {"pc/모바일매체", "pc/모바일", "디바이스", "매체", "기기"}
 
-# 키워드 칸에 이런 값이 오면 실제 키워드가 아니다 — 합계 행이거나,
-# 파일 중간에 헤더가 한 번 더 들어간 경우다(보고서를 이어붙이면 흔하다).
-# 그냥 두면 "키워드" · "소계" 라는 이름의 유령 키워드가 적재된다.
-_TOTAL_MARKERS = {"합계", "총합계", "총계", "소계", "전체", "total", "subtotal", "키워드"}
+# 합계 행은 키워드 칸에 이런 값이 온다 — 키워드로 적재하면 안 된다.
+# 파일 중간에 반복된 헤더 행은 여기서 거르지 않는다(_is_repeated_header 참고).
+# 예전에는 "키워드"를 이 목록에 넣어 막았는데, 그건 이름 블랙리스트라
+# "평균순위" 같은 변형 헤더는 새지 않게 할 방법이 없었다.
+_TOTAL_MARKERS = {"합계", "총합계", "총계", "소계", "전체", "total", "subtotal"}
 
 
 class RankReportParseError(Exception):
@@ -148,6 +149,20 @@ def _find_columns(df: pd.DataFrame) -> tuple[int, dict[str, int]]:
     )
 
 
+def _is_repeated_header(row, cols: dict[str, int]) -> bool:
+    """파일 중간에 헤더가 한 번 더 들어간 행인지 — 보고서를 이어붙이면 흔하다.
+
+    "키워드 칸이 헤더 라벨이고 **순위 칸도 헤더 라벨**"일 때만 헤더로 본다.
+    키워드 이름만 보고 거르면(블랙리스트) 라벨 변형을 쫓아다녀야 하고,
+    반대로 정말 그 단어를 광고 키워드로 쓰는 경우를 영영 막아 버린다 —
+    순위 칸까지 라벨이면 데이터 행일 수 없으므로 이 판별은 변형에도 안전하다.
+    """
+    return (
+        _normalize_label(row.iloc[cols["keyword"]]) in _KEYWORD_LABELS
+        and _normalize_label(row.iloc[cols["rank"]]) in _RANK_LABELS
+    )
+
+
 def parse_rank_report(
     content: bytes, filename: str, stat_date: date
 ) -> list[RankObservation]:
@@ -168,6 +183,8 @@ def parse_rank_report(
     originals: dict[str, str] = {}
 
     for _, row in df.iloc[header_row + 1 :].iterrows():
+        if _is_repeated_header(row, cols):
+            continue
         raw = _safe_text(row.iloc[cols["keyword"]])
         keyword = normalize_keyword(raw)
         if not keyword or keyword in _TOTAL_MARKERS:

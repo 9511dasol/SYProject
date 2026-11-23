@@ -25,6 +25,7 @@ from app.models.user_model import User
 _VERSIONS = Path(__file__).resolve().parents[1] / "migrations" / "versions"
 _M0009 = "20261118_0000_0009_keyword_rank_monitor.py"
 _M0010 = "20261118_0100_0010_rank_alerts.py"
+_M0011 = "20261122_0000_0011_rank_api_collect.py"
 
 
 def _load(filename: str):
@@ -66,7 +67,7 @@ def _model_columns(model) -> set[str]:
 
 
 def test_migrations_create_schema_matching_models(engine):
-    _run_upgrades(engine, _M0009, _M0010)
+    _run_upgrades(engine, _M0009, _M0010, _M0011)
 
     for model, table in (
         (KeywordWatch, "keyword_watch"),
@@ -97,10 +98,21 @@ def test_upgrades_are_idempotent(engine):
     KeywordRankSnapshot.__table__.create(engine)
     RankAlertLog.__table__.create(engine)
 
-    _run_upgrades(engine, _M0009, _M0010)   # 전부 건너뛰어야 한다
-    _run_upgrades(engine, _M0009, _M0010)   # 두 번 돌려도 마찬가지
+    _run_upgrades(engine, _M0009, _M0010, _M0011)   # 전부 건너뛰어야 한다
+    _run_upgrades(engine, _M0009, _M0010, _M0011)   # 두 번 돌려도 마찬가지
 
     assert _columns(engine, "keyword_watch") == _model_columns(KeywordWatch)
+
+
+def test_0011_adds_api_collect_columns_to_existing_table(engine):
+    """0010 까지 적용된 기존 DB 에 API 수집용 컬럼이 더해진다."""
+    _run_upgrades(engine, _M0009, _M0010)
+    before = _columns(engine, "keyword_watch")
+    assert "nv_keyword_ids" not in before
+
+    _run_upgrades(engine, _M0011)
+    after = _columns(engine, "keyword_watch")
+    assert {"nv_keyword_ids", "nv_synced_at", "last_error_code", "last_error_at"} <= after
 
 
 def test_new_rows_get_defaults_for_alert_columns(engine):

@@ -48,6 +48,7 @@ from app.routers import (
 )
 from app.services import task_store
 from app.services.rank.alert_factory import run_rank_alerts
+from app.services.rank.collector import collect_ranks
 from app.services.report_factory import build_orchestrator
 
 configure_logging(settings.LOG_LEVEL)  # 아래 기동 로그가 실제로 남으려면 먼저 호출돼야 한다
@@ -164,6 +165,37 @@ def _purge_expired_tasks() -> None:
         logger.info("만료 정리 — 작업 %d건, 되돌리기 스냅샷 %d건 삭제", tasks, undos)
 
 
+def _collect_ranks() -> None:
+    """APScheduler 가 호출하는 일일 순위 자동 수집 (M2).
+
+    전일 확정치를 받아 적재하고, 이어서 바로 알림을 평가한다 — 받아온 그 순간이
+    하락이 확정되는 시점이라 다음 크론까지 기다릴 이유가 없다.
+    """
+    db = SessionLocal()
+    try:
+        result = collect_ranks(db)
+        db.commit()
+        if result.skipped_reason:
+            logger.info("일일 순위 수집 건너뜀 — %s", result.skipped_reason)
+            return
+        logger.info(
+            "일일 순위 수집 완료 — %s, 적재 %d건 (ID 해석 %d, 미발견 %d)",
+            result.stat_date, result.collected, result.resolved, len(result.not_found),
+        )
+        alerts = run_rank_alerts(db)
+        db.commit()
+        if alerts.drops or alerts.recoveries:
+            logger.info(
+                "수집 직후 알림 — 하락 %d · 회복 %d (발송 %s)",
+                alerts.drops, alerts.recoveries, alerts.sent,
+            )
+    except Exception:
+        db.rollback()
+        logger.exception("일일 순위 수집 실패")
+    finally:
+        db.close()
+
+
 def _run_rank_alerts() -> None:
     """APScheduler 가 호출하는 일일 순위 알림 평가.
 
@@ -248,6 +280,19 @@ async def lifespan(_: FastAPI):
         logger.info("daily rank alert cron active")
     else:
         logger.info("MAIL_ENABLED=false — 메일 발송 기능 비활성화")
+
+    # 순위 자동 수집은 메일 설정과 무관하다 — 알림을 못 보내도 순위는 쌓여야 한다.
+    if settings.is_naver_searchad_configured:
+        scheduler.add_job(
+            _collect_ranks,
+            trigger="cron",
+            hour=int(settings.RANK_COLLECT_CRON_HOUR),
+            id="rank_collect",
+            replace_existing=True,
+        )
+        logger.info("daily rank collect cron active")
+    else:
+        logger.info("네이버 검색광고 API 미설정 — 순위 자동 수집 꺼짐 (업로드로만 적재)")
 
     scheduler.start()
     logger.info("APScheduler started")

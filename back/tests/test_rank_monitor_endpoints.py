@@ -289,6 +289,56 @@ def test_deleting_watch_keeps_alert_history(client, db):
     assert log.keyword == "마케팅자동화"  # 무엇에 대한 알림이었는지는 남는다
 
 
+# ── 예상 입찰가 (M5) ──────────────────────────────────────────────────────────
+
+
+def test_bid_estimate_returns_rows(client, monkeypatch):
+    from app.services.rank import bid_estimate as be
+
+    class FakeService:
+        is_configured = True
+
+        def __init__(self, *a, **k):
+            pass
+
+        def estimate(self, keyword, device="all", max_position=5):
+            return be.BidEstimate(
+                keyword=keyword,
+                rows=[be.BidRow(position=1, pc=1610, mobile=2430),
+                      be.BidRow(position=2, pc=1500, mobile=2030)],
+            )
+
+    monkeypatch.setattr(rank_monitor_router, "BidEstimateService", FakeService)
+    watch_id = _create(client, target_rank=2.0)["results"][0]["id"]
+
+    res = client.get(f"/api/rank-monitor/watches/{watch_id}/bid-estimate")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["keyword"] == "마케팅자동화" and body["target_rank"] == 2.0
+    assert body["rows"][0] == {"position": 1, "pc": 1610, "mobile": 2430}
+    assert body["skipped_reason"] is None
+
+
+def test_bid_estimate_without_api_key_is_explained_not_failed(client, monkeypatch):
+    class Unconfigured:
+        is_configured = False
+
+        def __init__(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(rank_monitor_router, "BidEstimateService", Unconfigured)
+    watch_id = _create(client)["results"][0]["id"]
+
+    res = client.get(f"/api/rank-monitor/watches/{watch_id}/bid-estimate")
+    assert res.status_code == 200          # 화면 전체를 깨뜨리지 않는다
+    assert res.json()["rows"] == []
+    assert "API 키" in res.json()["skipped_reason"]
+
+
+def test_bid_estimate_missing_watch_is_404(client):
+    assert client.get("/api/rank-monitor/watches/999/bid-estimate").status_code == 404
+
+
 # ── 기능 플래그 ────────────────────────────────────────────────────────────────
 
 

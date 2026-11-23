@@ -8,6 +8,7 @@ from app.services.ai_usage import AI_TOOL_REPORT_MAIL, log_ai_usage
 from app.services.analysis_service import AnalysisService
 from app.services.comment_service import CommentService
 from app.services.mail.base import AbstractMailSender
+from app.services.rank.report_section import build_rank_section
 from app.services.report_builder_service import ReportBuilderService
 
 logger = logging.getLogger(__name__)
@@ -100,6 +101,21 @@ class ReportOrchestrator:
         html = self.builder.build(comparison, comment)
         return {"subject": subject, "comment": comment, "html": html}
 
+    def _rank_section(self):
+        """리포트에 실을 키워드 순위 현황. 실패하면 그 구역만 빠진다.
+
+        순위 한 조각(외부 API 포함) 때문에 월간 리포트 전체가 안 나가면 안 된다 —
+        리포트의 본체는 어디까지나 지난달 실적이다.
+        """
+        db = SessionLocal()
+        try:
+            return build_rank_section(db)
+        except Exception:
+            logger.exception("리포트 순위 현황 생성 실패 — 해당 구역 없이 발송")
+            return None
+        finally:
+            db.close()
+
     def run(
         self,
         curr_year: int,
@@ -124,7 +140,7 @@ class ReportOrchestrator:
         try:
             comparison = self.analysis.compare(curr_year, curr_month, prev_year, prev_month)
             comment = self._comment_for(comparison, curr_year, curr_month)
-            html = self.builder.build(comparison, comment)
+            html = self.builder.build(comparison, comment, rank_section=self._rank_section())
             self.mail.send(recipients, subject, html)
             log.status = "sent"
             logger.info("Report mail sent to %s", recipients)

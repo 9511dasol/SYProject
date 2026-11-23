@@ -10,10 +10,19 @@
 
 from datetime import date, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, func
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.database import Base
+from app.core.database import PORTABLE_JSON, Base
+
 
 
 class KeywordWatch(Base):
@@ -59,6 +68,21 @@ class KeywordWatch(Base):
         DateTime(timezone=True), nullable=True
     )
     last_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # ── API 자동 수집(M2)용 ───────────────────────────────────────────────────
+    # 이 키워드에 해당하는 네이버 광고 키워드 ID 목록. 같은 키워드가 여러 광고그룹에
+    # 등록돼 있을 수 있어 복수다. 계정 전체를 훑어야 얻을 수 있는 값이라(광고그룹
+    # 수백 개 = 호출 수백 번) 한 번 찾으면 저장해 두고 재사용한다.
+    nv_keyword_ids: Mapped[list | None] = mapped_column(PORTABLE_JSON, nullable=True)
+    nv_synced_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # 마지막 수집 실패 원인 — "오류"로 뭉뚱그리지 않고 코드로 남겨 화면이 조치를 안내한다.
+    # (AUTH_ERROR / QUOTA_EXCEEDED / KEYWORD_NOT_FOUND / PROVIDER_DOWN …)
+    last_error_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    last_error_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

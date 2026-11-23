@@ -3,6 +3,10 @@ import { extractResponseError } from '@/lib/api/responseError';
 import type {
   AlertLogListResponse,
   AlertSummary,
+  BidEstimateResponse,
+  CollectResponse,
+  CollectStatus,
+  KeywordInsight,
   RankHistoryResponse,
   RankWatchListResponse,
   SnapshotUploadResponse,
@@ -89,6 +93,50 @@ export function fetchRankAlerts(watchId?: number, limit = 20): Promise<AlertLogL
     `/api/rank-monitor/alerts?${params.toString()}`,
     undefined,
     '알림 이력을 불러오지 못했습니다.',
+  );
+}
+
+/** 순위별 예상 입찰가 — "이 키워드를 N위로 올리려면 얼마". */
+export function fetchBidEstimate(
+  watchId: number,
+  maxPosition = 5,
+): Promise<BidEstimateResponse> {
+  return fetchJson<BidEstimateResponse>(
+    `/api/rank-monitor/watches/${watchId}/bid-estimate?max_position=${maxPosition}`,
+    undefined,
+    '예상 입찰가를 불러오지 못했습니다.',
+  );
+}
+
+/** 키워드 경쟁 지표 — 검색량·경쟁정도·평균 노출 광고 수. */
+export function fetchKeywordInsight(watchId: number): Promise<KeywordInsight> {
+  return fetchJson<KeywordInsight>(
+    `/api/rank-monitor/watches/${watchId}/insight`,
+    undefined,
+    '경쟁 지표를 불러오지 못했습니다.',
+  );
+}
+
+/** 자동 수집을 쓸 수 있는 상태인지 (API 키 설정 여부). */
+export function fetchCollectStatus(): Promise<CollectStatus> {
+  return fetchJson<CollectStatus>(
+    '/api/rank-monitor/collect/status',
+    undefined,
+    '수집 설정 상태를 확인하지 못했습니다.',
+  );
+}
+
+/** 지금 네이버 API로 순위를 받아 적재하고 알림까지 평가한다. */
+export function runRankCollect(forceResolve = false): Promise<CollectResponse> {
+  const params = forceResolve ? '?force_resolve=true' : '';
+  return sendJson<CollectResponse>(
+    `/api/rank-monitor/collect/run${params}`,
+    'POST',
+    undefined,
+    '순위를 받아오지 못했습니다.',
+    // 키워드 ID를 새로 찾으면 광고 계정 전체를 훑느라 1분 안팎 걸린다 —
+    // 조회 상한(30초)에 걸려 실패로 보이면 사용자가 다시 눌러 중복 실행된다.
+    { timeoutMs: NO_TIMEOUT },
   );
 }
 
