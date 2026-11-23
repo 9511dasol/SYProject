@@ -13,6 +13,7 @@ from app.core.security import get_db, require_admin
 from app.models.user_model import User
 from app.repositories.marketing_repo import MarketingRepository
 from app.schemas.admin_period_schema import (
+    BUDGET_MEDIA,
     MediaBudgetsResponse,
     MediaBudgetsUpdate,
     PeriodDeleteResponse,
@@ -55,6 +56,7 @@ def get_media_budgets(
         month=month,
         budgets=budgets,
         inherited_from=f"{source[0]}-{source[1]:02d}" if source else None,
+        media=list(BUDGET_MEDIA),
     )
 
 
@@ -85,6 +87,7 @@ def update_media_budgets(
         month=month,
         budgets=budgets,
         inherited_from=f"{source[0]}-{source[1]:02d}" if source else None,
+        media=list(BUDGET_MEDIA),
     )
 
 

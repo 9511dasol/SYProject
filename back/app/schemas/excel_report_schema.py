@@ -52,8 +52,11 @@ class SaTotalRow(BaseModel):
 
 
 class SaTotal(BaseModel):
-    headers: list[str] = Field(default_factory=list)
-    rows: list[SaTotalRow] = Field(default_factory=list)
+    # 응답 전용 필드에는 기본값을 두지 않는다 — 파서가 항상 채워 보내는데 기본값이
+    # 있으면 OpenAPI 가 "없을 수도 있음"으로 내보내, 화면이 쓰지 않아도 될 방어
+    # 코드(`?.`, `?? []`)를 곳곳에 쓰게 된다. 비어 있을 때도 빈 목록은 온다.
+    headers: list[str]
+    rows: list[SaTotalRow]
 
 
 class BudgetRow(BaseModel):
@@ -93,9 +96,9 @@ class MediaSheetData(BaseModel):
     bool·Decimal 같은 값도 돌려주기 때문이다 — 타입을 좁히면 멀쩡한 파일이 500 이 된다.
     """
 
-    headers: list[str] = Field(default_factory=list)
-    total: list[Any] = Field(default_factory=list)
-    daily: list[list[Any]] = Field(default_factory=list)
+    headers: list[str]
+    total: list[Any]
+    daily: list[list[Any]]
 
 
 class ExcelReport(BaseModel):
@@ -104,14 +107,32 @@ class ExcelReport(BaseModel):
     period: str
     period_info: PeriodInfo
     sa_total: SaTotal
-    budget_table: list[BudgetRow] = Field(default_factory=list)
-    comment: str = ""
-    daily_total: list[DailyTotalRow] = Field(default_factory=list)
-    media: dict[str, MediaSheetData] = Field(default_factory=dict)
+    budget_table: list[BudgetRow]
+    comment: str
+    daily_total: list[DailyTotalRow]
+    media: dict[str, MediaSheetData]
 
 
 class ExcelReportBundle(BaseModel):
     """/load-excel 응답 — 한 파일에 5월·6월이 있으면 달마다 리포트가 하나씩."""
 
-    periods: list[str] = Field(default_factory=list)
-    reports: list[ExcelReport] = Field(default_factory=list)
+    periods: list[str]
+    reports: list[ExcelReport]
+
+
+class ExcelPeriodSummary(BaseModel):
+    """업로드 모달의 기간 선택 화면에 필요한 최소 정보."""
+
+    period: str
+    days: int = Field(description="실적이 들어 있는 일수 — 목록의 'N일' 배지")
+    comment: str
+
+
+class ExcelPeriodListResponse(BaseModel):
+    """/excel-periods 응답.
+
+    예전에는 `-> dict` 로 열려 있어 OpenAPI 에 모양이 실리지 않았고, 프런트가 같은
+    구조를 손으로 적어 두고 있었다 — 키 이름이 갈려도 아무도 알아채지 못하는 구조다.
+    """
+
+    periods: list[ExcelPeriodSummary]

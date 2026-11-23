@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "types:generate": "node scripts/generate-api-types.mjs",
+    "types:check": "node scripts/generate-api-types.mjs --check"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.0",
@@ -25,6 +27,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "openapi-typescript": "^7.13.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

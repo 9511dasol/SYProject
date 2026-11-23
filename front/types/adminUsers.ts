@@ -1,30 +1,10 @@
-import type { UserRole } from '@/types/auth';
+/** 사용자 관리(관리자) — 백엔드 OpenAPI 에서 생성된 타입을 가리킨다. */
 
-/** GET /api/admin/users 항목 */
-export interface AdminUserItem {
-  id: number;
-  email: string;
-  name: string;
-  role: UserRole;
-  is_active: boolean;
-  created_at: string;
-}
+import type { components } from '@/types/api.generated';
 
-/** POST /api/admin/users 요청 본문 — 운영 계정 직접 생성 */
-export interface AdminUserCreatePayload {
-  email: string;
-  password: string;
-  name: string;
-  role: UserRole;
-}
+type S = components['schemas'];
 
-/** PATCH /api/admin/users/{id}/profile 요청 본문 — 이름 · 이메일 변경 */
-export interface AdminUserProfileUpdatePayload {
-  name?: string;
-  email?: string;
-}
-
-/** POST /api/admin/users/{id}/reset-password 요청 본문 — 비밀번호 강제 재설정 */
-export interface AdminUserPasswordResetPayload {
-  new_password: string;
-}
+export type AdminUserItem = S['UserAdminOut'];
+export type AdminUserCreatePayload = S['UserAdminCreate'];
+export type AdminUserProfileUpdatePayload = S['UserProfileUpdate'];
+export type AdminUserPasswordResetPayload = S['UserPasswordReset'];

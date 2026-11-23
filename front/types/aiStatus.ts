@@ -1,14 +1,8 @@
-/** GET /api/admin/ai-status 항목 — 실제 API 키 값은 포함하지 않음 */
-export interface AIProviderStatus {
-  key: string;
-  label: string;
-  model: string;
-  api_key_configured: boolean;
-  is_active: boolean;
-}
+/** AI 공급자 상태 — 백엔드 OpenAPI 에서 생성된 타입을 가리킨다. */
 
-/** GET /api/admin/ai-status 응답 */
-export interface AIStatus {
-  active_provider: string;
-  providers: AIProviderStatus[];
-}
+import type { components } from '@/types/api.generated';
+
+type S = components['schemas'];
+
+export type AIProviderStatus = S['AIProviderStatus'];
+export type AIStatus = S['AIStatusOut'];

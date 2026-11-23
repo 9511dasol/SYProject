@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from app.core.feature_flags import require_feature_flag
 from app.core.security import get_current_user
 from app.core.uploads import EXCEL_EXTENSIONS, check_content_length, read_data_upload
+from app.schemas.keyword_compare_schema import CompareResult
 from app.services.keyword_compare_service import KeywordCompareService
 
 logger = logging.getLogger(__name__)
@@ -19,8 +20,8 @@ router = APIRouter(
 )
 
 
-@router.post("/parse")
-async def parse_keyword_compare(request: Request, file: UploadFile = File(...)) -> dict:
+@router.post("/parse", response_model=CompareResult)
+async def parse_keyword_compare(request: Request, file: UploadFile = File(...)) -> CompareResult:
     """키워드 비교 Excel 파일(.xlsx) 파싱 — 시트별 이번/이전 비교 데이터 반환"""
     check_content_length(request)
     content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
@@ -45,4 +46,4 @@ async def parse_keyword_compare(request: Request, file: UploadFile = File(...)) 
             detail += f" (건너뛴 시트 — {reasons})"
         raise HTTPException(status_code=422, detail=detail)
 
-    return {"sheets": sheets, "skipped_sheets": skipped}
+    return CompareResult.model_validate({"sheets": sheets, "skipped_sheets": skipped})

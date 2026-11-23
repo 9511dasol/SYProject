@@ -30,3 +30,6 @@ build/
 
 # 참고용 원본 엑셀·CSV 보관 디렉터리 (앱이 쓰는 리포트 템플릿은 app/assets/ 에 있음)
 example/
+# OpenAPI 내보내기 산출물 — 프런트 타입 생성용 중간 파일이라 커밋하지 않는다
+# (커밋되는 결과물은 front/types/api.generated.ts 쪽이다)
+openapi.json

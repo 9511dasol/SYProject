@@ -35,7 +35,7 @@ from app.models.marketing_model import derived_kpis, resolve_total_conv
 from app.models.user_model import User
 from app.repositories import marketing_repo
 from app.repositories.marketing_repo import MarketingRepository
-from app.schemas.excel_report_schema import ExcelReportBundle
+from app.schemas.excel_report_schema import ExcelPeriodListResponse, ExcelReportBundle
 from app.schemas.marketing_schema import (
     ComparePeriod,
     MediaDailyRow,
@@ -1015,11 +1015,11 @@ def undo_upload(undo_id: str) -> dict:
     return {"message": msg}
 
 
-@router.post("/excel-periods")
+@router.post("/excel-periods", response_model=ExcelPeriodListResponse)
 async def list_excel_periods(
     request: Request,
     file: UploadFile = File(...),
-) -> dict:
+) -> ExcelPeriodListResponse:
     """파일에 담긴 기간 목록만 돌려준다 — 업로드 모달의 기간 선택 화면 전용.
 
     /load-excel 은 기간마다 매체 시트까지 전부 파싱하느라 큰 파일에서 수 분이 걸린다.
@@ -1028,7 +1028,9 @@ async def list_excel_periods(
     check_content_length(request)
     content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
     try:
-        return {"periods": ExcelReaderService().list_period_summaries(content)}
+        return ExcelPeriodListResponse.model_validate(
+            {"periods": ExcelReaderService().list_period_summaries(content)}
+        )
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

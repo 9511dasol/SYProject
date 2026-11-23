@@ -1,30 +1,20 @@
-export type Platform = 'Instagram' | 'Blog' | 'YouTube';
+/** 헤딩 문구 추천 — 응답 타입은 백엔드 OpenAPI 에서 생성된 것을 가리킨다. */
+
+import type { components } from '@/types/api.generated';
+
+type S = components['schemas'];
+
+export type HeadingItem = S['HeadingItem'];
+export type Platform = HeadingItem['platform'];
+export type HeadingSuggestionRecord = S['HeadingSuggestionRecord'];
+export type HeadingHistoryResponse = S['HeadingHistoryResponse'];
+
+/** 생성 응답 — 기록 한 건을 그대로 돌려준다 */
+export type HeadingResponse = HeadingSuggestionRecord;
+
+// ── 화면 전용 타입 (API 계약이 아니다) ────────────────────────────────────────
+
+/** 탭 필터 — '전체'는 화면에만 있는 값이라 생성 타입에 없다 */
 export type PlatformFilter = '전체' | Platform;
-
-export interface HeadingItem {
-  id: number;
-  platform: Platform;
-  text: string;
-  desc: string;
-}
-
-export interface HeadingResponse {
-  headings: HeadingItem[];
-}
-
-/** DB에 저장된 한 번의 문구 생성 기록 (사용자별 히스토리). */
-export interface HeadingSuggestionRecord {
-  id: number;
-  image_filename: string;
-  has_image: boolean; // 저장된 썸네일 이미지 존재 여부
-  created_at: string; // ISO 8601
-  headings: HeadingItem[];
-}
-
-export interface HeadingHistoryResponse {
-  items: HeadingSuggestionRecord[];
-  /** limit/offset 과 무관한 사용자별 전체 기록 수 */
-  total: number;
-}
 
 export type HeadingLoadingState = 'idle' | 'compressing' | 'analyzing';

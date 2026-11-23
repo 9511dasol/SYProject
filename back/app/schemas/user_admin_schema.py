@@ -1,9 +1,11 @@
 from datetime import datetime
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr
 
-UserRole = Literal["user", "admin"]
+# 정의는 auth_schema 한 곳에 둔다 — 같은 값을 두 모듈이 각자 들고 있으면 언젠가 갈린다.
+from app.schemas.auth_schema import UserRole
+
+__all__ = ["UserRole"]  # 이 경로로 임포트하던 코드를 깨뜨리지 않는다
 
 
 class UserAdminOut(BaseModel):

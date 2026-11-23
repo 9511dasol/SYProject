@@ -1,43 +1,16 @@
-export type RowStatus = 'new' | 'gone' | 'up' | 'down' | 'same';
+/** 키워드 성과 비교 — 백엔드 OpenAPI 에서 생성된 타입을 가리킨다.
+ *
+ *  예전에는 백엔드가 `-> dict` 로 열려 있어 이 구조를 손으로 적어 두고 있었다.
+ *  백엔드에 Pydantic 계약을 세워, 이제 어긋나면 타입 검사에서 걸린다.
+ */
 
-export interface CompareRow {
-  campaign_type: string;
-  device: string;
-  keyword: string;
-  conv_type: string;
-  curr_conv: number;
-  curr_amount: number;
-  prev_conv: number;
-  prev_amount: number;
-  diff_conv: number;
-  diff_amount: number;
-  status: RowStatus;
-}
+import type { components } from '@/types/api.generated';
 
-export interface SheetSummary {
-  total_curr_conv: number;
-  total_curr_amount: number;
-  total_prev_conv: number;
-  total_prev_amount: number;
-  diff_conv: number;
-  diff_amount: number;
-  count_up: number;
-  count_down: number;
-  count_new: number;
-  count_gone: number;
-  count_same: number;
-}
+type S = components['schemas'];
 
-export interface CompareSheet {
-  name: string;
-  period: string;
-  rows: CompareRow[];
-  summary: SheetSummary;
-  campaign_types: string[];
-  devices: string[];
-  conv_types: string[];
-}
-
-export interface CompareResult {
-  sheets: CompareSheet[];
-}
+export type CompareRow = S['CompareRow'];
+export type RowStatus = CompareRow['status'];
+export type SheetSummary = S['SheetSummary'];
+export type CompareSheet = S['CompareSheet'];
+export type SkippedSheet = S['SkippedSheet'];
+export type CompareResult = S['CompareResult'];

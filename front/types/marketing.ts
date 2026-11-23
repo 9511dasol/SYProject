@@ -1,158 +1,29 @@
-// Excel 불러오기
-export interface BudgetRow {
-  category: string;
-  budget: number;
-  spent: number;
-  burn_rate: number;
-  impressions: number;
-  clicks: number;
-  cost_vat: number;
-  total_conv: number;
-  conv_rate: number;
-  conv_cost: number;
-}
-
-export interface DailyTotalRow {
-  date: string;
-  impressions: number;
-  clicks: number;
-  ctr: number;
-  cpc: number;
-  cost: number;
-  total_conv: number;
-  conv_rate: number;
-  conv_cost: number;
-}
-
-export interface MediaSheetData {
-  headers: string[];
-  total: (string | number | null)[];
-  daily: (string | number | null)[][];
-}
-
-export interface SaTotalRow {
-  label: string;
-  date: string;
-  impressions: number;
-  clicks: number;
-  ctr: number;
-  cpc: number;
-  cost_vat: number;
-  cost_markup: number;
-  total_conv: number;
-  conv_rate: number;
-  conv_cost: number;
-  total_conv_ex: number;
-  conv_rate_ex: number;
-  conv_cost_ex: number;
-  signup: number;
-  signup_rate: number;
-  purchase: number;
-  purchase_rate: number;
-  revenue: number;
-  roas: number;
-  revenue_per_purchase: number;
-}
-
-export interface SaTotal {
-  headers: string[];
-  rows: SaTotalRow[];
-}
-
-export interface ExcelReport {
-  period: string;
-  period_info: { remaining_days: number; elapsed_days: number; total_days: number };
-  sa_total: SaTotal;
-  budget_table: BudgetRow[];
-  comment: string;
-  daily_total: DailyTotalRow[];
-  media: Record<string, MediaSheetData>;
-}
-
-/** /load-excel 응답 — 한 파일에 5월·6월처럼 여러 달이 있으면 달마다 리포트가 하나씩 온다 */
-export interface ExcelReportBundle {
-  periods: string[];
-  reports: ExcelReport[];
-}
-
-/**
- * /excel-periods 응답의 한 줄 — 기간 선택 화면이 쓰는 값만 담긴 가벼운 요약.
- * 전체 리포트(ExcelReport)를 받으면 매체 시트까지 파싱하느라 큰 파일에서 수 분이 걸린다.
+/** SA 광고 대시보드 — 응답 타입은 백엔드 OpenAPI 에서 생성된 것을 가리킨다.
+ *
+ *  예전에는 이 구조를 손으로 적어 두었고, 백엔드가 키를 바꿔도 화면은 모른 채
+ *  빈 값으로 그려졌다. 이제 어긋나면 타입 검사에서 먼저 걸린다.
  */
-export interface ExcelPeriodSummary {
-  period: string;
-  /** 실적이 들어 있는 일수 — 목록의 "N일" 배지 */
-  days: number;
-  comment: string;
-}
 
-export interface MediaDailyRow {
-  date: string;
-  impressions: number;
-  clicks: number;
-  cost: number;
-  ctr: number;
-  cpc: number;
-  total_conv: number;
-  conv_rate: number;
-  conv_cost: number;
-  signup: number;
-  purchase: number;
-  revenue: number;
-  apply: number;
-  roas: number;
-}
+import type { components } from '@/types/api.generated';
 
-export interface MediaSummary {
-  label: string;
-  impressions: number;
-  clicks: number;
-  cost: number;
-  ctr: number;
-  cpc: number;
-  total_conv: number;
-  signup: number;
-  purchase: number;
-  revenue: number;
-  apply: number;
-  roas: number;
-}
+type S = components['schemas'];
 
-export interface RowDiff {
-  added: string[];    // "YYYY-MM-DD"
-  updated: string[];
-}
+// ── 엑셀 리포트 (업로드/불러오기) ─────────────────────────────────────────────
+export type BudgetRow = S['BudgetRow'];
+export type DailyTotalRow = S['DailyTotalRow'];
+export type MediaSheetData = S['MediaSheetData'];
+export type SaTotalRow = S['SaTotalRow'];
+export type SaTotal = S['SaTotal'];
+export type ExcelReport = S['ExcelReport'];
+export type ExcelReportBundle = S['ExcelReportBundle'];
+export type ExcelPeriodSummary = S['ExcelPeriodSummary'];
 
-/** 기간 비교(MoM·YoY)용 다른 달 합계 — 그 달 데이터가 없으면 서버가 null 을 준다 */
-export interface ComparePeriod {
-  year: number;
-  month: number;
-  label: string;   // "25년 10월"
-  total: MediaSummary;
-}
+// ── 집계 결과 (대시보드) ──────────────────────────────────────────────────────
+export type MediaDailyRow = S['MediaDailyRow'];
+export type MediaSummary = S['MediaSummary'];
+export type RowDiff = S['RowDiff'];
+export type ComparePeriod = S['ComparePeriod'];
+export type ReportData = S['ReportResponse'];
 
-export interface ReportData {
-  period: string;
-  total: MediaSummary;
-  by_media: MediaSummary[];
-  daily: Record<string, MediaDailyRow[]>;
-  comment?: string;
-  comment_updated_at?: string | null;
-  diff?: Record<string, RowDiff>;  // {campaign_type: {added, updated}}
-  undo_id?: string;
-  compare_mom?: ComparePeriod | null;  // 전월
-  compare_yoy?: ComparePeriod | null;  // 전년동월
-}
-
-export interface RowFormData {
-  report_date: string;         // "YYYY-MM-DD"
-  campaign_type: string;
-  impressions: number;
-  clicks: number;
-  cost: number;
-  conversions: number;         // DB: conversions (= total_conv in frontend)
-  conversion_revenue: number;  // DB: conversion_revenue (= revenue in frontend)
-  signup: number;
-  purchase: number;
-  apply: number;
-}
+// ── 행 직접 입력/수정 ─────────────────────────────────────────────────────────
+export type RowFormData = S['RowUpsertBody'];

@@ -19,8 +19,12 @@ const f = {
   /** 이 화면은 0원을 '-'로 감춘다 — 매체별 시트에 빈 칸이 많아 0이 줄줄이 찍히면 읽기 어렵다 */
   won: (v: number | null | undefined) => (v === 0 ? '-' : formatWon(v)),
   pct: formatPercent,
-  /** Excel 원본 셀 — 타입도 자릿수도 제각각이라 값을 보고 표기를 정한다 */
-  cell: (v: string | number | null | undefined): string => {
+  /** Excel 원본 셀 — 타입도 자릿수도 제각각이라 값을 보고 표기를 정한다.
+   *
+   *  인자가 `unknown` 인 이유: 백엔드 계약(MediaSheetData)도 셀 타입을 고정하지
+   *  않는다. openpyxl 이 수식 칸에서 bool·Decimal 을 돌려주기도 해서, 좁게 적어
+   *  두면 멀쩡한 파일이 타입 오류가 된다. 아래에서 값을 보고 갈라 처리한다. */
+  cell: (v: unknown): string => {
     if (v == null) return '-';
     if (typeof v === 'number') {
       if (v === 0) return '0';

@@ -41,7 +41,9 @@ class MediaBudgetsResponse(BaseModel):
     # 이 값을 실제로 가져온 기간 ("2026-06"). 요청한 기간에 저장된 값이 없으면 그 이전
     # 기간에서 이어받으므로, 화면에서 "물려받은 값"임을 알 수 있어야 한다.
     inherited_from: str | None = None
-    media: list[str] = Field(default_factory=lambda: list(BUDGET_MEDIA))
+    # 기본값을 두지 않는다 — 서버가 항상 채워 보내는데 기본값이 있으면 OpenAPI 가
+    # "없을 수도 있음"으로 내보내, 화면이 쓰지 않아도 될 방어 코드를 쓰게 된다.
+    media: list[str] = Field(description="예산을 입력할 수 있는 매체 목록")
 
 
 class MediaBudgetsUpdate(BaseModel):

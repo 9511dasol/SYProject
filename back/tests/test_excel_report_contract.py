@@ -121,6 +121,9 @@ def test_media_sheet_accepts_mixed_cell_types(report_bytes):
         "period": "26년 6월",
         "period_info": {"remaining_days": 0, "elapsed_days": 0, "total_days": 0},
         "sa_total": {"headers": [], "rows": []},
+        "budget_table": [],
+        "comment": "",
+        "daily_total": [],
         "media": {"네이버SA": sheet},
     })
 
@@ -135,6 +138,9 @@ def test_media_sheet_accepts_values_openpyxl_returns_from_formulas():
         "period": "26년 6월",
         "period_info": {"remaining_days": 0, "elapsed_days": 0, "total_days": 0},
         "sa_total": {"headers": [], "rows": []},
+        "budget_table": [],
+        "comment": "",
+        "daily_total": [],
         "media": {"네이버SA": {"headers": ["a"], "total": [True], "daily": [[Decimal("1.5")]]}},
     })
 
