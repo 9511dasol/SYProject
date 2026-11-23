@@ -35,11 +35,17 @@ export default function HeadingHistoryClient() {
   const [records, setRecords] = useState<HeadingSuggestionRecord[] | null>(null);
   const [total, setTotal] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   // 서버 검색은 타이핑마다 날리지 않는다 — 잠깐 멈췄을 때(300ms) 한 번만.
   const [debouncedQuery, setDebouncedQuery] = useState('');
+  // 마지막으로 서버 응답을 받은 검색어. null 은 아직 아무것도 안 받은 상태.
+  // "검색 중"을 별도 상태로 두고 effect 에서 켜고 끄면(setSearching) effect 본문의
+  // 동기 setState 가 되어 렌더를 한 번 더 돌리고, 끄는 걸 빠뜨리면 영원히 검색 중으로
+  // 남는다. 요청의 "원인(debouncedQuery)과 결과(loadedQuery)가 다르다"는 파생값이면
+  // 어긋날 방법이 없다.
+  const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
+  const searching = debouncedQuery !== loadedQuery;
 
   const [detail, setDetail] = useState<HeadingSuggestionRecord | null>(null);
   const [detailTab, setDetailTab] = useState<PlatformFilter>('전체');
@@ -58,7 +64,6 @@ export default function HeadingHistoryClient() {
      검색 중에는 기존 목록을 그대로 둔 채 표시만 바꿔 깜빡임을 피한다. */
   useEffect(() => {
     let cancelled = false;
-    setSearching(true);
     fetchHeadingHistoryPage(PAGE_SIZE, 0, debouncedQuery || undefined)
       .then((data) => {
         if (cancelled) return;
@@ -72,7 +77,8 @@ export default function HeadingHistoryClient() {
         setError(err instanceof Error ? err.message : '기록을 불러오지 못했습니다.');
       })
       .finally(() => {
-        if (!cancelled) setSearching(false);
+        // 실패했어도 "이 검색어에 대한 응답은 받았다" — 스피너는 멈춰야 한다.
+        if (!cancelled) setLoadedQuery(debouncedQuery);
       });
     return () => { cancelled = true; };
   }, [debouncedQuery]);

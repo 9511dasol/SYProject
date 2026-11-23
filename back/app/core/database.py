@@ -1,7 +1,13 @@
-from sqlalchemy import create_engine
+from sqlalchemy import JSON, create_engine
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 from app.core.settings import settings
+
+# 운영은 Postgres(JSONB), 테스트·로컬 검증은 SQLite — JSONB 는 SQLite 에서 렌더되지 않는다.
+# 예전에는 모델마다 같은 두 줄을 복사했는데, 새 모델 세 곳이 이를 빠뜨려 SQLite 부팅이
+# 깨진 적이 있다(2026-11-18 로컬 검증에서 발견). 정의를 여기 한 곳에 두고 가져다 쓴다.
+PORTABLE_JSON = JSONB().with_variant(JSON(), "sqlite")
 
 # PostgreSQL 연결 URL: .env의 DATABASE_URL 사용 (Supabase 등)
 # 형식: "postgresql+psycopg2://[유저명]:[비밀번호]@[호스트]:[포트]/[데이터베이스명]"
