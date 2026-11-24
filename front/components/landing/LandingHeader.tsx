@@ -8,6 +8,7 @@ interface LandingHeaderProps {
 
 const ANCHORS = [
   { href: '#features', label: '기능' },
+  { href: '#compare', label: '비교' },
   { href: '#workflow', label: '워크플로우' },
   { href: '#why', label: '도입 효과' },
 ] as const;
