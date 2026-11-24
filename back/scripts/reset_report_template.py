@@ -14,6 +14,18 @@ ExcelService 는 이 토큰을 요청받은 기간으로 치환해서 쓴다 —
     python -m scripts.reset_report_template out.xlsx   # 결과를 다른 경로로
 
 되돌리려면 git 으로 report_template.xlsx 를 복원하면 된다.
+
+**scripts/add_da_sheets_to_template 와의 순서**
+이 스크립트는 *있는 시트를 비우기만* 하고 새 시트를 만들지는 않는다. DA 시트
+(`구글DA_PERIOD`·`카카오DA_PERIOD`·`기타DA_PERIOD`)는 고객사 원본에 없으므로,
+고객사가 보내 준 파일로 템플릿을 다시 만든다면
+
+    python -m scripts.reset_report_template
+    python -m scripts.add_da_sheets_to_template
+
+순서로 두 번 돌려야 DA 시트와 summary 합계 배선이 복원된다. 이미 DA 가 들어 있는
+템플릿에 이 스크립트를 돌리는 것은 안전하다 — DA 시트도 다른 매체 시트와 똑같이
+초기화되고, 예산 구간의 DA 합계 행(29·30)은 건드리지 않는다.
 """
 
 import re

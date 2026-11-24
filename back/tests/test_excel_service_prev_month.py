@@ -23,6 +23,7 @@ from app.services.excel_service import (
     PLACEHOLDER,
     PREV_MONTH_ROW,
     PREV_ROW,
+    SHEET_PREFIX,
     SUMMARY_BUDGET_COL,
     SUMMARY_BUDGET_ROWS,
     SUMMARY_DAILY_ROW,
@@ -165,7 +166,9 @@ class TestSheetNaming:
         wb = _export("26년 8월", 2026, 8, 31)
 
         assert all(name.endswith("26년 8월") for name in wb.sheetnames), wb.sheetnames
-        assert len(wb.sheetnames) == len(_ALL_MEDIA) + 1  # 매체 5개 + summary
+        # 템플릿의 매체 시트 전부 + summary. SHEET_PREFIX 에서 세므로 매체를 더해도
+        # (DA 3종이 그랬다) 이 테스트가 숫자 하나 때문에 깨지지 않는다.
+        assert len(wb.sheetnames) == len(SHEET_PREFIX) + 1, wb.sheetnames
 
     def test_summary_is_the_sheet_excel_opens(self):
         assert _export("26년 8월", 2026, 8, 31).active.title == "summary_26년 8월"

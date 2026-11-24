@@ -21,6 +21,18 @@
   row 21  : 컬럼 헤더
   row 22  : TOTAL 집계 행
   row 23+ : 일별 RAW 데이터 (row 23 = 해당 월 1일)
+
+매체 시트는 9장이다 — 기존 5종(네이버SA·네이버BS·카카오SA·구글SA·파워컨텐츠)에
+DA 3종(구글DA·카카오DA·기타DA)이 더해졌다. DA 시트는
+`scripts/add_da_sheets_to_template` 가 네이버SA 레이아웃을 복사해 만들고, summary 의
+교차시트 합계 수식에도 함께 엮는다.
+
+summary 의 ■ 매체별 예산 구간(21~30행)은 DA 를 **행으로 끼워 넣지 않는다.** 행을
+삽입하면 코멘트 병합(B32:W65)과 일별 구간 첫 행(70)이 밀리고, 그 좌표는 이 파일과
+excel_reader_service·reset_report_template 세 곳에 상수로 박혀 있다(읽는 쪽은 고객사가
+보내 주는 기존 레이아웃 파일도 같은 좌표로 파싱한다). 대신 원래 비어 있던 29·30행에
+`DA total` · `TOTAL (SA+DA)` 합계 행을 세웠다. 예산 금액(D열) 자체는 DB
+(`marketing_period_meta.media_budgets`)에 DA 가 없으므로 5종만 채운다.
 """
 
 import calendar
@@ -44,6 +56,11 @@ SHEET_PREFIX: dict[str, str] = {
     "카카오SA":  "카카오SA",
     "구글SA":    "구글SA",
     "네이버PSA": "파워컨텐츠",  # DB 레이블 → 템플릿 시트 접두어 (기존 템플릿 호환)
+    # DA(디스플레이·배너·영상) — 대행사 주간 리포트 양식으로 들어오는 매체.
+    # 시트는 scripts/add_da_sheets_to_template 가 네이버SA 레이아웃을 복사해 만든다.
+    "구글DA":    "구글DA",
+    "카카오DA":  "카카오DA",
+    "기타DA":    "기타DA",
 }
 
 SUMMARY_PREFIX = "summary"
@@ -115,6 +132,12 @@ _SHEET_COLS: dict[str, list[tuple[str, int]]] = {
     "카카오SA":  _KAKAO_SA_COLS,
     "네이버PSA": _POWER_COLS,
     "구글SA":    _GOOGLE_SA_COLS,
+    # DA 시트는 네이버SA 시트를 복사해 만들었으므로 컬럼 구성이 같다.
+    # 총전환수 칸이 =SUM(N,P,U) = 회원가입+구매완료+설명회신청 인데, 실측에서 DA의
+    # 총전환수가 이 합과 정확히 일치한다(2026-11: 320+1,427+210 = 1,957).
+    "구글DA":    _NAVER_SA_COLS,
+    "카카오DA":  _NAVER_SA_COLS,
+    "기타DA":    _NAVER_SA_COLS,
 }
 
 
@@ -146,6 +169,19 @@ _AGGREGATE_COLS: dict[str, list[tuple[str, int]]] = {
         ("impressions", 3), ("clicks", 4), ("cost", 7), ("conversions", 9),
         ("signup", 12), ("purchase", 14), ("revenue", 16),
     ],
+    # DA 3종 — 네이버SA 레이아웃. 총전환수(8열)는 템플릿 수식이 계산한다.
+    "구글DA": [
+        ("impressions", 3), ("clicks", 4), ("cost", 7),
+        ("signup", 14), ("purchase", 16), ("revenue", 18), ("apply", 21),
+    ],
+    "카카오DA": [
+        ("impressions", 3), ("clicks", 4), ("cost", 7),
+        ("signup", 14), ("purchase", 16), ("revenue", 18), ("apply", 21),
+    ],
+    "기타DA": [
+        ("impressions", 3), ("clicks", 4), ("cost", 7),
+        ("signup", 14), ("purchase", 16), ("revenue", 18), ("apply", 21),
+    ],
 }
 
 
@@ -164,6 +200,10 @@ SUMMARY_DAILY_SLOTS = 31    # 70~100행. 짧은 달은 남는 칸을 비운다
 _PREV_COL_MARKUP = 8  # 광고비(vat, markup) — DB에 markup 정보가 없어 비워 둔다
 
 # ■ 매체별 예산 구간의 매체별 행 (D열 = 총합(vat,markup))
+#
+# DA 3종은 여기 없다 — 예산(계약 금액)이 DB에 없기 때문이다. 29행 `DA total` 은
+# 예산이 아니라 DA 시트 실적을 집계하는 수식 행이고, 30행 `TOTAL (SA+DA)` 는
+# 28행+29행이다. 둘 다 템플릿 수식이라 이 서비스가 값을 쓰지 않는다.
 SUMMARY_BUDGET_COL = 4
 SUMMARY_BUDGET_ROWS: dict[str, int] = {
     "네이버SA":  21,
