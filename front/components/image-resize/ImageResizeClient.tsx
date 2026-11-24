@@ -1,14 +1,15 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import DropZone from '@/components/image-resize/DropZone';
 import DimensionInputs from '@/components/image-resize/DimensionInputs';
 import FormatSelector from '@/components/image-resize/FormatSelector';
 import MediaPresetBatch from '@/components/image-resize/MediaPresetBatch';
 import Button from '@/components/ui/Button';
-import type { ResizeFormState } from '@/types/imageResize';
+import type { ResizeFormState, ResizeResult } from '@/types/imageResize';
 import { useAspectRatioInputs } from '@/hooks/useAspectRatioInputs';
 import { useImageUpload } from '@/hooks/useImageUpload';
+import { triggerDownload } from '@/lib/api/download';
 import { compressImageIfNeeded, resizeImage } from '@/lib/imageResizeClient';
 
 const INITIAL_FORM: ResizeFormState = {
@@ -25,9 +26,16 @@ export default function ImageResizeClient() {
   const [form, setForm] = useState<ResizeFormState>(INITIAL_FORM);
   const [processing, setProcessing] = useState<ProcessingState>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  /* 변환 결과 — 미리보기·용량 비교·재다운로드용으로 화면에 남긴다 */
+  const [result, setResult] = useState<{ data: ResizeResult; url: string } | null>(null);
 
   const isProcessing = processing !== 'idle';
+
+  // 이전 결과가 교체되거나 화면을 떠날 때 objectURL 을 해제한다
+  useEffect(() => {
+    if (!result) return;
+    return () => URL.revokeObjectURL(result.url);
+  }, [result]);
 
   /* ── 파일 선택 (업로드·미리보기·치수 측정은 공용 훅) ────────── */
   const {
@@ -47,7 +55,7 @@ export default function ImageResizeClient() {
   const handleFileSelect = useCallback(
     (f: File) => {
       setError(null);
-      setSuccessMsg(null);
+      setResult(null);
       setForm(INITIAL_FORM);
       select(f);
     },
@@ -59,7 +67,7 @@ export default function ImageResizeClient() {
     clear();
     setForm(INITIAL_FORM);
     setError(null);
-    setSuccessMsg(null);
+    setResult(null);
   }, [clear]);
 
   /* ── 가로·세로 변경 (비율 유지 계산은 공용 훅) ──────────────── */
@@ -76,20 +84,17 @@ export default function ImageResizeClient() {
       return;
     }
     setError(null);
-    setSuccessMsg(null);
+    setResult(null);
 
     try {
       setProcessing('compressing');
       const compressed = await compressImageIfNeeded(file);
 
       setProcessing('resizing');
-      const { aiUpscaleUsed } = await resizeImage(compressed, w, h, form.outputFormat, useAiUpscale);
+      const data = await resizeImage(compressed, w, h, form.outputFormat, useAiUpscale);
 
-      setSuccessMsg(
-        aiUpscaleUsed
-          ? 'AI 업스케일 완료! 다운로드가 시작되었습니다.'
-          : '리사이즈 완료! 다운로드가 시작되었습니다.'
-      );
+      triggerDownload(data.blob, data.filename);
+      setResult({ data, url: URL.createObjectURL(data.blob) });
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
@@ -219,7 +224,7 @@ export default function ImageResizeClient() {
           )}
 
           {/* 상태 메시지 + 실행 버튼 */}
-          {(error || successMsg || file) && (
+          {(error || file) && (
             <>
               <Divider />
               <div className="p-6 space-y-4">
@@ -227,12 +232,6 @@ export default function ImageResizeClient() {
                   <div className="flex items-start gap-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900/60 px-4 py-3">
                     <i className="bx bx-error-circle text-red-400 shrink-0 mt-0.5" />
                     <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-                  </div>
-                )}
-                {successMsg && (
-                  <div className="flex items-start gap-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900/60 px-4 py-3">
-                    <i className="bx bx-check-circle text-emerald-500 shrink-0 mt-0.5" />
-                    <p className="text-sm text-emerald-700 dark:text-emerald-300">{successMsg}</p>
                   </div>
                 )}
 
@@ -249,6 +248,58 @@ export default function ImageResizeClient() {
                   </Button>
                 )}
               </div>
+            </>
+          )}
+
+          {/* 변환 결과 — 작업의 결과물이 화면에 남아야 "뭘 만들었는지" 보인다 */}
+          {result && file && previewUrl && originalDimensions && (
+            <>
+              <Divider />
+              <section className="p-6 bg-emerald-50/40 dark:bg-emerald-950/20">
+                <div className="flex items-center gap-2">
+                  <i className="bx bx-check-circle text-lg text-emerald-500" />
+                  <span className="text-sm font-semibold text-fg-body">변환 완료</span>
+                  {result.data.aiUpscaleUsed && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-violet-100 dark:bg-violet-900/50 text-violet-600 dark:text-violet-400 tracking-wide">
+                      AI 업스케일
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-fg-muted mt-1">
+                  다운로드가 시작되었습니다. 저장이 안 됐다면 아래에서 다시 받을 수 있어요.
+                </p>
+
+                <div className="mt-4 flex items-center justify-center gap-3 sm:gap-5">
+                  <ResultThumb
+                    src={previewUrl}
+                    alt="원본 이미지"
+                    label="원본"
+                    width={originalDimensions.width}
+                    height={originalDimensions.height}
+                    bytes={file.size}
+                  />
+                  <i className="bx bx-right-arrow-alt text-2xl text-fg-subtle shrink-0" />
+                  <ResultThumb
+                    src={result.url}
+                    alt="변환된 이미지"
+                    label="결과"
+                    width={result.data.width}
+                    height={result.data.height}
+                    bytes={result.data.blob.size}
+                    deltaPercent={Math.round((1 - result.data.blob.size / file.size) * 100)}
+                    highlighted
+                  />
+                </div>
+
+                <Button
+                  variant="outline"
+                  className="w-full mt-4"
+                  onClick={() => triggerDownload(result.data.blob, result.data.filename)}
+                >
+                  <i className="bx bx-download text-lg" />
+                  다시 다운로드
+                </Button>
+              </section>
             </>
           )}
         </div>
@@ -279,6 +330,67 @@ export default function ImageResizeClient() {
 }
 
 /* ── 내부 소형 컴포넌트 ─────────────────────────────────────── */
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function ResultThumb({
+  src,
+  alt,
+  label,
+  width,
+  height,
+  bytes,
+  deltaPercent,
+  highlighted = false,
+}: {
+  src: string;
+  alt: string;
+  label: string;
+  width: number;
+  height: number;
+  bytes: number;
+  deltaPercent?: number;
+  highlighted?: boolean;
+}) {
+  return (
+    <figure className="text-center min-w-0">
+      <div
+        className={[
+          'w-24 h-24 rounded-xl overflow-hidden mx-auto border',
+          highlighted
+            ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/40'
+            : 'border-border bg-surface-3',
+        ].join(' ')}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={alt} className="w-full h-full object-contain" />
+      </div>
+      <figcaption className="mt-2 text-[11px] leading-snug text-fg-muted">
+        {label}{' '}
+        <span className="tabular-nums">
+          {width}×{height}
+        </span>
+        <br />
+        <span className="tabular-nums">{formatBytes(bytes)}</span>
+        {/* 0%는 표기 가치가 없고, 음수(용량 증가)는 업스케일에선 정상이라 중립 톤 */}
+        {deltaPercent !== undefined && deltaPercent !== 0 && (
+          <span
+            className={
+              deltaPercent > 0
+                ? 'ml-1 font-semibold text-emerald-600 dark:text-emerald-400'
+                : 'ml-1 text-fg-subtle'
+            }
+          >
+            ({deltaPercent > 0 ? `−${deltaPercent}%` : `+${-deltaPercent}%`})
+          </span>
+        )}
+      </figcaption>
+    </figure>
+  );
+}
 
 function SectionLabel({ number, label }: { number: number; label: string }) {
   return (

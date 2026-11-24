@@ -46,6 +46,15 @@ export interface FormatOption {
   icon: string;
 }
 
+/** 단일 변환 결과 — 화면이 미리보기·용량 비교·재다운로드에 쓴다 */
+export interface ResizeResult {
+  blob: Blob;
+  filename: string;
+  width: number;
+  height: number;
+  aiUpscaleUsed: boolean;
+}
+
 /** 매체 규격 프리셋 — GET /api/image-resize/presets 응답 한 줄 */
 export interface MediaPreset {
   key: string;

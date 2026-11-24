@@ -1,6 +1,6 @@
-import type { MediaPreset, OutputFormat } from '@/types/imageResize';
+import type { MediaPreset, OutputFormat, ResizeResult } from '@/types/imageResize';
 import { authFetch, NO_TIMEOUT } from '@/lib/api/authFetch';
-import { downloadResponse } from '@/lib/api/download';
+import { downloadResponse, filenameFromDisposition } from '@/lib/api/download';
 import { throwResponseError } from '@/lib/api/responseError';
 
 /** 매체 규격 프리셋 목록 (서버가 단일 출처) */
@@ -117,6 +117,11 @@ async function redraw(file: File, scale: number, source?: ImageBitmap): Promise<
   return new File([blob], `${stem}.jpg`, { type: 'image/jpeg' });
 }
 
+/**
+ * 변환 결과를 blob 째 돌려준다 — 화면이 미리보기·용량 비교·재다운로드를 할 수
+ * 있어야 해서, 응답을 바로 다운로드로 흘려보내지 않는다. 첫 다운로드 트리거는
+ * 호출 쪽(triggerDownload)이 맡는다.
+ */
 export async function resizeImage(
   file: File,
   width: number,
@@ -124,7 +129,7 @@ export async function resizeImage(
   format: OutputFormat,
   useAiUpscale: boolean = false,
   signal?: AbortSignal,
-): Promise<{ aiUpscaleUsed: boolean }> {
+): Promise<ResizeResult> {
   const form = new FormData();
   form.append('file', file);
   form.append('width', String(width));
@@ -143,7 +148,8 @@ export async function resizeImage(
   if (!res.ok) await throwResponseError(res);
 
   const aiUpscaleUsed = res.headers.get('X-AI-Upscale-Used') === 'true';
-  await downloadResponse(res, `resized_${file.name}`);
+  const blob = await res.blob();
+  const filename = filenameFromDisposition(res, `resized_${file.name}`);
 
-  return { aiUpscaleUsed };
+  return { blob, filename, width, height, aiUpscaleUsed };
 }
