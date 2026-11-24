@@ -13,14 +13,19 @@ export const ACCEPTED_IMAGE_MIME = new Set([
   'image/bmp',
 ]);
 
-export const MAX_IMAGE_BYTES = 50 * 1024 * 1024;
+/** 백엔드 image_resize_schema.MAX_UPLOAD_BYTES(50MB)와 맞춘 값 — 바꿀 때 양쪽 함께 */
+export const MAX_IMAGE_MB = 50;
+export const MAX_IMAGE_BYTES = MAX_IMAGE_MB * 1024 * 1024;
 
 /** 안내 문구용 포맷 나열 — 검증 Set 과 함께 수정해야 한다는 걸 같은 파일로 묶는다 */
 export const ACCEPTED_IMAGE_LABEL = 'JPEG · PNG · WebP · GIF · BMP';
 
+/** 드롭존 안내 한 줄 — 포맷·용량이 바뀌면 모든 화면이 같이 따라오게 한다 */
+export const ACCEPTED_IMAGE_HINT = `${ACCEPTED_IMAGE_LABEL} · 최대 ${MAX_IMAGE_MB}MB`;
+
 /** 업로드 가능한 이미지인지 검사한다. 문제가 없으면 null, 있으면 표시할 메시지. */
 export function validateImageFile(file: File): string | null {
   if (!ACCEPTED_IMAGE_MIME.has(file.type)) return `${ACCEPTED_IMAGE_LABEL} 파일만 지원됩니다.`;
-  if (file.size > MAX_IMAGE_BYTES) return '파일 크기는 50MB 이하여야 합니다.';
+  if (file.size > MAX_IMAGE_BYTES) return `파일 크기는 ${MAX_IMAGE_MB}MB 이하여야 합니다.`;
   return null;
 }

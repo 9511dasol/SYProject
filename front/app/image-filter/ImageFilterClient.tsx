@@ -11,7 +11,7 @@ import type {
   PromptDrafts,
 } from '@/types/imageFilter';
 import { ALL_ELEMENTS_KEY, draftKeyOf } from '@/types/imageFilter';
-import { ACCEPTED_IMAGE_LABEL, validateImageFile } from '@/lib/imageFile';
+import { ACCEPTED_IMAGE_HINT, validateImageFile } from '@/lib/imageFile';
 import { useAspectRatioInputs } from '@/hooks/useAspectRatioInputs';
 import { useFileDrop } from '@/hooks/useFileDrop';
 import { useImageUpload } from '@/hooks/useImageUpload';
@@ -864,7 +864,7 @@ function EmptyState({
                 이미지를 올리거나 여기로 드래그
               </span>
               <span className="block text-xs text-fg-subtle mt-0.5">
-                {ACCEPTED_IMAGE_LABEL} · 최대 50MB · 붙여넣기(Ctrl+V)도 돼요
+                {ACCEPTED_IMAGE_HINT} · 붙여넣기(Ctrl+V)도 돼요
               </span>
             </span>
           </button>

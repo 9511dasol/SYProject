@@ -20,6 +20,18 @@ const INITIAL_FORM: ResizeFormState = {
   useAiUpscale: false,
 };
 
+/**
+ * 자주 쓰는 비율의 표준 크기 — 숫자 입력 대신 원클릭 선택용.
+ * 매체 규격 일괄 변환(서버 프리셋)과 달리 여긴 단일 변환의 빠른 입력이 목적이라
+ * 비율당 대표 크기 하나만 둔다. 크기는 주요 SNS 권장 규격 기준.
+ */
+const RATIO_PRESETS = [
+  { key: '1:1',  label: '정방형',  width: 1080, height: 1080 },
+  { key: '4:5',  label: '피드',    width: 1080, height: 1350 },
+  { key: '16:9', label: '썸네일',  width: 1920, height: 1080 },
+  { key: '9:16', label: '스토리',  width: 1080, height: 1920 },
+] as const;
+
 type ProcessingState = 'idle' | 'compressing' | 'resizing';
 
 export default function ImageResizeClient() {
@@ -180,6 +192,43 @@ export default function ImageResizeClient() {
                     disabled={isProcessing}
                   />
                 </div>
+
+                {/* 비율 프리셋 — 흔한 규격은 입력 대신 선택으로 */}
+                <div className="mt-4 flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs text-fg-subtle mr-1">비율 프리셋</span>
+                  {RATIO_PRESETS.map((p) => {
+                    const active =
+                      form.targetWidth === String(p.width) && form.targetHeight === String(p.height);
+                    return (
+                      <button
+                        key={p.key}
+                        type="button"
+                        disabled={isProcessing}
+                        onClick={() =>
+                          // 원본과 다른 비율을 고르는 것이므로 비율 고정은 푼다 —
+                          // 켜 둔 채면 다음 수동 입력에서 프리셋 비율이 다시 깨진다
+                          setForm((prev) => ({
+                            ...prev,
+                            targetWidth: String(p.width),
+                            targetHeight: String(p.height),
+                            keepAspectRatio: false,
+                          }))
+                        }
+                        className={[
+                          'inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors tabular-nums',
+                          active
+                            ? 'bg-violet-500 text-white border-violet-500'
+                            : 'bg-surface-2 text-fg-muted border-border hover:border-violet-300 dark:hover:border-violet-700',
+                          'disabled:opacity-50 disabled:cursor-not-allowed',
+                        ].join(' ')}
+                        title={`${p.width}×${p.height}`}
+                      >
+                        <RatioGlyph w={p.width} h={p.height} filled={active} />
+                        {p.key} {p.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </section>
 
               <Divider />
@@ -269,7 +318,7 @@ export default function ImageResizeClient() {
                   다운로드가 시작되었습니다. 저장이 안 됐다면 아래에서 다시 받을 수 있어요.
                 </p>
 
-                <div className="mt-4 flex items-center justify-center gap-3 sm:gap-5">
+                <div className="mt-4 flex items-center justify-center gap-3 sm:gap-5 flex-wrap">
                   <ResultThumb
                     src={previewUrl}
                     alt="원본 이미지"
@@ -330,6 +379,24 @@ export default function ImageResizeClient() {
 }
 
 /* ── 내부 소형 컴포넌트 ─────────────────────────────────────── */
+
+/** 비율을 모양으로 보여주는 작은 사각형 — 숫자를 읽지 않고 모양으로 고르게 한다 */
+function RatioGlyph({ w, h, filled }: { w: number; h: number; filled: boolean }) {
+  // 긴 변을 12px 로 고정하고 짧은 변을 비율대로 줄인다
+  const longest = Math.max(w, h);
+  const gw = Math.max(4, Math.round((w / longest) * 12));
+  const gh = Math.max(4, Math.round((h / longest) * 12));
+  return (
+    <span
+      aria-hidden
+      className={[
+        'inline-block rounded-[2px] border shrink-0',
+        filled ? 'border-white/80 bg-white/20' : 'border-current opacity-60',
+      ].join(' ')}
+      style={{ width: gw, height: gh }}
+    />
+  );
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;

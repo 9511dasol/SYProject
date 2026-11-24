@@ -180,13 +180,26 @@ export default function HeadingSuggestClient() {
         {/* 결과 영역 */}
         {(isLoading || headings.length > 0) && (
           <div className="space-y-4">
-            {/* 플랫폼 탭 */}
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <PlatformTabs
-                active={activeTab}
-                counts={counts}
-                onChange={setActiveTab}
-              />
+            {/* 플랫폼 탭 + 분석 이미지 — 문구는 이미지와 대조하며 고르는 것이라,
+                스크롤 중에도 어떤 이미지의 문구인지 보이도록 바를 고정한다 */}
+            {/* top-16: 앱 헤더(h-14, sticky)가 위에 있으므로 그 아래에 멈춰야 가려지지 않는다 */}
+            <div className="sticky top-16 z-10 flex items-center justify-between flex-wrap gap-3 rounded-2xl border border-border bg-surface/95 backdrop-blur px-3 py-2 shadow-card">
+              <div className="flex items-center gap-3 flex-wrap">
+                {previewUrl && (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={previewUrl}
+                    alt={file ? `분석한 이미지: ${file.name}` : '분석한 이미지'}
+                    title={file?.name}
+                    className="w-10 h-10 rounded-lg object-cover border border-border shrink-0"
+                  />
+                )}
+                <PlatformTabs
+                  active={activeTab}
+                  counts={counts}
+                  onChange={setActiveTab}
+                />
+              </div>
               {headings.length > 0 && (
                 <div className="text-right">
                   <p

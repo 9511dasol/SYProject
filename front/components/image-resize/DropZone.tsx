@@ -3,7 +3,7 @@
 import { useRef, useState, useCallback } from 'react';
 import type { ChangeEvent } from 'react';
 import { useFileDrop } from '@/hooks/useFileDrop';
-import { validateImageFile } from '@/lib/imageFile';
+import { ACCEPTED_IMAGE_HINT, validateImageFile } from '@/lib/imageFile';
 import type { DropZoneProps } from '@/types/imageResize';
 
 export default function DropZone({
@@ -113,7 +113,7 @@ export default function DropZone({
               <p className="font-semibold text-fg-body">
                 {isDragging ? '여기에 놓으세요!' : '이미지를 드래그하거나 클릭하여 업로드'}
               </p>
-              <p className="text-xs text-fg-subtle">JPEG · PNG · WebP · GIF · BMP · 최대 50 MB</p>
+              <p className="text-xs text-fg-subtle">{ACCEPTED_IMAGE_HINT}</p>
             </div>
           </div>
         )}
