@@ -10,7 +10,12 @@ from fastapi import File, Form, HTTPException, Request, UploadFile
 
 # ── 공통 업로드 상수 ───────────────────────────────────────────────────────────
 
-MAX_UPLOAD_BYTES: int = 50 * 1_024 * 1_024  # 50 MB
+# 프런트 lib/imageFile.ts 의 MAX_IMAGE_MB 와 맞춘 값 — 바꿀 때 양쪽 함께.
+# 오류 문구도 여기서 파생된다: 상한만 바꾸고 문구가 옛 숫자로 남는 일이 없게.
+MAX_UPLOAD_MB: int = 50
+MAX_UPLOAD_BYTES: int = MAX_UPLOAD_MB * 1_024 * 1_024
+
+_TOO_LARGE_DETAIL = f"파일 크기가 {MAX_UPLOAD_MB}MB를 초과합니다."
 
 ALLOWED_FORMATS: frozenset[str] = frozenset({"jpeg", "png", "webp"})
 
@@ -38,7 +43,7 @@ def validate_content_length(request: Request) -> None:
     """Content-Length 헤더로 1차 용량 검사."""
     raw_cl = request.headers.get("content-length")
     if raw_cl and int(raw_cl) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="파일 크기가 50MB를 초과합니다.")
+        raise HTTPException(status_code=413, detail=_TOO_LARGE_DETAIL)
 
 
 def normalize_format(fmt: str) -> str:
@@ -58,7 +63,7 @@ async def read_and_check_file(file: UploadFile) -> tuple[bytes, str]:
     """파일 바이트 읽기 + 실제 크기·MIME 검사 → (bytes, filename) 반환."""
     file_bytes = await file.read()
     if len(file_bytes) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="파일 크기가 50MB를 초과합니다.")
+        raise HTTPException(status_code=413, detail=_TOO_LARGE_DETAIL)
     if not file_bytes:
         raise HTTPException(status_code=400, detail="빈 파일입니다.")
 

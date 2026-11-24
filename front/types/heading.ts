@@ -17,4 +17,7 @@ export type HeadingResponse = HeadingSuggestionRecord;
 /** 탭 필터 — '전체'는 화면에만 있는 값이라 생성 타입에 없다 */
 export type PlatformFilter = '전체' | Platform;
 
+/** 전체 생성 목표 개수 — 백엔드 heading_service._PLATFORM_SPECS 합과 맞춘 값. 바꿀 때 양쪽 함께. */
+export const HEADING_TARGET_COUNT = 10;
+
 export type HeadingLoadingState = 'idle' | 'compressing' | 'analyzing';

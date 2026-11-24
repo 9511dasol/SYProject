@@ -4,8 +4,10 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import DropZone from '@/components/image-resize/DropZone';
 import PlatformTabs from '@/components/heading-suggest/PlatformTabs';
+import HeadingCard from '@/components/heading-suggest/HeadingCard';
 import HeadingGrid, { HeadingGridSkeleton } from '@/components/heading-suggest/HeadingGrid';
 import Button from '@/components/ui/Button';
+import { HEADING_TARGET_COUNT } from '@/types/heading';
 import type { HeadingItem, HeadingLoadingState, Platform, PlatformFilter } from '@/types/heading';
 import { useImageUpload } from '@/hooks/useImageUpload';
 import { isUserCancel } from '@/lib/api/authFetch';
@@ -16,6 +18,25 @@ const LOADING_LABELS: Record<HeadingLoadingState, string> = {
   compressing: '이미지 압축 중...',
   analyzing:   'Gemini가 분석 중...',
 };
+
+/** 백엔드 heading_service._THUMBNAIL_BOX 와 맞춘 안내용 표기. 바꿀 때 양쪽 함께. */
+const THUMBNAIL_SIZE_LABEL = '512×512';
+
+/* 첫 화면이 빈 드롭존뿐이면 뭘 얻게 되는지 알 수 없다 — 결과 모양을 미리 보여준다 */
+const EXAMPLE_HEADINGS: HeadingItem[] = [
+  {
+    id: -1,
+    platform: 'Instagram',
+    text: '오늘의 피드를 바꿀 단 한 장 ✨',
+    desc: '이미지의 분위기를 살려 감성 키워드로 저장을 유도하는 문구 예시입니다. 짧고 강한 표현이라 피드를 넘기다가도 시선이 멈춥니다.',
+  },
+  {
+    id: -2,
+    platform: 'YouTube',
+    text: '클릭률 2배 올린 썸네일의 비밀?',
+    desc: '궁금증을 자극하는 질문형 헤드라인 예시입니다. 숫자와 물음표를 써서 영상 플랫폼에서 높은 클릭률을 노립니다.',
+  },
+];
 
 // 이전 생성 기록(썸네일 갤러리·마지막 작업 자동 복원)은 이 페이지에서 걷어냈다.
 // 저장은 그대로 되고, 지난 기록은 '헤딩 문구 기록'(/heading-history) 페이지에서 본다.
@@ -139,7 +160,7 @@ export default function HeadingSuggestClient() {
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-fg tracking-tight">헤딩 문구 추천</h1>
           <p className="text-sm text-fg-muted">
-            이미지를 업로드하면 Gemini가 매체별 마케팅 헤딩 문구 10개를 제안합니다
+            이미지를 업로드하면 Gemini가 매체별 마케팅 헤딩 문구 {HEADING_TARGET_COUNT}개를 제안합니다
           </p>
         </header>
 
@@ -201,12 +222,27 @@ export default function HeadingSuggestClient() {
                   Gemini가 이미지를 분석하는 중...
                 </p>
                 <p className="text-xs text-amber-500 dark:text-amber-400 mt-0.5">
-                  512×512 썸네일로 Vision API 호출 중 · 보통 5~15초 소요
+                  {THUMBNAIL_SIZE_LABEL} 썸네일로 Vision API 호출 중 · 보통 5~15초 소요
                 </p>
               </div>
             </div>
           )}
         </div>
+
+        {/* 빈 상태 예시 — 파일을 올리기 전, 어떤 결과를 받게 되는지 미리 보여준다 */}
+        {!file && headings.length === 0 && !isLoading && (
+          <div aria-hidden className="space-y-3 select-none">
+            <p className="text-center text-xs font-medium text-fg-subtle">
+              <i className="bx bx-show text-sm align-middle mr-1" />
+              이런 결과를 받게 돼요 — 예시
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 opacity-60 pointer-events-none">
+              {EXAMPLE_HEADINGS.map((item) => (
+                <HeadingCard key={item.id} item={item} />
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 결과 영역 */}
         {(isLoading || headings.length > 0) && (
@@ -248,13 +284,14 @@ export default function HeadingSuggestClient() {
                 {headings.length > 0 && (
                   <p
                     className={
-                      headings.length < 10
+                      headings.length < HEADING_TARGET_COUNT
                         ? 'text-xs font-medium text-amber-600 dark:text-amber-400'
                         : 'text-xs text-fg-subtle'
                     }
                   >
                     총 {headings.length}개 문구 생성됨
-                    {headings.length < 10 && ' · AI가 목표치(10개)보다 적게 생성했어요'}
+                    {headings.length < HEADING_TARGET_COUNT &&
+                      ` · AI가 목표치(${HEADING_TARGET_COUNT}개)보다 적게 생성했어요`}
                   </p>
                 )}
               </div>
@@ -269,7 +306,7 @@ export default function HeadingSuggestClient() {
         )}
 
         <p className="text-center text-xs text-fg-subtle">
-          AI 분석용 512×512 썸네일과 생성된 문구는 계정에 저장되며,{' '}
+          AI 분석용 {THUMBNAIL_SIZE_LABEL} 썸네일과 생성된 문구는 계정에 저장되며,{' '}
           <Link href="/heading-history" className="underline hover:text-fg-muted">
             헤딩 문구 기록
           </Link>

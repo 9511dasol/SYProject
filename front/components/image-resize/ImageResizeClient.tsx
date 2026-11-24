@@ -369,6 +369,24 @@ export default function ImageResizeClient() {
           )}
         </div>
 
+        {/* 빈 상태 예시 — 파일을 올리기 전, 어떤 결과를 받게 되는지 미리 보여준다 */}
+        {!file && (
+          <div
+            aria-hidden
+            className="rounded-2xl border border-dashed border-border bg-surface/60 p-6 select-none opacity-70"
+          >
+            <p className="text-center text-xs font-medium text-fg-subtle mb-4">
+              <i className="bx bx-show text-sm align-middle mr-1" />
+              이런 결과를 받게 돼요 — 예시
+            </p>
+            <div className="flex items-center justify-center gap-3 sm:gap-5 flex-wrap">
+              <ExampleThumb label="원본" dims="2000×1500" size="2.4 MB" />
+              <i className="bx bx-right-arrow-alt text-2xl text-fg-subtle shrink-0" />
+              <ExampleThumb label="결과" dims="1080×810" size="380 KB" delta="−84%" highlighted />
+            </div>
+          </div>
+        )}
+
         {/* 매체 규격 일괄 변환 — 단일 변환과 독립적인 보조 카드 */}
         {file && (
           <div className="rounded-2xl border border-border bg-surface shadow-card overflow-hidden">
@@ -395,6 +413,50 @@ export default function ImageResizeClient() {
 }
 
 /* ── 내부 소형 컴포넌트 ─────────────────────────────────────── */
+
+/** 빈 상태 예시용 가짜 썸네일 — 실제 이미지 없이 결과 패널의 모양만 보여준다 */
+function ExampleThumb({
+  label,
+  dims,
+  size,
+  delta,
+  highlighted = false,
+}: {
+  label: string;
+  dims: string;
+  size: string;
+  delta?: string;
+  highlighted?: boolean;
+}) {
+  return (
+    <figure className="text-center min-w-0">
+      <div
+        className={[
+          'w-24 h-24 rounded-xl mx-auto border flex items-center justify-center',
+          highlighted
+            ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/30'
+            : 'border-border bg-surface-3',
+        ].join(' ')}
+      >
+        <i
+          className={`bx bx-image text-3xl ${
+            highlighted ? 'text-emerald-300 dark:text-emerald-700' : 'text-fg-subtle'
+          }`}
+        />
+      </div>
+      <figcaption className="mt-2 text-[11px] leading-snug text-fg-muted">
+        {label} <span className="tabular-nums">{dims}</span>
+        <br />
+        <span className="tabular-nums">{size}</span>
+        {delta && (
+          <span className="ml-1 font-semibold text-emerald-600 dark:text-emerald-400">
+            ({delta})
+          </span>
+        )}
+      </figcaption>
+    </figure>
+  );
+}
 
 /** 처리 단계 한 칸 — done(완료)·active(진행 중)·pending(대기) */
 function ProcessStep({ label, state }: { label: string; state: 'done' | 'active' | 'pending' }) {
