@@ -23,6 +23,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 임시 진단 단계 — 로그인 실패 원인 확인 후 제거할 것
+      - name: Debug registry response
+        run: |
+          echo "--- GET /v2/ (unauthenticated) ---"
+          curl -v "https://${{ vars.NCP_REGISTRY }}/v2/" 2>&1 || true
+          echo "--- docker login (verbose via trace) ---"
+          echo "${{ secrets.NCP_SECRET_KEY }}" | docker login "${{ vars.NCP_REGISTRY }}" -u "${{ secrets.NCP_ACCESS_KEY }}" --password-stdin || true
+
       - name: Log in to NCP Container Registry
         uses: docker/login-action@v3
         with:
