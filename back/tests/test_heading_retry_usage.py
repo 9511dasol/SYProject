@@ -43,7 +43,7 @@ def _fake_gemini(monkeypatch, attempts: list):
     """시도 순서대로 (응답 텍스트, usage) 를 돌려주거나 예외를 던지는 가짜."""
     calls = iter(attempts)
 
-    async def fake(_thumbnail: bytes):
+    async def fake(_thumbnail: bytes, _platform: str | None = None):
         item = next(calls)
         if isinstance(item, Exception):
             raise item

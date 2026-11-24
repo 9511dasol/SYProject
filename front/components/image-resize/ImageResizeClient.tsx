@@ -5,6 +5,7 @@ import DropZone from '@/components/image-resize/DropZone';
 import DimensionInputs from '@/components/image-resize/DimensionInputs';
 import FormatSelector from '@/components/image-resize/FormatSelector';
 import MediaPresetBatch from '@/components/image-resize/MediaPresetBatch';
+import RatioGlyph from '@/components/image-resize/RatioGlyph';
 import Button from '@/components/ui/Button';
 import type { ResizeFormState, ResizeResult } from '@/types/imageResize';
 import { useAspectRatioInputs } from '@/hooks/useAspectRatioInputs';
@@ -284,6 +285,21 @@ export default function ImageResizeClient() {
                   </div>
                 )}
 
+                {/* 진행 단계 — 긴 작업(특히 AI 업스케일)에서 지금 어디까지 왔는지 보여준다 */}
+                {isProcessing && (
+                  <div className="flex items-center justify-center gap-2.5 text-xs">
+                    <ProcessStep
+                      label="이미지 압축"
+                      state={processing === 'compressing' ? 'active' : 'done'}
+                    />
+                    <i className="bx bx-right-arrow-alt text-base text-fg-subtle" />
+                    <ProcessStep
+                      label={useAiUpscale ? 'AI 업스케일' : '리사이즈'}
+                      state={processing === 'resizing' ? 'active' : 'pending'}
+                    />
+                  </div>
+                )}
+
                 {file && (
                   <Button
                     tone="violet"
@@ -380,21 +396,31 @@ export default function ImageResizeClient() {
 
 /* ── 내부 소형 컴포넌트 ─────────────────────────────────────── */
 
-/** 비율을 모양으로 보여주는 작은 사각형 — 숫자를 읽지 않고 모양으로 고르게 한다 */
-function RatioGlyph({ w, h, filled }: { w: number; h: number; filled: boolean }) {
-  // 긴 변을 12px 로 고정하고 짧은 변을 비율대로 줄인다
-  const longest = Math.max(w, h);
-  const gw = Math.max(4, Math.round((w / longest) * 12));
-  const gh = Math.max(4, Math.round((h / longest) * 12));
+/** 처리 단계 한 칸 — done(완료)·active(진행 중)·pending(대기) */
+function ProcessStep({ label, state }: { label: string; state: 'done' | 'active' | 'pending' }) {
   return (
     <span
-      aria-hidden
       className={[
-        'inline-block rounded-[2px] border shrink-0',
-        filled ? 'border-white/80 bg-white/20' : 'border-current opacity-60',
+        'inline-flex items-center gap-1.5',
+        state === 'active'
+          ? 'text-violet-600 dark:text-violet-400 font-semibold'
+          : state === 'done'
+          ? 'text-emerald-600 dark:text-emerald-400'
+          : 'text-fg-subtle',
       ].join(' ')}
-      style={{ width: gw, height: gh }}
-    />
+    >
+      {state === 'done' ? (
+        <i className="bx bx-check-circle text-sm" />
+      ) : state === 'active' ? (
+        <span className="relative inline-flex w-2.5 h-2.5">
+          <span className="absolute inset-0 rounded-full animate-ping opacity-60 bg-violet-400" />
+          <span className="relative w-2.5 h-2.5 rounded-full bg-violet-500" />
+        </span>
+      ) : (
+        <span className="w-2.5 h-2.5 rounded-full border border-current opacity-50" />
+      )}
+      {label}
+    </span>
   );
 }
 

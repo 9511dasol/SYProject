@@ -41,8 +41,11 @@ export default function HeadingGrid({ headings, filter }: HeadingGridProps) {
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      {visible.map((item) => (
-        <HeadingCard key={item.id} item={item} />
+      {visible.map((item, i) => (
+        // 50ms 간격 순차 등장 — "AI가 하나씩 만들어냈다"는 느낌을 준다
+        <div key={item.id} className="animate-rise-in" style={{ animationDelay: `${i * 50}ms` }}>
+          <HeadingCard item={item} />
+        </div>
       ))}
     </div>
   );

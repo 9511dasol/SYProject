@@ -909,7 +909,7 @@ export interface paths {
          *
          *     period 를 주면 고른 달만, 없으면 파일에 담긴 모든 달을 저장한다.
          *     replace=true 이면 저장 대상 달들의 기존 데이터를 각각 먼저 삭제하고 교체.
-         *     save_comment=true 이면 summary B32 코멘트도 marketing_period_meta 에 반영한다.
+         *     save_comment=true 이면 파일에 담긴 기간 코멘트도 marketing_period_meta 에 반영한다.
          */
         post: operations["save_excel_data_api_marketing_save_excel_data_post"];
         delete?: never;
@@ -933,7 +933,7 @@ export interface paths {
          *
          *     period 를 주면 고른 달만, 없으면 파일에 담긴 모든 달을 저장한다.
          *     replace=true 이면 저장 대상 달들의 기존 행을 각각 지우고 교체한다.
-         *     save_comment=true 이면 summary B32 코멘트도 marketing_period_meta 에 반영한다.
+         *     save_comment=true 이면 파일에 담긴 기간 코멘트도 marketing_period_meta 에 반영한다.
          */
         post: operations["start_save_excel_task_api_marketing_save_excel_task_post"];
         delete?: never;
@@ -1718,6 +1718,16 @@ export interface components {
              * @description 분석할 마케팅 이미지
              */
             file: string;
+            /**
+             * Platform
+             * @description 이 플랫폼 문구만 생성
+             */
+            platform?: ("Instagram" | "Blog" | "YouTube") | null;
+            /**
+             * Record Id
+             * @description 재생성 결과를 병합할 기존 기록 ID
+             */
+            record_id?: number | null;
         };
         /** Body_upload_files_api_marketing_upload_post */
         Body_upload_files_api_marketing_upload_post: {
@@ -4579,7 +4589,7 @@ export interface operations {
                 replace?: boolean;
                 /** @description 저장할 기간 시트 (예: period=26년 5월&period=26년 6월). 생략 시 전체 */
                 period?: string[] | null;
-                /** @description summary B32 코멘트도 함께 저장 */
+                /** @description 파일에 담긴 기간 코멘트도 함께 저장 */
                 save_comment?: boolean;
             };
             header?: never;
@@ -4620,7 +4630,7 @@ export interface operations {
                 replace?: boolean;
                 /** @description 저장할 기간 시트 (예: period=26년 5월&period=26년 6월). 생략 시 전체 */
                 period?: string[] | null;
-                /** @description summary B32 코멘트도 함께 저장 */
+                /** @description 파일에 담긴 기간 코멘트도 함께 저장 */
                 save_comment?: boolean;
             };
             header?: never;

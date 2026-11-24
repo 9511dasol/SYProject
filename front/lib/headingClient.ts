@@ -1,4 +1,4 @@
-import type { HeadingHistoryResponse, HeadingSuggestionRecord } from '@/types/heading';
+import type { HeadingHistoryResponse, HeadingSuggestionRecord, Platform } from '@/types/heading';
 import { authFetch, NO_TIMEOUT } from '@/lib/api/authFetch';
 import { extractResponseError } from '@/lib/api/responseError';
 import { compressImageIfNeeded } from './imageResizeClient';
@@ -7,12 +7,16 @@ import { compressImageIfNeeded } from './imageResizeClient';
  * 이미지를 서버에 전송해 플랫폼별 헤딩 문구를 생성하고, 저장된 기록(히스토리 항목)을 반환합니다.
  * 생성 결과는 서버 DB에 사용자별로 저장되므로 이후 히스토리에서 다시 볼 수 있습니다.
  * 10MB 초과 이미지는 클라이언트에서 Canvas 압축 후 전송합니다.
+ *
+ * regenerate 를 주면 해당 플랫폼 문구만 다시 생성해 기존 기록(recordId)에 병합합니다 —
+ * 전체를 다시 돌리는 것보다 빠르고 토큰도 그만큼만 씁니다.
  */
 export async function fetchHeadings(
   file: File,
   onCompress?: () => void,
   onAnalyze?: () => void,
   signal?: AbortSignal,
+  regenerate?: { platform: Platform; recordId: number },
 ): Promise<HeadingSuggestionRecord> {
   onCompress?.();
   const compressed = await compressImageIfNeeded(file);
@@ -20,6 +24,10 @@ export async function fetchHeadings(
   onAnalyze?.();
   const form = new FormData();
   form.append('file', compressed);
+  if (regenerate) {
+    form.append('platform', regenerate.platform);
+    form.append('record_id', String(regenerate.recordId));
+  }
 
   const res = await authFetch('/api/heading/suggest', {
     method: 'POST',

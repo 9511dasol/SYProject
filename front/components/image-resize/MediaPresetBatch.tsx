@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Button from '@/components/ui/Button';
+import RatioGlyph from '@/components/image-resize/RatioGlyph';
 import type { MediaPreset, OutputFormat } from '@/types/imageResize';
 import { batchResizeToZip, fetchMediaPresets } from '@/lib/imageResizeClient';
 
@@ -116,12 +117,13 @@ export default function MediaPresetBatch({
                         type="button"
                         onClick={() => toggle(p.key)}
                         disabled={loading}
-                        className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors tabular-nums ${
+                        className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors tabular-nums ${
                           on
                             ? 'bg-indigo-500 text-white border-indigo-500'
                             : 'bg-surface-2 text-fg-muted border-border hover:border-indigo-300'
                         }`}
                       >
+                        <RatioGlyph w={p.width} h={p.height} filled={on} />
                         {p.label} · {p.width}×{p.height}
                       </button>
                     );

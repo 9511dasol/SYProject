@@ -38,19 +38,21 @@ def _gemini() -> genai.Client:
 
 _MODEL          = settings.GEMINI_MODEL
 _THUMBNAIL_BOX  = (512, 512)
-_MAX_ATTEMPTS   = 2     # 10개 미달/파싱 실패 시 재시도 횟수
-_TARGET_COUNT   = 10
+_MAX_ATTEMPTS   = 2     # 목표 미달/파싱 실패 시 재시도 횟수
 
-_SYSTEM_PROMPT = """\
-You are a world-class Korean marketing copywriter specializing in digital advertising.
+# 플랫폼별 생성 개수·스타일 지침의 단일 출처.
+# 예전에는 "EXACTLY 10"·"Instagram (4 headings)" 같은 숫자가 프롬프트 문자열과
+# _TARGET_COUNT 상수에 각자 하드코딩돼 있어, 개수를 바꾸면 한쪽을 빠뜨려 조용히
+# 어긋날 수 있었다. 이제 프롬프트·목표치·플랫폼 순서가 전부 여기서 파생된다.
+_PLATFORM_SPECS: dict[str, tuple[int, str]] = {
+    "Instagram": (4, "Ultra-short, punchy, include 1-2 relevant emoji, emotional & visual, under 20 Korean characters"),
+    "Blog":      (3, "SEO-friendly, keyword-rich, descriptive, informative tone, 20-40 Korean characters"),
+    "YouTube":   (3, "Curiosity-driven, use numbers/questions/surprises for high CTR, 20-35 Korean characters"),
+}
+PLATFORM_ORDER: tuple[str, ...] = tuple(_PLATFORM_SPECS)
+_TARGET_COUNT = sum(count for count, _ in _PLATFORM_SPECS.values())
 
-Analyze the provided image and generate EXACTLY 10 compelling Korean marketing heading suggestions for 3 platforms.
-
-Platform breakdown and style guide — these lengths apply to the "text" field only:
-- Instagram (4 headings): Ultra-short, punchy, include 1-2 relevant emoji, emotional & visual, under 20 Korean characters
-- Blog (3 headings): SEO-friendly, keyword-rich, descriptive, informative tone, 20-40 Korean characters
-- YouTube (3 headings): Curiosity-driven, use numbers/questions/surprises for high CTR, 20-35 Korean characters
-
+_PROMPT_BODY = """\
 The "desc" field is separate and must be substantially longer than the heading itself:
 - Write 2 natural sentences totalling about 85 Korean characters — usually 80-95.
 - That range is a guideline, not a hard limit. Landing a few characters outside it is
@@ -65,13 +67,35 @@ The "desc" field is separate and must be substantially longer than the heading i
 Examples of well-sized desc values (83 characters each — aim for this scale, not this wording):
 - "이미지의 50% 할인 문구를 전면에 내세워 가격에 민감한 수험생을 겨냥했습니다. 짧고 강한 표현이라 피드를 빠르게 넘기다가도 시선을 멈추게 만듭니다."
 - "이미지 속 D-7 마감 압박을 그대로 살려 지금 결정해야 할 이유를 만들었습니다. 목표가 뚜렷한 수험생에게 잘 통하고 클릭까지 자연스럽게 이어집니다."
+"""
 
+
+def _build_system_prompt(platform: str | None = None) -> str:
+    """전체(기본) 또는 단일 플랫폼용 시스템 프롬프트를 스펙에서 조립한다."""
+    specs = {platform: _PLATFORM_SPECS[platform]} if platform else _PLATFORM_SPECS
+    total = sum(count for count, _ in specs.values())
+    platform_phrase = f"{len(specs)} platform" + ("s" if len(specs) > 1 else "")
+    breakdown = "\n".join(
+        f"- {name} ({count} headings): {style}" for name, (count, style) in specs.items()
+    )
+    order = ", ".join(f"{name} × {count}" for name, (count, _) in specs.items())
+    first_platform = next(iter(specs))
+
+    return f"""\
+You are a world-class Korean marketing copywriter specializing in digital advertising.
+
+Analyze the provided image and generate EXACTLY {total} compelling Korean marketing heading suggestions for {platform_phrase}.
+
+Platform breakdown and style guide — these lengths apply to the "text" field only:
+{breakdown}
+
+{_PROMPT_BODY}
 STRICT OUTPUT RULES:
 1. Respond ONLY with valid JSON — no markdown, no code block, no extra text whatsoever.
 2. ALL text and desc fields must be in Korean.
-3. Generate headings in this exact order: Instagram × 4, Blog × 3, YouTube × 3.
+3. Generate headings in this exact order: {order}.
 4. Use this EXACT JSON schema (id starts at 1, increments by 1):
-{"headings": [{"id": 1, "platform": "Instagram", "text": "...", "desc": "이 문구를 추천하는 이유를 85자 내외 두 문장으로"}, ...]}
+{{"headings": [{{"id": 1, "platform": "{first_platform}", "text": "...", "desc": "이 문구를 추천하는 이유를 85자 내외 두 문장으로"}}, ...]}}
 """
 
 
@@ -119,7 +143,9 @@ def _fit_desc(desc: str) -> str:
     return kept if len(kept) >= _DESC_MIN_AFTER_TRIM else desc
 
 
-def _parse_response(raw: str) -> HeadingResponse:
+def _parse_response(
+    raw: str, *, target: int = _TARGET_COUNT, platform: str | None = None
+) -> HeadingResponse:
     """AI 응답 텍스트 → HeadingResponse (엄격 검증)."""
     cleaned = strip_code_fence(raw)
     data = parse_json_object(cleaned, error=RuntimeError, excerpt=300)
@@ -127,8 +153,14 @@ def _parse_response(raw: str) -> HeadingResponse:
     if not isinstance(data.get("headings"), list):
         raise RuntimeError(f"AI 응답 형식이 예상과 다릅니다: {cleaned[:300]!r}")
 
-    # 10개 초과 시 앞에서부터 자르고, id 자동 보정 (AI가 id 를 잘못 반환한 경우 대비)
-    headings = data["headings"][:_TARGET_COUNT]
+    headings = data["headings"]
+    # 단일 플랫폼 요청인데 모델이 다른 플랫폼을 섞어 보내면 요청한 것만 남긴다 —
+    # 섞인 채 레코드에 병합되면 같은 플랫폼 문구가 중복으로 쌓인다.
+    if platform is not None:
+        headings = [h for h in headings if isinstance(h, dict) and h.get("platform") == platform]
+
+    # 목표 초과 시 앞에서부터 자르고, id 자동 보정 (AI가 id 를 잘못 반환한 경우 대비)
+    headings = headings[:target]
     for i, item in enumerate(headings, start=1):
         item["id"] = i
         if isinstance(item.get("desc"), str):
@@ -169,20 +201,24 @@ def _add_usage(acc: TokenUsage | None, extra: TokenUsage | None) -> TokenUsage |
     )
 
 
-async def _call_gemini(thumbnail_bytes: bytes) -> tuple[str, TokenUsage | None]:
+async def _call_gemini(
+    thumbnail_bytes: bytes, platform: str | None = None
+) -> tuple[str, TokenUsage | None]:
     """Gemini Vision 호출 → (원본 텍스트 응답, 토큰 사용량). API 오류는 RuntimeError로 변환."""
+    target = _PLATFORM_SPECS[platform][0] if platform else _TARGET_COUNT
+    scope = f"{platform} 플랫폼용" if platform else "매체별"
     try:
         response = await _gemini().aio.models.generate_content(
             model=_MODEL,
             contents=[
                 types.Part.from_bytes(data=thumbnail_bytes, mime_type="image/jpeg"),
                 (
-                    "이 이미지에 어울리는 매체별 마케팅 헤딩 문구 10개를 "
+                    f"이 이미지에 어울리는 {scope} 마케팅 헤딩 문구 {target}개를 "
                     "지정된 JSON 형식으로만 생성해주세요."
                 ),
             ],
             config=types.GenerateContentConfig(
-                system_instruction=_SYSTEM_PROMPT,
+                system_instruction=_build_system_prompt(platform),
                 response_mime_type="application/json",
                 # desc 를 85자로 늘리면서 함께 올렸다. 10개 × (제목 ~35자 + 내용 ~85자)에
                 # JSON 구조까지 더하면 예전 한도(2500)로는 응답이 중간에 잘려
@@ -199,13 +235,16 @@ async def _call_gemini(thumbnail_bytes: bytes) -> tuple[str, TokenUsage | None]:
 
 async def generate_headings(
     file_bytes: bytes,
+    platform: str | None = None,
 ) -> tuple[HeadingResponse, TokenUsage | None, bytes]:
     """
-    이미지를 분석해 플랫폼별 헤딩 문구를 생성합니다 (목표 10개).
+    이미지를 분석해 플랫폼별 헤딩 문구를 생성합니다.
 
-    응답이 목표치(10개)에 못 미치거나 파싱에 실패하면 최대 _MAX_ATTEMPTS 회
-    재시도하고, 그래도 부족하면 그때까지 얻은 결과 중 가장 많은 것을 반환합니다
-    (완전 실패는 모든 시도에서 파싱조차 되지 않았을 때만 발생).
+    platform 을 주면 그 플랫폼의 스펙 개수만(예: Instagram 4개), 없으면 전체
+    (_TARGET_COUNT 개)를 목표로 합니다. 응답이 목표치에 못 미치거나 파싱에
+    실패하면 최대 _MAX_ATTEMPTS 회 재시도하고, 그래도 부족하면 그때까지 얻은
+    결과 중 가장 많은 것을 반환합니다 (완전 실패는 모든 시도에서 파싱조차
+    되지 않았을 때만 발생).
 
     Returns
     -------
@@ -218,6 +257,10 @@ async def generate_headings(
     HeadingGenerationError — 모든 시도 실패인데 과금된 호출이 있다 (usage 동봉)
     RuntimeError — 모든 시도에서 API 오류 (과금된 호출 없음)
     """
+    if platform is not None and platform not in _PLATFORM_SPECS:
+        raise ValueError(f"지원하지 않는 플랫폼: {platform!r}")
+
+    target = _PLATFORM_SPECS[platform][0] if platform else _TARGET_COUNT
     thumbnail_bytes = _make_thumbnail_bytes(file_bytes)
 
     best: HeadingResponse | None = None
@@ -226,23 +269,23 @@ async def generate_headings(
 
     for _ in range(_MAX_ATTEMPTS):
         try:
-            raw_text, usage = await _call_gemini(thumbnail_bytes)
+            raw_text, usage = await _call_gemini(thumbnail_bytes, platform)
         except RuntimeError as exc:
             last_error = exc
             continue
 
-        # 호출이 성공한 순간 토큰은 이미 과금됐다. 파싱 실패나 10개 미달로
+        # 호출이 성공한 순간 토큰은 이미 과금됐다. 파싱 실패나 목표 미달로
         # 버려지는 시도도 합산해야 로그 합계 기반 월간 예산이 실소비와 맞는다
         # (예전에는 채택된 시도 1건만 반환해 재시도분이 집계에서 샜다).
         total_usage = _add_usage(total_usage, usage)
 
         try:
-            result = _parse_response(raw_text)
+            result = _parse_response(raw_text, target=target, platform=platform)
         except RuntimeError as exc:
             last_error = exc
             continue
 
-        if len(result.headings) >= _TARGET_COUNT:
+        if len(result.headings) >= target:
             return result, total_usage, thumbnail_bytes
         if best is None or len(result.headings) > len(best.headings):
             best = result
@@ -254,3 +297,20 @@ async def generate_headings(
     if total_usage is not None:
         raise HeadingGenerationError(str(last_error), usage=total_usage) from last_error
     raise last_error
+
+
+def merge_platform_headings(
+    existing: list[dict], new_items: list[dict], platform: str
+) -> list[dict]:
+    """기존 기록의 한 플랫폼 문구만 새 것으로 교체한 목록을 돌려준다.
+
+    순서는 항상 _PLATFORM_SPECS 선언 순(Instagram → Blog → YouTube)으로 맞추고
+    id 를 1부터 다시 매긴다 — 재생성을 반복해도 화면·기록의 순서가 흔들리지 않는다.
+    """
+    merged: list[dict] = []
+    for name in _PLATFORM_SPECS:
+        if name == platform:
+            merged.extend(new_items)
+        else:
+            merged.extend(h for h in existing if h.get("platform") == name)
+    return [{**h, "id": i} for i, h in enumerate(merged, start=1)]

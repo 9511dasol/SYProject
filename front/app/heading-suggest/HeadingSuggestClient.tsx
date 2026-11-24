@@ -6,7 +6,7 @@ import DropZone from '@/components/image-resize/DropZone';
 import PlatformTabs from '@/components/heading-suggest/PlatformTabs';
 import HeadingGrid, { HeadingGridSkeleton } from '@/components/heading-suggest/HeadingGrid';
 import Button from '@/components/ui/Button';
-import type { HeadingItem, HeadingLoadingState, PlatformFilter } from '@/types/heading';
+import type { HeadingItem, HeadingLoadingState, Platform, PlatformFilter } from '@/types/heading';
 import { useImageUpload } from '@/hooks/useImageUpload';
 import { isUserCancel } from '@/lib/api/authFetch';
 import { fetchHeadings } from '@/lib/headingClient';
@@ -24,6 +24,9 @@ export default function HeadingSuggestClient() {
   const [headings, setHeadings] = useState<HeadingItem[]>([]);
   const [activeTab, setActiveTab] = useState<PlatformFilter>('전체');
   const [error, setError] = useState<string | null>(null);
+  /* 플랫폼별 재생성의 병합 대상 — 전체 생성 성공 시 기록 ID를 잡아둔다 */
+  const [recordId, setRecordId] = useState<number | null>(null);
+  const [regenerating, setRegenerating] = useState<Platform | null>(null);
 
   const isLoading = loading !== 'idle';
 
@@ -35,6 +38,8 @@ export default function HeadingSuggestClient() {
       setHeadings([]);
       setError(null);
       setActiveTab('전체');
+      // 다른 이미지의 기록에 병합되면 안 된다 — 파일이 바뀌면 병합 대상도 버린다
+      setRecordId(null);
       select(f);
     },
     [select],
@@ -45,6 +50,7 @@ export default function HeadingSuggestClient() {
     setHeadings([]);
     setError(null);
     setActiveTab('전체');
+    setRecordId(null);
   }, [clear]);
 
   /* ── AI 분석 실행 ───────────────────────────────────────────── */
@@ -67,6 +73,7 @@ export default function HeadingSuggestClient() {
         controller.signal,
       );
       setHeadings(record.headings);
+      setRecordId(record.id);
       setActiveTab('전체');
     } catch (err) {
       // 사용자가 직접 끊은 건 실패가 아니다
@@ -80,6 +87,30 @@ export default function HeadingSuggestClient() {
   };
 
   const handleCancel = useCallback(() => abortRef.current?.abort(), []);
+
+  /* ── 플랫폼별 재생성 — 전체를 다시 돌리지 않고 한 플랫폼만 교체 ── */
+  const handleRegenerate = async (platform: Platform) => {
+    if (!file || recordId === null || regenerating) return;
+    setError(null);
+    setRegenerating(platform);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      const record = await fetchHeadings(file, undefined, undefined, controller.signal, {
+        platform,
+        recordId,
+      });
+      setHeadings(record.headings);
+    } catch (err) {
+      if (!isUserCancel(err)) {
+        setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+      }
+    } finally {
+      abortRef.current = null;
+      setRegenerating(null);
+    }
+  };
 
   /* ── 탭별 카운트 ────────────────────────────────────────────── */
   const counts = useMemo<Record<PlatformFilter, number>>(
@@ -200,8 +231,21 @@ export default function HeadingSuggestClient() {
                   onChange={setActiveTab}
                 />
               </div>
-              {headings.length > 0 && (
-                <div className="text-right">
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* 한 플랫폼 탭을 보고 있을 때만 — "이 플랫폼만 다시"가 성립하는 맥락 */}
+                {activeTab !== '전체' && recordId !== null && headings.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleRegenerate(activeTab)}
+                    isLoading={regenerating === activeTab}
+                    disabled={isLoading || regenerating !== null}
+                  >
+                    {regenerating !== activeTab && <i className="bx bx-refresh text-base" />}
+                    {activeTab}만 다시
+                  </Button>
+                )}
+                {headings.length > 0 && (
                   <p
                     className={
                       headings.length < 10
@@ -212,8 +256,8 @@ export default function HeadingSuggestClient() {
                     총 {headings.length}개 문구 생성됨
                     {headings.length < 10 && ' · AI가 목표치(10개)보다 적게 생성했어요'}
                   </p>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             {/* 카드 그리드 */}

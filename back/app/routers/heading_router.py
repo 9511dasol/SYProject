@@ -3,7 +3,7 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
@@ -18,11 +18,16 @@ from app.schemas.heading_schema import (
     HeadingHistoryResponse,
     HeadingInput,
     HeadingSuggestionRecord,
+    Platform,
     get_heading_input,
 )
 from app.services import storage_service
 from app.services.ai_usage import log_ai_usage
-from app.services.heading_service import HeadingGenerationError, generate_headings
+from app.services.heading_service import (
+    HeadingGenerationError,
+    generate_headings,
+    merge_platform_headings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +58,24 @@ router = APIRouter(
 async def suggest_headings(
     request: Request,
     inp: HeadingInput = Depends(get_heading_input),
+    platform: Platform | None = Form(default=None, description="이 플랫폼 문구만 생성"),
+    record_id: int | None = Form(default=None, description="재생성 결과를 병합할 기존 기록 ID"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> HeadingSuggestionRecord:
+    # record_id 는 "한 플랫폼만 다시"의 병합 대상 — 전체 재생성에 주면 의미가 없다
+    if record_id is not None and platform is None:
+        raise HTTPException(status_code=422, detail="record_id는 platform과 함께 사용해야 합니다.")
+
+    # 병합 대상 기록은 AI 비용을 쓰기 전에 검증한다 — 404가 될 요청에 토큰을 태우지 않는다
+    target_record = None
+    if record_id is not None:
+        target_record = HeadingSuggestionRepository(db).get(record_id)
+        if target_record is None or target_record.user_id != current_user.id:
+            raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다.")
+
     try:
-        result, usage, thumbnail_bytes = await generate_headings(inp.file_bytes)
+        result, usage, thumbnail_bytes = await generate_headings(inp.file_bytes, platform)
     except HeadingGenerationError as exc:
         # 생성은 실패했어도 Gemini 호출이 성공한 시도가 있으면 토큰은 과금됐다.
         # 기록을 남겨야 월간 예산(로그 합계)이 실소비와 어긋나지 않는다.
@@ -77,13 +95,22 @@ async def suggest_headings(
     # 썸네일을 Storage에 저장하고, 생성 결과를 사용자별 히스토리로 저장 (페이지 재접속 시 복원용).
     # 업로드는 동기 httpx(타임아웃 120초), 뒤이은 저장도 동기 DB 커밋이라 묶어서 스레드풀로 넘긴다.
     def _persist():
-        image_path = _upload_thumbnail(current_user.id, thumbnail_bytes)
-        record = HeadingSuggestionRepository(db).create(
-            user=current_user,
-            image_filename=inp.filename,
-            image_path=image_path,
-            headings=[h.model_dump() for h in result.headings],
-        )
+        repo = HeadingSuggestionRepository(db)
+        new_items = [h.model_dump() for h in result.headings]
+
+        if target_record is not None:
+            # 플랫폼별 재생성 — 기존 기록의 해당 플랫폼만 교체 (썸네일은 같은
+            # 이미지이므로 재업로드하지 않는다. 히스토리에 부분 기록이 늘지 않음)
+            merged = merge_platform_headings(target_record.headings, new_items, platform)
+            record = repo.update_headings(target_record, merged)
+        else:
+            image_path = _upload_thumbnail(current_user.id, thumbnail_bytes)
+            record = repo.create(
+                user=current_user,
+                image_filename=inp.filename,
+                image_path=image_path,
+                headings=new_items,
+            )
 
         log_ai_usage(
             user=current_user,

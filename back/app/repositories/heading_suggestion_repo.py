@@ -68,6 +68,15 @@ class HeadingSuggestionRepository:
     def get(self, suggestion_id: int) -> HeadingSuggestion | None:
         return self.db.get(HeadingSuggestion, suggestion_id)
 
+    def update_headings(
+        self, record: HeadingSuggestion, headings: list[dict]
+    ) -> HeadingSuggestion:
+        """플랫폼별 재생성 결과를 기존 기록에 덮어쓴다 (이미지·파일명은 유지)."""
+        record.headings = headings
+        self.db.commit()
+        self.db.refresh(record)
+        return record
+
     def delete(self, record: HeadingSuggestion) -> None:
         self.db.delete(record)
         self.db.commit()

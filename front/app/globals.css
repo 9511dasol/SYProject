@@ -479,6 +479,23 @@ body {
   }
 }
 
+/* 결과 카드 순차 등장 — 지연은 인라인 animation-delay 로 카드별로 준다.
+   both 채움이 없으면 지연 시간 동안 카드가 보였다가 사라져 깜빡인다. */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-rise-in {
+  animation: rise-in 0.3s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise-in {
+    animation: none;
+  }
+}
+
 /* ── 스크롤바 숨김 ────────────────────────────────────────────────────────── */
 .scrollbar-hide {
   -ms-overflow-style: none;
