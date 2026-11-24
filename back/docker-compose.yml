@@ -1,0 +1,21 @@
+# NCP VM에서 `docker compose pull && docker compose up -d`로 기동.
+# IMAGE는 GitHub Actions 배포 스크립트가 export해서 넘긴다(수동 실행 시엔 직접 export).
+# app.env는 레포에 없다 — back/.env를 VM의 이 파일과 같은 디렉터리에 app.env로
+# 한 번 복사해 두고 직접 관리한다 (CI가 비밀값을 VM에 올리지 않는다).
+services:
+  back-api:
+    image: ${IMAGE:-back-api:latest}
+    container_name: back-api
+    restart: unless-stopped
+    env_file:
+      - app.env
+    environment:
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8080/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
