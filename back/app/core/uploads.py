@@ -15,7 +15,19 @@ from app.core.settings import settings
 
 CSV_EXTENSIONS: frozenset[str] = frozenset({".csv", ".tsv", ".txt"})
 EXCEL_EXTENSIONS: frozenset[str] = frozenset({".xlsx", ".xlsm"})
-DATA_EXTENSIONS: frozenset[str] = CSV_EXTENSIONS | EXCEL_EXTENSIONS
+
+#: 마케팅 리포트 업로드 전용 — 바이너리 엑셀(.xlsb)까지 받는다.
+#:
+#: 대행사 주간 리포트가 .xlsb 로 오는데, openpyxl 은 이 포맷을 열지 못한다.
+#: services/report_formats 레지스트리가 calamine 으로 읽어 주므로 리포트 경로에서는
+#: 허용한다. 키워드 비교 업로드는 여전히 openpyxl 전용이라 EXCEL_EXTENSIONS 를 쓴다 —
+#: 거기서 .xlsb 를 받으면 415 대신 500 이 난다.
+#:
+#: 레지스트리의 SUPPORTED_EXTENSIONS 와 어긋나지 않는지는 tests/test_report_formats.py
+#: 가 지킨다 (core 가 services 를 import 하지 않도록 값은 여기 따로 적어 둔다).
+REPORT_EXTENSIONS: frozenset[str] = EXCEL_EXTENSIONS | frozenset({".xlsb"})
+
+DATA_EXTENSIONS: frozenset[str] = CSV_EXTENSIONS | REPORT_EXTENSIONS
 
 
 def max_data_upload_bytes() -> int:

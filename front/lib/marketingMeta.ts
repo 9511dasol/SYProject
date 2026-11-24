@@ -6,8 +6,19 @@
  * 탭 순서가 화면마다 다르게 보이는 상태가 조용히 만들어진다.
  */
 
-/** DB campaign_type 키 기준 정렬 순서 (파워컨텐츠 시트는 '네이버PSA'로 저장됨) */
-export const MEDIA_ORDER: string[] = ['네이버SA', '네이버BS', '카카오SA', '구글SA', '네이버PSA'];
+/**
+ * DB campaign_type 키 기준 정렬 순서 (파워컨텐츠 시트는 '네이버PSA'로 저장됨)
+ *
+ * 앞 5개는 검색·브랜드검색 계열(SA/BS/PSA)이고, 뒤 3개는 대행사 주간 리포트에서
+ * 들어오는 DA(디스플레이·배너·영상)다. DA 는 원본 플랫폼이 17종(google_p-max,
+ * kakao_bizboard, criteo, tving …)이라 그대로 쓰면 범례가 22줄이 되므로 집행 규모
+ * 기준 세 그룹으로 묶어 저장한다 — 백엔드 weekly_raw_reader_service 의
+ * DA_PLATFORM_GROUPS 와 같은 기준이다.
+ */
+export const MEDIA_ORDER: string[] = [
+  '네이버SA', '네이버BS', '카카오SA', '구글SA', '네이버PSA',
+  '구글DA', '카카오DA', '기타DA',
+];
 
 /** DB 키와 사람이 읽는 이름이 다른 경우만 등록한다 */
 const MEDIA_DISPLAY: Record<string, string> = {

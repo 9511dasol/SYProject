@@ -72,13 +72,13 @@ export function UploadDropZone({ onFiles }: { onFiles: (files: File[]) => void }
         </p>
         <p className="text-xs text-fg-subtle">
           매체·전환 <strong className="font-semibold">.csv</strong> 여러 개 &nbsp;·&nbsp;
-          리포트 <strong className="font-semibold">.xlsx</strong> 한 개
+          리포트 <strong className="font-semibold">.xlsx / .xlsb</strong> 한 개
         </p>
       </button>
       <input
         ref={inputRef}
         type="file"
-        accept=".csv,.xlsx"
+        accept=".csv,.xlsx,.xlsm,.xlsb"
         multiple
         className="sr-only"
         onChange={(e) => {
@@ -88,7 +88,8 @@ export function UploadDropZone({ onFiles }: { onFiles: (files: File[]) => void }
       />
       <p className="mt-3 text-xs text-fg-subtle leading-relaxed">
         어떤 방식인지는 확장자로 알아서 판단합니다. CSV 는 분석해서 DB에 저장하고,
-        엑셀은 담긴 기간을 읽어 원하는 달만 골라 저장합니다.
+        엑셀은 담긴 기간을 읽어 원하는 달만 골라 저장합니다. 엑셀 양식(월간 리포트
+        템플릿 · 대행사 주간 리포트)은 시트 구성을 보고 자동으로 가려냅니다.
       </p>
     </>
   );

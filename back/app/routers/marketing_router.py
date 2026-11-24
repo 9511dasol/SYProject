@@ -26,7 +26,7 @@ from app.core.security import get_current_user
 from app.core.settings import settings
 from app.core.uploads import (
     CSV_EXTENSIONS,
-    EXCEL_EXTENSIONS,
+    REPORT_EXTENSIONS,
     check_content_length,
     read_data_upload,
     read_data_uploads,
@@ -53,7 +53,7 @@ from app.services.analysis_service import AnalysisService
 from app.services.comment_service import CommentService
 from app.services.token_usage import TokenUsage
 from app.services.excel_service import ExcelService, resolve_period
-from app.services.excel_reader_service import ExcelReaderService
+from app.services.report_formats import detect as detect_report_format
 from app.services.llm import build_llm
 from app.services.mail import MailSendError, build_mail_sender, mail_config_error
 from app.services.marketing_service import FileEntry, MarketingService
@@ -194,17 +194,20 @@ def _periods_in_df(df: pd.DataFrame) -> list[tuple[int, int]]:
 
 
 def _excel_to_df(
-    content: bytes, periods: list[str] | None
+    content: bytes, periods: list[str] | None, filename: str = ""
 ) -> tuple[pd.DataFrame, list[str], dict[tuple[int, int], str]]:
     """업로드된 엑셀 → (DB 저장용 DataFrame, 읽은 기간 목록, 연월별 코멘트).
 
-    periods 를 주면 그 기간 시트만, 없으면 파일 안의 모든 기간을 읽는다.
+    양식은 services/report_formats 레지스트리가 파일을 보고 고른다 — 월간 템플릿
+    (`summary_*` 시트)과 대행사 주간 리포트(`RAW` 시트)를 같은 길로 받는다.
 
-    코멘트(summary B32)는 시트별로 따로 모은다. 시트 이름의 기간 라벨은 연도가 빠져
-    있기도 해서("3월"), 실제 연월은 매체 시트의 날짜 값에서 가져온다.
+    periods 를 주면 그 기간만, 없으면 파일 안의 모든 기간을 읽는다.
+
+    코멘트는 기간별로 따로 모은다. 기간 라벨에 연도가 빠져 있는 경우가 있어서("3월")
+    실제 연월은 라벨이 아니라 데이터의 날짜 값에서 가져온다.
     """
-    svc = ExcelReaderService()
     try:
+        svc = detect_report_format(content, filename)
         reports = svc.read_reports(content, periods=periods or None)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -230,7 +233,10 @@ def _excel_to_df(
 
 
 def _save_period_comments(comments: dict[tuple[int, int], str]) -> int:
-    """엑셀 summary B32 코멘트를 marketing_period_meta 에 반영하고 저장한 기간 수를 돌려준다.
+    """엑셀에서 읽은 기간 코멘트를 marketing_period_meta 에 반영하고 저장한 기간 수를 돌려준다.
+
+    코멘트의 출처는 양식마다 다르다 — 월간 템플릿은 summary 시트 B32, 주간 리포트는
+    review 시트의 주차 코멘트다. 어느 쪽이든 리더가 report["comment"] 로 돌려준다.
 
     빈 코멘트는 건너뛴다 — 파일에 코멘트가 없다고 해서 이미 저장돼 있는 코멘트를
     지울 이유는 없다. (엑셀 내보내기가 이 값을 B32 에 다시 써 넣으므로, 저장하지 않으면
@@ -637,18 +643,18 @@ async def start_save_excel_task(
     period: list[str] | None = Query(
         None, description="저장할 기간 시트 (예: period=26년 5월&period=26년 6월). 생략 시 전체"
     ),
-    save_comment: bool = Query(True, description="summary B32 코멘트도 함께 저장"),
+    save_comment: bool = Query(True, description="파일에 담긴 기간 코멘트도 함께 저장"),
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Excel DB 저장을 백그라운드로 시작하고 task_id 반환.
 
     period 를 주면 고른 달만, 없으면 파일에 담긴 모든 달을 저장한다.
     replace=true 이면 저장 대상 달들의 기존 행을 각각 지우고 교체한다.
-    save_comment=true 이면 summary B32 코멘트도 marketing_period_meta 에 반영한다.
+    save_comment=true 이면 파일에 담긴 기간 코멘트도 marketing_period_meta 에 반영한다.
     """
     check_content_length(request)
-    content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
-    df, _, comments = _excel_to_df(content, period)
+    content = await read_data_upload(file, allowed_extensions=REPORT_EXTENSIONS)
+    df, _, comments = _excel_to_df(content, period, file.filename or "")
     periods = _periods_in_df(df)
 
     task_id = task_store.create_task(_KIND_SAVE, user_id=current_user.id)
@@ -1026,10 +1032,11 @@ async def list_excel_periods(
     고르는 단계에는 기간 이름·일수·코멘트만 있으면 되므로 그 비용을 치르지 않는다.
     """
     check_content_length(request)
-    content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
+    content = await read_data_upload(file, allowed_extensions=REPORT_EXTENSIONS)
     try:
+        svc = detect_report_format(content, file.filename or "")
         return ExcelPeriodListResponse.model_validate(
-            {"periods": ExcelReaderService().list_period_summaries(content)}
+            {"periods": svc.list_period_summaries(content)}
         )
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -1053,9 +1060,10 @@ async def load_excel(
     dict 를 그대로 흘려보내서, 파서가 키를 바꾸면 프론트에서 조용히 undefined 가 됐다.
     """
     check_content_length(request)
-    content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
+    content = await read_data_upload(file, allowed_extensions=REPORT_EXTENSIONS)
     try:
-        reports = ExcelReaderService().read_reports(content, periods=period or None)
+        svc = detect_report_format(content, file.filename or "")
+        reports = svc.read_reports(content, periods=period or None)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -1070,17 +1078,17 @@ async def save_excel_data(
     period: list[str] | None = Query(
         None, description="저장할 기간 시트 (예: period=26년 5월&period=26년 6월). 생략 시 전체"
     ),
-    save_comment: bool = Query(True, description="summary B32 코멘트도 함께 저장"),
+    save_comment: bool = Query(True, description="파일에 담긴 기간 코멘트도 함께 저장"),
 ) -> dict:
     """Excel 파일 매체 시트 데이터를 DB에 저장.
 
     period 를 주면 고른 달만, 없으면 파일에 담긴 모든 달을 저장한다.
     replace=true 이면 저장 대상 달들의 기존 데이터를 각각 먼저 삭제하고 교체.
-    save_comment=true 이면 summary B32 코멘트도 marketing_period_meta 에 반영한다.
+    save_comment=true 이면 파일에 담긴 기간 코멘트도 marketing_period_meta 에 반영한다.
     """
     check_content_length(request)
-    content = await read_data_upload(file, allowed_extensions=EXCEL_EXTENSIONS)
-    df, _, comments = _excel_to_df(content, period)
+    content = await read_data_upload(file, allowed_extensions=REPORT_EXTENSIONS)
+    df, _, comments = _excel_to_df(content, period, file.filename or "")
     periods = _periods_in_df(df)
 
     deleted, delete_undo_id, pre_delete_rows = 0, "", []

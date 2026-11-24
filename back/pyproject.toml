@@ -17,6 +17,10 @@ dependencies = [
     "sqlalchemy>=2.0.50",
     "pandas>=2.2.0",
     "openpyxl>=3.1.0",
+    # 대행사 주간 리포트가 .xlsb(바이너리 엑셀)로 온다 — openpyxl 은 이 포맷을 열지 못한다.
+    # calamine 은 xlsx/xlsm/xlsb 를 모두 읽고, 같은 파일(57만 행)에서 순수 파이썬
+    # 리더(pyxlsb)보다 16배 빠르다 — 49.2초 → 3.0초.
+    "python-calamine>=0.9.1",
     "apscheduler>=3.10",
     "resend>=2.30.1",
     "pillow>=12.2.0",

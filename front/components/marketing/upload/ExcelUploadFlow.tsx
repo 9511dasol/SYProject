@@ -18,10 +18,13 @@ interface ExcelUploadFlowProps {
 }
 
 /**
- * 리포트 엑셀(.xlsx) 업로드 흐름.
+ * 리포트 엑셀(.xlsx/.xlsm/.xlsb) 업로드 흐름.
  *
  * CSV 와 달리 먼저 파일을 읽어 담긴 기간을 보여주고, 사용자가 저장할 달을 고른다.
  * 기존 데이터를 지우고 교체하는 선택지가 있어 확인 단계도 따로 있다.
+ *
+ * 양식(월간 리포트 템플릿 · 대행사 주간 리포트)은 서버가 시트 구성을 보고 가려내므로
+ * 이 화면은 어느 양식인지 알 필요가 없다 — 기간 목록의 모양만 같으면 된다.
  */
 export default function ExcelUploadFlow({
   file,
@@ -69,8 +72,9 @@ export default function ExcelUploadFlow({
   const overwriting = effectiveSelected.filter(hasExistingData);
 
   /*
-    파일에 코멘트(summary B32)가 담긴 기간. 엑셀 내보내기가 이 값을 다시 써 넣으므로,
-    저장하지 않으면 업로드 → 내보내기를 한 바퀴 돌 때마다 코멘트가 사라진다.
+    파일에 코멘트가 담긴 기간. 출처는 양식마다 다르다 — 월간 템플릿은 summary 시트
+    B32, 주간 리포트는 review 시트의 주차 코멘트다. 엑셀 내보내기가 이 값을 다시 써
+    넣으므로, 저장하지 않으면 업로드 → 내보내기를 한 바퀴 돌 때마다 코멘트가 사라진다.
   */
   const withComment = (periods ?? []).filter(
     (p) => effectiveSelected.includes(p.period) && p.comment?.trim(),

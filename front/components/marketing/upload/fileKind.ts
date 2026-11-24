@@ -1,9 +1,20 @@
-/** 업로드 파일 종류 판별 — CSV 여러 개, 또는 XLSX 한 개 */
+/** 업로드 파일 종류 판별 — CSV 여러 개, 또는 엑셀 리포트 한 개 */
 
 export type UploadKind = 'csv' | 'xlsx';
 
 export const CSV_EXT = /\.csv$/i;
-export const XLSX_EXT = /\.xlsx$/i;
+
+/**
+ * 엑셀 리포트 확장자.
+ *
+ * .xlsb 는 대행사 주간 리포트(`Weekly Report_*.xlsb`)가 쓰는 바이너리 엑셀 포맷이다.
+ * 어느 양식인지는 프론트가 판단하지 않는다 — 백엔드 report_formats 레지스트리가
+ * 시트 구성을 보고 월간 템플릿/주간 리포트를 골라 읽으므로, 여기서는 "엑셀 리포트
+ * 한 개"라는 것만 가려 주면 된다.
+ *
+ * 백엔드 app/core/uploads.py 의 REPORT_EXTENSIONS 와 같은 집합을 유지해야 한다.
+ */
+export const XLSX_EXT = /\.(xlsx|xlsm|xlsb)$/i;
 
 const PERIOD_LABEL = /(\d{2,4})\s*년\s*(\d{1,2})\s*월/;
 
@@ -59,7 +70,7 @@ export function selectFiles(current: File[], incoming: File[]): Selection {
   if (csvs.length === 0 && excels.length === 0) {
     return {
       files: current,
-      error: `${listNames(skipped)} — .csv 또는 .xlsx 파일만 올릴 수 있습니다.`,
+      error: `${listNames(skipped)} — .csv 또는 .xlsx/.xlsm/.xlsb 파일만 올릴 수 있습니다.`,
     };
   }
 
@@ -75,7 +86,7 @@ export function selectFiles(current: File[], incoming: File[]): Selection {
     files,
     error:
       skipped.length > 0
-        ? `${listNames(skipped)} 은(는) 건너뛰었습니다 — .csv 또는 .xlsx 만 올릴 수 있습니다.`
+        ? `${listNames(skipped)} 은(는) 건너뛰었습니다 — .csv 또는 .xlsx/.xlsm/.xlsb 만 올릴 수 있습니다.`
         : null,
   };
 }

@@ -192,7 +192,7 @@ export default function DashboardClient() {
   const handleRequestLoad = useCallback(
     (file: File, fileName: string, periods?: string[]) => {
       const pendingId = `report-${Date.now()}`;
-      const label = fileName.replace(/\.xlsx?$/i, '');
+      const label = fileName.replace(/\.(xlsx|xlsm|xlsb|xls)$/i, '');
 
       setPendingLoads((prev) => [...prev, { id: pendingId, label }]);
       setUploadOpen(false);
@@ -394,7 +394,7 @@ export default function DashboardClient() {
                 <p className="text-xs text-fg-muted mt-1.5 leading-relaxed">
                   {dragOver
                     ? '여기에 놓으면 바로 확인 단계로 넘어갑니다'
-                    : '매체·전환 CSV 또는 리포트 Excel을 끌어다 놓거나 클릭하세요.'}
+                    : '매체·전환 CSV 또는 리포트 Excel(.xlsx/.xlsb)을 끌어다 놓거나 클릭하세요.'}
                 </p>
               </div>
             </button>

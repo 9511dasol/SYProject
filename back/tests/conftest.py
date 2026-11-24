@@ -28,6 +28,64 @@ def make_keyword_xlsx():
     return _make
 
 
+#: 주간 리포트 RAW 시트의 헤더 — app/services/weekly_raw_reader_service.RAW_COLUMNS 와
+#: 같은 이름을 쓰되, 실제 파일처럼 쓰지 않는 컬럼도 섞고 개행도 넣어 둔다. 리더가 좌표가
+#: 아니라 헤더 이름으로 컬럼을 찾는다는 것을 테스트가 실제로 확인하게 하기 위한 것이다.
+WEEKLY_RAW_HEADERS: list[str] = [
+    "날짜", "주차", "요일", "년월", "기간구분", "대행사구분",
+    "캠페인 유형\n(매체)", "캠페인명\n(매체)", "그룹\n(매체)", "기기\n(매체)",
+    "매체/플랫폼", "광고유형", "기기", "이벤트명", "타겟구분",
+    "노출", "클릭", "광고비(vat+)", "광고비(vat,markup)",
+    "총전환수", "총전환수\n(신청제외)",
+    "회원가입수", "구매완료수", "구매매출액", "설명회신청",
+]
+
+
+def weekly_raw_row(
+    date, platform: str, ad_type: str, *,
+    impressions=0, clicks=0, cost=0, markup_cost=0,
+    conversions=0, signup=0, purchase=0, revenue=0, apply=0,
+) -> list:
+    """RAW 시트 한 행. 지표만 이름으로 넘기면 나머지 메타 컬럼은 더미로 채운다."""
+    return [
+        date, "26년 1월1주(1/1~1/7)", "월", "26년 01월", "26년 01월", "트리플하이엠",
+        "-", "-", "-", "-",
+        platform, ad_type, "PC", ad_type, "-",
+        impressions, clicks, cost, markup_cost,
+        conversions, conversions,
+        signup, purchase, revenue, apply,
+    ]
+
+
+@pytest.fixture
+def make_weekly_raw_xlsx():
+    """주간 리포트(RAW 탭) 양식 생성기.
+
+    실제 파일은 .xlsb 지만 calamine 은 xlsx 도 같은 방식으로 읽고, 양식 판별은
+    확장자가 아니라 시트 구성으로 하므로 테스트는 xlsx 로 만든다 — 바이너리 픽스처를
+    커밋하지 않아도 되고 git diff 로 읽힌다.
+
+    rows: RAW 시트의 데이터 행들 (weekly_raw_row 로 만든다)
+    review: review 시트에 넣을 {(row, col): value} — 생략하면 review 시트 없음
+    """
+    def _make(rows: list[list], review: dict[tuple[int, int], object] | None = None,
+              headers: list[str] | None = None) -> bytes:
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+        ws = wb.create_sheet(title="RAW")
+        ws.append(list(headers if headers is not None else WEEKLY_RAW_HEADERS))
+        for row in rows:
+            ws.append(row)
+        if review is not None:
+            rv = wb.create_sheet(title="review")
+            for (r, c), value in review.items():
+                rv.cell(row=r, column=c, value=value)
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+    return _make
+
+
 @pytest.fixture
 def make_report_xlsx():
     """excel_reader.read_report 용 최소 summary 워크북 생성기.
