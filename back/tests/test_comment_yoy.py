@@ -33,7 +33,7 @@ def db():
 
 
 def _seed(db, year: int, month: int, *, media="네이버SA", cost=1000.0, conv=10, revenue=5000.0):
-    db.add(MarketingData(
+    db.add(MarketingData(company_id=1, 
         report_date=datetime.date(year, month, 1), campaign_type=media,
         impressions=1000, clicks=100, cost=cost,
         conversions=conv, conversion_revenue=revenue,
@@ -50,7 +50,7 @@ def test_exact_prev_and_yoy_are_used_when_present(db):
     _seed(db, 2026, 9)
     _seed(db, 2025, 10)
 
-    p = AnalysisService(db).resolve_comment_periods(2026, 10)
+    p = AnalysisService(db, 1).resolve_comment_periods(2026, 10)
 
     assert (p.prev_year, p.prev_month, p.prev_is_exact) == (2026, 9, True)
     assert (p.yoy_year, p.yoy_month, p.yoy_is_exact) == (2025, 10, True)
@@ -61,7 +61,7 @@ def test_january_rolls_back_to_last_december(db):
     _seed(db, 2025, 12)
     _seed(db, 2025, 1)
 
-    p = AnalysisService(db).resolve_comment_periods(2026, 1)
+    p = AnalysisService(db, 1).resolve_comment_periods(2026, 1)
 
     assert (p.prev_year, p.prev_month, p.prev_is_exact) == (2025, 12, True)
     assert (p.yoy_year, p.yoy_month, p.yoy_is_exact) == (2025, 1, True)
@@ -75,7 +75,7 @@ def test_missing_prev_month_falls_back_to_the_nearest_earlier(db):
     _seed(db, 2026, 10)
     _seed(db, 2026, 8)   # 9월 없음
 
-    p = AnalysisService(db).resolve_comment_periods(2026, 10)
+    p = AnalysisService(db, 1).resolve_comment_periods(2026, 10)
 
     assert (p.prev_year, p.prev_month) == (2026, 8)
     assert p.prev_is_exact is False   # 프롬프트가 "전월" 대신 실제 달을 밝힌다
@@ -85,7 +85,7 @@ def test_no_earlier_data_keeps_the_calendar_prev(db):
     """첫 달 업로드 — 대신할 달조차 없으면 달력상 전월(빈 비교)을 그대로 쓴다."""
     _seed(db, 2026, 10)
 
-    p = AnalysisService(db).resolve_comment_periods(2026, 10)
+    p = AnalysisService(db, 1).resolve_comment_periods(2026, 10)
 
     assert (p.prev_year, p.prev_month, p.prev_is_exact) == (2026, 9, True)
     assert p.yoy_year is None   # YoY 후보도 없다
@@ -100,7 +100,7 @@ def test_missing_yoy_falls_back_to_the_nearest_neighbour(db):
     _seed(db, 2026, 9)
     _seed(db, 2025, 11)  # 작년 10월 대신 11월만 있다
 
-    p = AnalysisService(db).resolve_comment_periods(2026, 10)
+    p = AnalysisService(db, 1).resolve_comment_periods(2026, 10)
 
     assert (p.yoy_year, p.yoy_month) == (2025, 11)
     assert p.yoy_is_exact is False
@@ -113,7 +113,7 @@ def test_yoy_tie_prefers_the_older_month(db):
     _seed(db, 2025, 9)
     _seed(db, 2025, 11)
 
-    p = AnalysisService(db).resolve_comment_periods(2026, 10)
+    p = AnalysisService(db, 1).resolve_comment_periods(2026, 10)
 
     assert (p.yoy_year, p.yoy_month) == (2025, 9)
 
@@ -123,7 +123,7 @@ def test_yoy_never_duplicates_the_prev_month(db):
     _seed(db, 2026, 10)
     _seed(db, 2026, 9)   # 이게 전월이자 유일한 과거 달
 
-    p = AnalysisService(db).resolve_comment_periods(2026, 10)
+    p = AnalysisService(db, 1).resolve_comment_periods(2026, 10)
 
     assert (p.prev_year, p.prev_month) == (2026, 9)
     assert p.yoy_year is None   # 후보가 전월뿐 → YoY 생략
@@ -135,7 +135,7 @@ def test_sparse_history_uses_what_exists(db):
     _seed(db, 2026, 6)
     _seed(db, 2026, 2)
 
-    p = AnalysisService(db).resolve_comment_periods(2026, 10)
+    p = AnalysisService(db, 1).resolve_comment_periods(2026, 10)
 
     assert (p.prev_year, p.prev_month, p.prev_is_exact) == (2026, 6, False)
     # 작년 10월(목표)과 가장 가까운, 전월보다 오래된 달 = 2026-02
@@ -150,7 +150,7 @@ def test_compare_fills_summary_yoy_figures(db):
     _seed(db, 2026, 9, cost=1500.0)
     _seed(db, 2025, 10, cost=1000.0, conv=10, revenue=5000.0)
 
-    c = AnalysisService(db).compare(2026, 10, 2026, 9, yoy_year=2025, yoy_month=10)
+    c = AnalysisService(db, 1).compare(2026, 10, 2026, 9, yoy_year=2025, yoy_month=10)
 
     assert c.has_yoy is True
     assert (c.yoy_year, c.yoy_month) == (2025, 10)
@@ -167,7 +167,7 @@ def test_compare_fills_per_media_yoy(db):
     _seed(db, 2026, 9, media="네이버SA")
     _seed(db, 2025, 10, media="네이버SA", cost=1000.0)
 
-    c = AnalysisService(db).compare(2026, 10, 2026, 9, yoy_year=2025, yoy_month=10)
+    c = AnalysisService(db, 1).compare(2026, 10, 2026, 9, yoy_year=2025, yoy_month=10)
     by = {m.campaign_type: m for m in c.by_media}
 
     assert by["네이버SA"].yoy_missing is False
@@ -182,7 +182,7 @@ def test_compare_without_yoy_behaves_exactly_as_before(db):
     _seed(db, 2026, 9)
     _seed(db, 2025, 10)   # 있어도 요청하지 않으면 조회하지 않는다
 
-    c = AnalysisService(db).compare(2026, 10, 2026, 9)
+    c = AnalysisService(db, 1).compare(2026, 10, 2026, 9)
 
     assert c.has_yoy is False
     assert c.yoy_cost == 0.0
@@ -193,7 +193,7 @@ def test_inexact_periods_are_flagged_on_the_comparison(db):
     _seed(db, 2026, 10)
     _seed(db, 2026, 8)
 
-    c = AnalysisService(db).compare(2026, 10, 2026, 8, yoy_year=2026, yoy_month=8)
+    c = AnalysisService(db, 1).compare(2026, 10, 2026, 8, yoy_year=2026, yoy_month=8)
 
     assert c.prev_is_exact is False
     assert c.yoy_is_exact is False

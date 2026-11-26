@@ -27,8 +27,15 @@ def test_startup_migrations_off_by_default_in_production():
     assert _settings(ENVIRONMENT="production").RUN_MIGRATIONS_ON_STARTUP is False
 
 
-def test_startup_migrations_on_by_default_in_development():
-    assert _settings(ENVIRONMENT="development").RUN_MIGRATIONS_ON_STARTUP is True
+def test_startup_migrations_off_by_default_in_development_too():
+    """development 에서도 기본은 꺼짐 — 환경으로 판단하지 않는다.
+
+    예전에는 development 면 자동으로 켰다. 그런데 로컬 .env 의 DATABASE_URL 이
+    운영 Supabase 를 가리키는 구성이라, 백엔드를 한 번 띄우는 것만으로 검토 전
+    마이그레이션이 운영 DB 에 적용됐다(실제 발생). 환경 이름은 DB 가 어디를
+    가리키는지 말해 주지 않으므로, 자동 적용은 명시할 때만 켠다.
+    """
+    assert _settings(ENVIRONMENT="development").RUN_MIGRATIONS_ON_STARTUP is False
 
 
 def test_explicit_setting_overrides_environment_default():

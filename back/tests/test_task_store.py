@@ -207,8 +207,8 @@ def test_purge_also_clears_expired_undo_snapshots(store):
     try:
         from app.repositories.undo_snapshot_repo import UndoSnapshotRepository
 
-        UndoSnapshotRepository(db).create("old", [{"a": 1}])
-        UndoSnapshotRepository(db).create("new", [{"a": 2}])
+        UndoSnapshotRepository(db).create("old", [{"a": 1}], company_id=1)
+        UndoSnapshotRepository(db).create("new", [{"a": 2}], company_id=1)
         db.commit()
     finally:
         db.close()

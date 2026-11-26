@@ -81,8 +81,12 @@ def collect_ranks(
     target_date: date | None = None,
     provider: NaverRankProvider | None = None,
     force_resolve: bool = False,
+    company_id: int | None = None,
 ) -> CollectResult:
-    """감시 키워드의 순위를 받아 적재한다. commit 은 호출부가 한다."""
+    """감시 키워드의 순위를 받아 적재한다. commit 은 호출부가 한다.
+
+    company_id 는 요청 경로(수동 수집)의 기업 범위다. 크론은 None(전체 감시).
+    """
     target_date = target_date or default_target_date()
     provider = provider or NaverRankProvider()
     result = CollectResult(stat_date=target_date)
@@ -91,7 +95,7 @@ def collect_ranks(
         result.skipped_reason = error_message(ERR_NOT_CONFIGURED)
         return result
 
-    repo = KeywordWatchRepository(db)
+    repo = KeywordWatchRepository(db, company_id)
     watches = [w for w in repo.list_all() if w.status == "active"]
     if not watches:
         result.skipped_reason = "감시 중인 키워드가 없습니다."
@@ -139,7 +143,9 @@ def collect_ranks(
         return result
 
     # ── 3단계: 업로드와 같은 적재 경로로 합류 ─────────────────────────────────
-    summary = ingest_observations(db, observations, stat_date=target_date, source="api")
+    summary = ingest_observations(
+        db, observations, stat_date=target_date, source="api", company_id=company_id
+    )
     result.ingest = summary
     result.collected = summary.matched_watches
 

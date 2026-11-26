@@ -48,7 +48,7 @@ def _watch(db, keyword="마케팅자동화", **kwargs) -> KeywordWatch:
         breaches_required=2, alert_on_no_impression=True, status="active",
     )
     defaults.update(kwargs)
-    watch = KeywordWatch(**defaults)
+    watch = KeywordWatch(company_id=1, **defaults)
     db.add(watch)
     db.commit()
     return watch
@@ -83,10 +83,10 @@ def test_streak_counts_consecutive_from_latest(db):
     watch = _watch(db)
     # 최신부터: 이탈, 이탈, 정상, 이탈 → 연속 2
     snaps = [
-        KeywordRankSnapshot(watch_id=1, stat_date=D0, avg_rank=5.0, impressions=100),
-        KeywordRankSnapshot(watch_id=1, stat_date=D0 - timedelta(days=1), avg_rank=4.0, impressions=100),
-        KeywordRankSnapshot(watch_id=1, stat_date=D0 - timedelta(days=2), avg_rank=2.0, impressions=100),
-        KeywordRankSnapshot(watch_id=1, stat_date=D0 - timedelta(days=3), avg_rank=9.0, impressions=100),
+        KeywordRankSnapshot(company_id=1, watch_id=1, stat_date=D0, avg_rank=5.0, impressions=100),
+        KeywordRankSnapshot(company_id=1, watch_id=1, stat_date=D0 - timedelta(days=1), avg_rank=4.0, impressions=100),
+        KeywordRankSnapshot(company_id=1, watch_id=1, stat_date=D0 - timedelta(days=2), avg_rank=2.0, impressions=100),
+        KeywordRankSnapshot(company_id=1, watch_id=1, stat_date=D0 - timedelta(days=3), avg_rank=9.0, impressions=100),
     ]
     assert compute_streak(watch, snaps) == 2
 

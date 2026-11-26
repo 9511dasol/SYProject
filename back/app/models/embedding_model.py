@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -15,6 +15,13 @@ class DocumentEmbedding(Base):
     __tablename__ = "document_embedding"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    # 소속 기업 — 생성 경로가 반드시 명시한다(기본값 없음: 빠뜨리면 조용히 sy 로
+    # 귀속되는 대신 그 자리에서 실패한다).
+    company_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        index=True,
+    )
     source_type: Mapped[str] = mapped_column(String(50), index=True)  # ex) "marketing_period_meta"
     source_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     content: Mapped[str] = mapped_column(Text)

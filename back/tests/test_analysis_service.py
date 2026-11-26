@@ -60,12 +60,12 @@ class TestCompare:
             # 카카오SA 는 전월에 없음 → curr 에만 존재(신규 매체)
         }
 
-        def fake_query(_db, year, month):
+        def fake_query(_db, year, month, _company_id):
             return curr if (year, month) == (2026, 6) else prev
 
         monkeypatch.setattr(analysis_service, "_query_kpis", fake_query)
 
-        result = AnalysisService(db=None).compare(2026, 6, 2026, 5)
+        result = AnalysisService(None, 1).compare(2026, 6, 2026, 5)
 
         # 전체 합계
         assert result.curr_cost == 300.0
@@ -113,28 +113,28 @@ class TestCompareThreeMonths:
     """당월/전월/전전월 3개월 비교."""
 
     def _run(self, monkeypatch, maps):
-        def fake_query(_db, year, month):
+        def fake_query(_db, year, month, _company_id):
             return maps.get((year, month), {})
 
         monkeypatch.setattr(analysis_service, "_query_kpis", fake_query)
-        return AnalysisService(db=None).compare(2026, 6, 2026, 5)
+        return AnalysisService(None, 1).compare(2026, 6, 2026, 5)
 
     def test_prev2_defaults_to_month_before_prev(self, monkeypatch):
         seen = []
 
-        def fake_query(_db, year, month):
+        def fake_query(_db, year, month, _company_id):
             seen.append((year, month))
             return {}
 
         monkeypatch.setattr(analysis_service, "_query_kpis", fake_query)
-        result = AnalysisService(db=None).compare(2026, 6, 2026, 5)
+        result = AnalysisService(None, 1).compare(2026, 6, 2026, 5)
 
         assert seen == [(2026, 6), (2026, 5), (2026, 4)]
         assert (result.prev2_year, result.prev2_month) == (2026, 4)
 
     def test_prev2_crosses_year_boundary(self, monkeypatch):
         monkeypatch.setattr(analysis_service, "_query_kpis", lambda *_: {})
-        result = AnalysisService(db=None).compare(2026, 2, 2026, 1)
+        result = AnalysisService(None, 1).compare(2026, 2, 2026, 1)
         assert (result.prev2_year, result.prev2_month) == (2025, 12)
 
     def test_rebound_is_not_reported_as_growth(self, monkeypatch):

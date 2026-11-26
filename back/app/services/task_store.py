@@ -53,6 +53,7 @@ def create_task(
     message: str = "",
     result: dict | None = None,
     user_id: int | None = None,
+    company_id: int | None = None,
 ) -> str:
     task_id = task_id or str(uuid.uuid4())
     db = SessionLocal()
@@ -65,6 +66,7 @@ def create_task(
             message=message,
             result=result,
             user_id=user_id,
+            company_id=company_id,
         )
         db.commit()
     finally:
@@ -72,10 +74,25 @@ def create_task(
     return task_id
 
 
-def get_task(task_id: str, *, kind: str | None = None) -> dict | None:
+def _company_mismatch(task: BackgroundTask | None, company_id: int | None) -> bool:
+    """요청 경로의 소유권 검사 — uuid 를 알아도 타기업 작업은 "없는 것"이다.
+
+    company_id=None(시스템·워커 내부 경로)은 검사하지 않는다. task.company_id 가
+    NULL 인 전역 시스템 잡은 어느 기업 요청에서도 보이지 않는다.
+    """
+    if company_id is None or task is None:
+        return False
+    return task.company_id != company_id
+
+
+def get_task(
+    task_id: str, *, kind: str | None = None, company_id: int | None = None
+) -> dict | None:
     db = SessionLocal()
     try:
         task = BackgroundTaskRepository(db).get(task_id, kind=kind)
+        if _company_mismatch(task, company_id):
+            return None
         return _to_dict(task) if task else None
     finally:
         db.close()
@@ -114,13 +131,13 @@ def is_cancelled(task_id: str) -> bool:
         db.close()
 
 
-def cancel_task(task_id: str) -> bool:
-    """취소 플래그를 세운다. 대상 작업이 없으면 False."""
+def cancel_task(task_id: str, *, company_id: int | None = None) -> bool:
+    """취소 플래그를 세운다. 대상 작업이 없거나 타기업 것이면 False."""
     db = SessionLocal()
     try:
         repo = BackgroundTaskRepository(db)
         task = repo.get(task_id)
-        if task is None:
+        if task is None or _company_mismatch(task, company_id):
             return False
         task.cancelled = True
         if task.status not in ("done", "error", "completed", "failed"):
@@ -131,10 +148,13 @@ def cancel_task(task_id: str) -> bool:
         db.close()
 
 
-def delete_task(task_id: str) -> None:
+def delete_task(task_id: str, *, company_id: int | None = None) -> None:
     db = SessionLocal()
     try:
-        BackgroundTaskRepository(db).delete(task_id)
+        repo = BackgroundTaskRepository(db)
+        if company_id is not None and _company_mismatch(repo.get(task_id), company_id):
+            return
+        repo.delete(task_id)
         db.commit()
     finally:
         db.close()
@@ -152,13 +172,13 @@ def set_result_blob(task_id: str, content: bytes) -> None:
         db.close()
 
 
-def pop_result_blob(task_id: str) -> bytes | None:
+def pop_result_blob(task_id: str, *, company_id: int | None = None) -> bytes | None:
     """결과 바이너리를 꺼내고 즉시 비운다 (1회용 다운로드)."""
     db = SessionLocal()
     try:
         repo = BackgroundTaskRepository(db)
         task = repo.get(task_id)
-        if task is None or task.result_blob is None:
+        if task is None or task.result_blob is None or _company_mismatch(task, company_id):
             return None
         content = bytes(task.result_blob)
         task.result_blob = None

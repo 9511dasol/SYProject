@@ -44,6 +44,9 @@ class HeadingSuggestionRepository:
             image_path=image_path,
             headings=headings,
         )
+        # 소속 기업 기록 — dev(무소속)의 생성은 server_default(sy) 폴백에 맡긴다.
+        if user.company_id is not None:
+            record.company_id = user.company_id
         self.db.add(record)
         self.db.commit()
         self.db.refresh(record)

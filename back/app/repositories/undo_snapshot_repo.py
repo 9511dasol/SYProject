@@ -11,8 +11,9 @@ class UndoSnapshotRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, undo_id: str, rows: list[dict]) -> UndoSnapshot:
-        snapshot = UndoSnapshot(id=undo_id, rows=rows)
+    def create(self, undo_id: str, rows: list[dict], *, company_id: int) -> UndoSnapshot:
+        # 소속 기업을 함께 남긴다 — 되돌리기는 같은 기업에서만 가능하다(_pop_undo_snapshot).
+        snapshot = UndoSnapshot(id=undo_id, rows=rows, company_id=company_id)
         self.db.add(snapshot)
         return snapshot
 

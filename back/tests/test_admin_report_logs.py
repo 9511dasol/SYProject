@@ -15,6 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.security import get_db, require_admin
+from app.core.tenant import TenantContext, get_admin_tenant_context
 from app.models.report_log_model import ReportLog
 from app.models.user_model import User
 from app.repositories.report_log_repo import ReportLogRepository
@@ -36,7 +37,7 @@ def db():
 
 
 def _add_log(db, *, status: str, minutes_ago: int = 0, recipients: str = "a@example.com") -> ReportLog:
-    log = ReportLog(
+    log = ReportLog(company_id=1, 
         curr_year=2026, curr_month=6, prev_year=2026, prev_month=5,
         recipients=recipients,
         subject="[마케팅 리포트] 2026년 6월 성과 요약",
@@ -54,7 +55,11 @@ def client(db):
     app = FastAPI()
     app.include_router(admin_report_log_router.router)
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[require_admin] = lambda: User(id=1, email="admin@example.com", role="admin")
+    _admin = User(id=1, email="admin@example.com", role="admin", company_id=1)
+    app.dependency_overrides[require_admin] = lambda: _admin
+    app.dependency_overrides[get_admin_tenant_context] = lambda: TenantContext(
+        user=_admin, company_id=1
+    )
     try:
         yield TestClient(app)
     finally:
@@ -143,7 +148,7 @@ def test_resend_keeps_original_failure_record(client, db, mocker):
 
     def fake_run(**kwargs):
         # 실제 orchestrator처럼 새 로그를 남긴다
-        db.add(ReportLog(
+        db.add(ReportLog(company_id=1, 
             curr_year=kwargs["curr_year"], curr_month=kwargs["curr_month"],
             prev_year=kwargs["prev_year"], prev_month=kwargs["prev_month"],
             recipients=", ".join(kwargs["recipients"]),

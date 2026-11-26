@@ -284,7 +284,7 @@ def sqlite_upsert(monkeypatch):
     )
     MarketingData.__table__.create(engine)
     monkeypatch.setattr(marketing_repo, "engine", engine)
-    monkeypatch.setattr(marketing_repo, "_save_undo_snapshot", lambda undo_id, rows: None)
+    monkeypatch.setattr(marketing_repo, "_save_undo_snapshot", lambda undo_id, rows, company_id: None)
     try:
         yield engine
     finally:
@@ -309,7 +309,7 @@ def _save(kpis_row: dict, *, has_media: bool, has_conv: bool) -> None:
     import pandas as pd
 
     daily = pd.DataFrame([{"date": "2026-07-01", **kpis_row}])
-    MarketingRepository(None).save_from_kpis(
+    MarketingRepository(None, 1).save_from_kpis(
         {"구글SA": daily}, {"구글SA": has_media}, {"구글SA": has_conv}
     )
 

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import PORTABLE_JSON, Base
@@ -18,6 +18,13 @@ class UndoSnapshot(Base):
     __tablename__ = "undo_snapshots"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)  # uuid4
+    # 소속 기업 — 생성 경로가 반드시 명시한다(기본값 없음: 빠뜨리면 조용히 sy 로
+    # 귀속되는 대신 그 자리에서 실패한다).
+    company_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        index=True,
+    )
     # 덮어쓰기 전의 marketing_data 행들 (JSON 직렬화를 위해 date→ISO 문자열로 변환해 저장)
     rows: Mapped[list[dict]] = mapped_column(PORTABLE_JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(

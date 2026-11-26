@@ -24,6 +24,7 @@ from app.core.database import SessionLocal
 from app.core.errors import server_error
 from app.core.security import get_current_user
 from app.core.settings import settings
+from app.core.tenant import TenantContext, get_tenant_context
 from app.core.uploads import (
     CSV_EXTENSIONS,
     REPORT_EXTENSIONS,
@@ -32,7 +33,6 @@ from app.core.uploads import (
     read_data_uploads,
 )
 from app.models.marketing_model import derived_kpis, resolve_total_conv
-from app.models.user_model import User
 from app.repositories import marketing_repo
 from app.repositories.marketing_repo import MarketingRepository
 from app.schemas.excel_report_schema import ExcelPeriodListResponse, ExcelReportBundle
@@ -232,7 +232,7 @@ def _excel_to_df(
     return pd.concat(frames, ignore_index=True), [r["period"] for r in reports], comments
 
 
-def _save_period_comments(comments: dict[tuple[int, int], str]) -> int:
+def _save_period_comments(comments: dict[tuple[int, int], str], company_id: int) -> int:
     """엑셀에서 읽은 기간 코멘트를 marketing_period_meta 에 반영하고 저장한 기간 수를 돌려준다.
 
     코멘트의 출처는 양식마다 다르다 — 월간 템플릿은 summary 시트 B32, 주간 리포트는
@@ -248,7 +248,7 @@ def _save_period_comments(comments: dict[tuple[int, int], str]) -> int:
 
     db = SessionLocal()
     try:
-        repo = MarketingRepository(db)
+        repo = MarketingRepository(db, company_id)
         for (year, month), text in filled.items():
             repo.upsert_period_meta(year, month, comment=text)
         db.commit()
@@ -330,7 +330,7 @@ def _build_report(
     return ReportResponse(period=period, total=total, by_media=by_media, daily=daily, diff=row_diff, undo_id=undo_id)
 
 
-def _run_analysis(task_id: str, files: list[FileEntry]) -> None:
+def _run_analysis(task_id: str, files: list[FileEntry], company_id: int) -> None:
     """동기 함수 → FastAPI BackgroundTasks가 스레드풀에서 실행 (_run_export_task 와 같은 이유).
 
     예전에는 `async def` 였다. BackgroundTasks 는 async 함수를 스레드풀이 아니라
@@ -340,7 +340,7 @@ def _run_analysis(task_id: str, files: list[FileEntry]) -> None:
     db = SessionLocal()
     try:
         task_store.update_task(task_id, status=TaskStatus.PROCESSING.value)
-        svc = MarketingService(MarketingRepository(db))
+        svc = MarketingService(MarketingRepository(db, company_id))
         conv_files, media_files = svc._classify(files)
         result = svc.process_and_analyze(conv_files, media_files)
         task_store.update_task(
@@ -418,7 +418,7 @@ def _store_export_bytes(task_id: str, year: int, month: int, excel_bytes: bytes)
     return {"storage_path": None}
 
 
-def _export_context(year: int, month: int) -> dict:
+def _export_context(year: int, month: int, company_id: int) -> dict:
     """엑셀의 일별 실적 외 나머지 칸을 채우는 데 필요한 DB 값을 한 번에 읽는다.
 
     템플릿은 어느 달의 데이터도 갖고 있지 않은 빈 파일이므로, 비교 행·예산·코멘트까지
@@ -427,7 +427,7 @@ def _export_context(year: int, month: int) -> dict:
     prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
     db = SessionLocal()
     try:
-        repo = MarketingRepository(db)
+        repo = MarketingRepository(db, company_id)
         budgets, _ = repo.get_media_budgets(year, month)
         comment, _ = repo.get_comment_meta(year, month)
         return {
@@ -441,8 +441,10 @@ def _export_context(year: int, month: int) -> dict:
         db.close()
 
 
-def _build_excel(media_kpis: dict, period: str, year: int, month: int) -> bytes:
-    ctx = _export_context(year, month)
+def _build_excel(
+    media_kpis: dict, period: str, year: int, month: int, company_id: int
+) -> bytes:
+    ctx = _export_context(year, month, company_id)
     return ExcelService().fill_template(
         media_kpis,
         period,
@@ -462,6 +464,7 @@ def _run_export_task(
     period: str,
     year: int,
     month: int,
+    company_id: int,
     deliver_by: str = "download",
     recipients: list[str] | None = None,
 ) -> None:
@@ -483,7 +486,7 @@ def _run_export_task(
             task_store.update_task(task_id, status="cancelled")
             return
         task_store.update_task(task_id, progress=45)
-        excel_bytes = _build_excel(media_kpis, period, year, month)
+        excel_bytes = _build_excel(media_kpis, period, year, month, company_id)
 
         if task_store.is_cancelled(task_id):
             task_store.update_task(task_id, status="cancelled")
@@ -529,7 +532,9 @@ def _run_export_task(
         task_store.update_task(task_id, status="error", progress=0, error=f"{stage} 실패: {exc}")
 
 
-def _delete_periods(periods: list[tuple[int, int]]) -> tuple[int, str, list[dict]]:
+def _delete_periods(
+    periods: list[tuple[int, int]], company_id: int
+) -> tuple[int, str, list[dict]]:
     """여러 (연, 월)의 기존 행을 한 트랜잭션으로 삭제. (삭제 건수, undo_id, 삭제 전 행) 반환.
 
     삭제는 먼저 커밋되고 저장은 뒤따르므로(커넥션 분리로 데드락을 피하려는 구조),
@@ -538,7 +543,7 @@ def _delete_periods(periods: list[tuple[int, int]]) -> tuple[int, str, list[dict
     """
     db_del = SessionLocal()
     try:
-        repo = MarketingRepository(db_del)
+        repo = MarketingRepository(db_del, company_id)
         undo_id, snapshot = repo.snapshot_periods(periods)
         deleted = sum(repo.delete_rows_by_period(y, m) for y, m in periods)
         db_del.commit()
@@ -555,6 +560,7 @@ def _run_save_task(
     df: pd.DataFrame,
     periods: list[tuple[int, int]],
     replace: bool,
+    company_id: int,
     comments: dict[tuple[int, int], str] | None = None,
 ) -> None:
     """Excel DataFrame → DB UPSERT 백그라운드 작업.
@@ -571,7 +577,7 @@ def _run_save_task(
         # ── 1단계: replace 시 기존 행 삭제 (독립 트랜잭션으로 먼저 커밋) ──────────
         deleted, delete_undo_id, pre_delete_rows = 0, "", []
         if replace:
-            deleted, delete_undo_id, pre_delete_rows = _delete_periods(periods)
+            deleted, delete_undo_id, pre_delete_rows = _delete_periods(periods, company_id)
 
         task_store.update_task(task_id, progress=50)
 
@@ -579,14 +585,14 @@ def _run_save_task(
         # 1단계 삭제가 이미 커밋됐으므로, 여기서 실패하면 지운 기간을 되돌려 놓아야
         # 한 달치 데이터가 통째로 사라지지 않는다.
         try:
-            saved, _, undo_id = MarketingRepository(None).save_mapped_dataframe(df)  # type: ignore[arg-type]
+            saved, _, undo_id = MarketingRepository(None, company_id).save_mapped_dataframe(df)
         except Exception:
             if pre_delete_rows:
                 logger.exception(
                     "엑셀 저장 실패 — 삭제했던 %d개 행을 되돌립니다 (task=%s)", len(pre_delete_rows), task_id
                 )
                 try:
-                    marketing_repo.restore_rows(pre_delete_rows)
+                    marketing_repo.restore_rows(pre_delete_rows, company_id=company_id)
                 except Exception:
                     logger.exception(
                         "되돌리기 실패 — undo_id=%s 로 수동 복구가 필요합니다 (task=%s)",
@@ -606,7 +612,7 @@ def _run_save_task(
         saved_comments = 0
         if comments:
             try:
-                saved_comments = _save_period_comments(comments)
+                saved_comments = _save_period_comments(comments, company_id)
             except Exception:
                 logger.exception("코멘트 저장 실패 (데이터는 저장됨, task=%s)", task_id)
 
@@ -644,7 +650,7 @@ async def start_save_excel_task(
         None, description="저장할 기간 시트 (예: period=26년 5월&period=26년 6월). 생략 시 전체"
     ),
     save_comment: bool = Query(True, description="파일에 담긴 기간 코멘트도 함께 저장"),
-    current_user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> dict:
     """Excel DB 저장을 백그라운드로 시작하고 task_id 반환.
 
@@ -657,17 +663,27 @@ async def start_save_excel_task(
     df, _, comments = _excel_to_df(content, period, file.filename or "")
     periods = _periods_in_df(df)
 
-    task_id = task_store.create_task(_KIND_SAVE, user_id=current_user.id)
+    task_id = task_store.create_task(
+        _KIND_SAVE, user_id=ctx.user.id, company_id=ctx.company_id
+    )
     background_tasks.add_task(
-        _run_save_task, task_id, df, periods, replace, comments if save_comment else None
+        _run_save_task,
+        task_id,
+        df,
+        periods,
+        replace,
+        ctx.company_id,
+        comments if save_comment else None,
     )
 
     return {"task_id": task_id}
 
 
 @router.get("/save-excel-task/{task_id}")
-def get_save_excel_task_status(task_id: str) -> dict:
-    task = task_store.get_task(task_id, kind=_KIND_SAVE)
+def get_save_excel_task_status(
+    task_id: str, ctx: TenantContext = Depends(get_tenant_context)
+) -> dict:
+    task = task_store.get_task(task_id, kind=_KIND_SAVE, company_id=ctx.company_id)
     if task is None:
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
     return {
@@ -688,7 +704,7 @@ def start_export_db_task(
         None, description="받는 사람 이메일. 반복 지정하거나 쉼표로 묶을 수 있고, 생략 시 로그인 계정"
     ),
     background_tasks: BackgroundTasks = ...,
-    current_user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> dict:
     """DB 데이터 → Excel 변환을 백그라운드로 시작하고 task_id 반환.
 
@@ -706,11 +722,11 @@ def start_export_db_task(
         config_error = mail_config_error()
         if config_error:
             raise HTTPException(status_code=400, detail=config_error)
-        recipients = _clean_recipients(recipient, current_user.email)
+        recipients = _clean_recipients(recipient, ctx.user.email)
 
     db = SessionLocal()
     try:
-        rows = MarketingRepository(db).get_rows_by_period(year, month)
+        rows = MarketingRepository(db, ctx.company_id).get_rows_by_period(year, month)
     finally:
         db.close()
 
@@ -719,10 +735,15 @@ def start_export_db_task(
 
     period = _period_label(year, month)
     task_id = task_store.create_task(
-        _KIND_EXPORT, progress=5, user_id=current_user.id, result={"delivered_by": deliver_by},
+        _KIND_EXPORT,
+        progress=5,
+        user_id=ctx.user.id,
+        company_id=ctx.company_id,
+        result={"delivered_by": deliver_by},
     )
     background_tasks.add_task(
-        _run_export_task, task_id, rows, period, year, month, deliver_by, recipients,
+        _run_export_task, task_id, rows, period, year, month, ctx.company_id,
+        deliver_by, recipients,
     )
 
     return {
@@ -734,9 +755,11 @@ def start_export_db_task(
 
 
 @router.get("/export-db-task/{task_id}")
-def get_export_task_status(task_id: str) -> dict:
+def get_export_task_status(
+    task_id: str, ctx: TenantContext = Depends(get_tenant_context)
+) -> dict:
     """백그라운드 export 진행률 조회"""
-    task = task_store.get_task(task_id, kind=_KIND_EXPORT)
+    task = task_store.get_task(task_id, kind=_KIND_EXPORT, company_id=ctx.company_id)
     if task is None:
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
     return {
@@ -750,21 +773,25 @@ def get_export_task_status(task_id: str) -> dict:
 
 
 @router.delete("/export-db-task/{task_id}")
-def cancel_export_task(task_id: str) -> dict:
+def cancel_export_task(
+    task_id: str, ctx: TenantContext = Depends(get_tenant_context)
+) -> dict:
     """진행 중인 export 태스크를 취소 요청.
 
     작업 행은 지우지 않고 취소 플래그만 세운다 — 워커가 단계마다 이 플래그를 읽어
     스스로 멈춰야 하기 때문이다. 행 자체는 TTL 정리 잡이 나중에 삭제한다.
     """
-    if not task_store.cancel_task(task_id):
+    if not task_store.cancel_task(task_id, company_id=ctx.company_id):
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
     return {"message": "취소되었습니다."}
 
 
 @router.get("/export-db-result/{task_id}")
-def get_export_task_result(task_id: str) -> StreamingResponse:
+def get_export_task_result(
+    task_id: str, ctx: TenantContext = Depends(get_tenant_context)
+) -> StreamingResponse:
     """완료된 export 파일 다운로드 (1회용 — 내려준 뒤 보관본을 제거)"""
-    task = task_store.get_task(task_id, kind=_KIND_EXPORT)
+    task = task_store.get_task(task_id, kind=_KIND_EXPORT, company_id=ctx.company_id)
     if task is None or task["status"] != "done":
         raise HTTPException(status_code=404, detail="아직 완료되지 않았거나 작업을 찾을 수 없습니다.")
 
@@ -783,12 +810,12 @@ def get_export_task_result(task_id: str) -> StreamingResponse:
             except Exception:
                 logger.exception("export 임시 파일 삭제 실패: %s", storage_path)
     else:
-        excel_bytes = task_store.pop_result_blob(task_id)
+        excel_bytes = task_store.pop_result_blob(task_id, company_id=ctx.company_id)
 
     if excel_bytes is None:
         raise HTTPException(status_code=404, detail="이미 내려받았거나 파일이 만료되었습니다.")
 
-    task_store.delete_task(task_id)
+    task_store.delete_task(task_id, company_id=ctx.company_id)
     filename = result.get("filename", "마케팅분석.xlsx")
 
     return StreamingResponse(
@@ -802,11 +829,12 @@ def get_export_task_result(task_id: str) -> StreamingResponse:
 def export_db_excel(
     year: int = Query(...),
     month: int = Query(...),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> StreamingResponse:
     """DB에 저장된 연월 데이터를 Excel 템플릿으로 내려받기"""
     db = SessionLocal()
     try:
-        repo = MarketingRepository(db)
+        repo = MarketingRepository(db, ctx.company_id)
         rows = repo.get_rows_by_period(year, month)
     finally:
         db.close()
@@ -817,7 +845,7 @@ def export_db_excel(
     if not media_kpis:
         raise HTTPException(status_code=404, detail="해당 기간의 데이터가 없습니다.")
 
-    excel_bytes = _build_excel(media_kpis, period, year, month)
+    excel_bytes = _build_excel(media_kpis, period, year, month, ctx.company_id)
     filename = f"마케팅분석_{period.replace(' ', '')}.xlsx"
     return StreamingResponse(
         iter([excel_bytes]),
@@ -827,11 +855,11 @@ def export_db_excel(
 
 
 @router.get("/periods")
-def get_periods() -> list[dict]:
+def get_periods(ctx: TenantContext = Depends(get_tenant_context)) -> list[dict]:
     """저장된 연월 목록 반환"""
     db = SessionLocal()
     try:
-        return MarketingRepository(db).get_available_periods()
+        return MarketingRepository(db, ctx.company_id).get_available_periods()
     finally:
         db.close()
 
@@ -840,11 +868,12 @@ def get_periods() -> list[dict]:
 def get_summary(
     year: int = Query(...),
     month: int = Query(...),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> ReportResponse:
     """특정 연월 DB 데이터를 preview 리포트와 동일한 형태로 반환"""
     db = SessionLocal()
     try:
-        repo = MarketingRepository(db)
+        repo = MarketingRepository(db, ctx.company_id)
         rows = repo.get_rows_by_period(year, month)
         report = _build_report(_db_rows_to_media_kpis(rows), _period_label(year, month))
         report_dict = report.model_dump()
@@ -868,7 +897,7 @@ async def update_comment(
     year: int = Query(...),
     month: int = Query(...),
     force: bool = Query(False, description="데이터가 그대로여도 새로 생성한다"),
-    current_user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> dict:
     """해당 연월 vs 직전월 누적 DB 데이터를 비교해 AI 코멘트를 생성하고 저장.
 
@@ -888,7 +917,7 @@ async def update_comment(
     def _resolve() -> tuple[str, TokenUsage | None, datetime | None, bool]:
         db = SessionLocal()
         try:
-            analysis = AnalysisService(db)
+            analysis = AnalysisService(db, ctx.company_id)
             periods = analysis.resolve_comment_periods(year, month)
             comparison = analysis.compare(
                 year,
@@ -906,9 +935,11 @@ async def update_comment(
             db.close()
 
         if not force:
-            cached = comment_cache.lookup(year, month, prompt_hash)
+            cached = comment_cache.lookup(
+                year, month, prompt_hash, company_id=ctx.company_id
+            )
             if cached is not None:
-                _, updated_at = _read_comment_meta(year, month)
+                _, updated_at = _read_comment_meta(year, month, ctx.company_id)
                 return cached, None, updated_at, True
 
         try:
@@ -916,7 +947,9 @@ async def update_comment(
         except Exception as exc:
             raise server_error("코멘트를 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.", exc)
 
-        saved_at = comment_cache.save(year, month, prompt_hash, result.text)
+        saved_at = comment_cache.save(
+            year, month, prompt_hash, result.text, company_id=ctx.company_id
+        )
         return result.text, result.usage, saved_at, False
 
     # LLM 호출은 수 초가 걸리는 블로킹 작업이라 이벤트 루프에서 돌리면 안 된다.
@@ -927,19 +960,20 @@ async def update_comment(
     if not cached:
         await run_in_threadpool(
             log_ai_usage,
-            user=current_user,
+            user=ctx.user,
             tool=AI_TOOL_MARKETING_COMMENT,
             label=_period_label(year, month),
             usage=usage,
+            company_id=ctx.company_id,
         )
 
     return {"comment": comment, "comment_updated_at": comment_updated_at, "cached": cached}
 
 
-def _read_comment_meta(year: int, month: int) -> tuple[str, datetime | None]:
+def _read_comment_meta(year: int, month: int, company_id: int) -> tuple[str, datetime | None]:
     db = SessionLocal()
     try:
-        return MarketingRepository(db).get_comment_meta(year, month)
+        return MarketingRepository(db, company_id).get_comment_meta(year, month)
     finally:
         db.close()
 
@@ -949,15 +983,18 @@ async def upload_files(
     request: Request,
     background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
-    current_user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> UploadTaskResponse:
     check_content_length(request)
     file_data: list[FileEntry] = await read_data_uploads(files, allowed_extensions=CSV_EXTENSIONS)
 
     task_id = task_store.create_task(
-        _KIND_UPLOAD, status=TaskStatus.PENDING.value, user_id=current_user.id,
+        _KIND_UPLOAD,
+        status=TaskStatus.PENDING.value,
+        user_id=ctx.user.id,
+        company_id=ctx.company_id,
     )
-    background_tasks.add_task(_run_analysis, task_id, file_data)
+    background_tasks.add_task(_run_analysis, task_id, file_data, ctx.company_id)
 
     return UploadTaskResponse(
         task_id=task_id,
@@ -967,8 +1004,10 @@ async def upload_files(
 
 
 @router.get("/status/{task_id}", response_model=TaskStatusResponse)
-def get_task_status(task_id: str) -> TaskStatusResponse:
-    task = task_store.get_task(task_id, kind=_KIND_UPLOAD)
+def get_task_status(
+    task_id: str, ctx: TenantContext = Depends(get_tenant_context)
+) -> TaskStatusResponse:
+    task = task_store.get_task(task_id, kind=_KIND_UPLOAD, company_id=ctx.company_id)
     if task is None:
         raise HTTPException(status_code=404, detail="태스크를 찾을 수 없습니다.")
     return TaskStatusResponse(
@@ -984,6 +1023,7 @@ def get_task_status(task_id: str) -> TaskStatusResponse:
 async def preview_report(
     request: Request,
     files: list[UploadFile] = File(...),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> ReportResponse:
     """CSV → DB 저장 + KPI 계산 후 JSON 리포트 반환"""
     check_content_length(request)
@@ -992,7 +1032,7 @@ async def preview_report(
     def _analyze() -> dict:
         db = SessionLocal()
         try:
-            svc = MarketingService(MarketingRepository(db))
+            svc = MarketingService(MarketingRepository(db, ctx.company_id))
             conv_files, media_files = svc._classify(file_data)
             return svc.process_and_analyze(conv_files, media_files)
         finally:
@@ -1005,11 +1045,11 @@ async def preview_report(
 
 
 @router.post("/undo/{undo_id}")
-def undo_upload(undo_id: str) -> dict:
-    """CSV 업로드 되돌리기 — 이전 DB 상태로 복원"""
+def undo_upload(undo_id: str, ctx: TenantContext = Depends(get_tenant_context)) -> dict:
+    """CSV 업로드 되돌리기 — 이전 DB 상태로 복원 (자기 기업 스냅샷만)"""
     db = SessionLocal()
     try:
-        ok, msg = MarketingRepository(db).restore_undo(undo_id)
+        ok, msg = MarketingRepository(db, ctx.company_id).restore_undo(undo_id)
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -1079,6 +1119,7 @@ async def save_excel_data(
         None, description="저장할 기간 시트 (예: period=26년 5월&period=26년 6월). 생략 시 전체"
     ),
     save_comment: bool = Query(True, description="파일에 담긴 기간 코멘트도 함께 저장"),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> dict:
     """Excel 파일 매체 시트 데이터를 DB에 저장.
 
@@ -1094,18 +1135,20 @@ async def save_excel_data(
     deleted, delete_undo_id, pre_delete_rows = 0, "", []
     if replace:
         try:
-            deleted, delete_undo_id, pre_delete_rows = _delete_periods(periods)
+            deleted, delete_undo_id, pre_delete_rows = _delete_periods(
+                periods, ctx.company_id
+            )
         except Exception as exc:
             raise server_error("기존 데이터를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.", exc)
 
     try:
-        saved, _, _undo_id = MarketingRepository(None).save_mapped_dataframe(df)  # type: ignore[arg-type]
+        saved, _, _undo_id = MarketingRepository(None, ctx.company_id).save_mapped_dataframe(df)
     except Exception as exc:
         # 삭제는 이미 커밋됐다 — 되돌리지 않으면 해당 기간이 통째로 비어버린다.
         if pre_delete_rows:
             logger.exception("엑셀 저장 실패 — 삭제했던 %d개 행을 되돌립니다", len(pre_delete_rows))
             try:
-                marketing_repo.restore_rows(pre_delete_rows)
+                marketing_repo.restore_rows(pre_delete_rows, company_id=ctx.company_id)
             except Exception:
                 logger.exception("되돌리기 실패 — undo_id=%s 로 수동 복구가 필요합니다", delete_undo_id)
         raise server_error("저장하지 못했습니다. 잠시 후 다시 시도해 주세요.", exc)
@@ -1115,7 +1158,7 @@ async def save_excel_data(
     saved_comments = 0
     if save_comment:
         try:
-            saved_comments = _save_period_comments(comments)
+            saved_comments = _save_period_comments(comments, ctx.company_id)
         except Exception:
             logger.exception("코멘트 저장 실패 (데이터는 저장됨)")
 
@@ -1136,7 +1179,9 @@ async def save_excel_data(
 
 
 @router.post("/rows")
-def upsert_row(body: RowUpsertBody) -> dict:
+def upsert_row(
+    body: RowUpsertBody, ctx: TenantContext = Depends(get_tenant_context)
+) -> dict:
     """단일 행 (report_date, campaign_type) UPSERT"""
     df = pd.DataFrame([{
         "report_date": body.report_date,
@@ -1151,7 +1196,7 @@ def upsert_row(body: RowUpsertBody) -> dict:
         "apply": body.apply,
     }])
     try:
-        saved, _, _ = MarketingRepository(None).save_mapped_dataframe(df)  # type: ignore[arg-type]
+        saved, _, _ = MarketingRepository(None, ctx.company_id).save_mapped_dataframe(df)
         return {"saved": saved, "message": "저장되었습니다."}
     except Exception as exc:
         raise server_error("저장하지 못했습니다. 잠시 후 다시 시도해 주세요.", exc)
@@ -1161,8 +1206,9 @@ def upsert_row(body: RowUpsertBody) -> dict:
 def delete_row(
     report_date: str = Query(...),
     campaign_type: str = Query(...),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> dict:
-    """단일 행 삭제 — (report_date, campaign_type) 기준"""
+    """단일 행 삭제 — (report_date, campaign_type) 기준, 자기 기업 행만"""
     from sqlalchemy import text as _text
     from app.core.database import engine as _engine
     try:
@@ -1170,9 +1216,9 @@ def delete_row(
             result = conn.execute(
                 _text(
                     "DELETE FROM marketing_data "
-                    "WHERE report_date = :d AND campaign_type = :c"
+                    "WHERE report_date = :d AND campaign_type = :c AND company_id = :cid"
                 ),
-                {"d": report_date, "c": campaign_type},
+                {"d": report_date, "c": campaign_type, "cid": ctx.company_id},
             )
         deleted = result.rowcount
         if deleted == 0:
@@ -1188,6 +1234,7 @@ def delete_row(
 async def export_excel(
     request: Request,
     files: list[UploadFile] = File(...),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> StreamingResponse:
     """CSV → Excel 템플릿 채운 뒤 다운로드"""
     check_content_length(request)
@@ -1196,7 +1243,7 @@ async def export_excel(
     def _build() -> tuple[bytes, str]:
         db = SessionLocal()
         try:
-            svc = MarketingService(MarketingRepository(db))
+            svc = MarketingService(MarketingRepository(db, ctx.company_id))
             conv_files, media_files = svc._classify(file_data)
             media_kpis, period = svc.process_for_export(conv_files, media_files)
         finally:
@@ -1205,7 +1252,7 @@ async def export_excel(
         # 일별 실적은 방금 올린 CSV에서 오지만, 비교 행·예산·코멘트는 DB에만 있다.
         # 기간은 라벨("26년 7월")에서 읽는다.
         year, month = resolve_period(period, None, None)
-        return _build_excel(media_kpis, period, year, month), period
+        return _build_excel(media_kpis, period, year, month, ctx.company_id), period
 
     # CSV 파싱부터 openpyxl 템플릿 채우기까지 전부 블로킹이라 이벤트 루프 밖에서 돌린다.
     excel_bytes, period = await run_in_threadpool(_build)

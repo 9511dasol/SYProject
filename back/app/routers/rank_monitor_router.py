@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.feature_flags import require_feature_flag
 from app.core.security import get_current_user, get_db
+from app.core.tenant import TenantContext, get_tenant_context
 from app.core.uploads import check_content_length, read_data_upload
 from app.models.keyword_watch_model import KeywordRankSnapshot, KeywordWatch
 from app.models.user_model import User
@@ -106,14 +107,14 @@ def _to_alert_summary(result: AlertRunResult) -> AlertSummary:
     )
 
 
-def _evaluate_alerts(db: Session) -> AlertSummary:
+def _evaluate_alerts(db: Session, company_id: int) -> AlertSummary:
     """적재 뒤 알림을 평가한다. 실패해도 적재 결과를 덮지 않는다.
 
     데이터는 이미 저장됐다 — 알림이 안 나갔다고 업로드를 실패로 돌려주면
-    사용자는 같은 파일을 다시 올리게 된다.
+    사용자는 같은 파일을 다시 올리게 된다. 평가 범위는 요청 기업뿐이다.
     """
     try:
-        result = run_rank_alerts(db)
+        result = run_rank_alerts(db, company_id)
         db.commit()
         return _to_alert_summary(result)
     except Exception as exc:
@@ -126,14 +127,15 @@ def _evaluate_alerts(db: Session) -> AlertSummary:
 def create_watches(
     payload: WatchBulkCreateRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> WatchBulkCreateResponse:
     """단건이든 대량이든 같은 경로 — 행별 성공/건너뜀/실패 사유를 돌려준다.
 
     일부가 중복이어도 전체를 거절하지 않는다. 엑셀로 수백 건을 올리는 사용자는
     "몇 번째가 왜 안 됐는지"가 필요하지, 전부 되돌리고 다시 올리는 게 아니다.
     """
-    repo = KeywordWatchRepository(db)
+    user = ctx.user
+    repo = KeywordWatchRepository(db, ctx.company_id)
     existing = repo.existing_pairs()
     results: list[WatchCreateResult] = []
     pending: list[tuple[WatchCreateResult, KeywordWatch]] = []  # commit 후 id 를 채운다
@@ -153,6 +155,7 @@ def create_watches(
             continue
         watch = repo.add(
             KeywordWatch(
+                company_id=ctx.company_id,
                 keyword=item.keyword,
                 device=item.device,
                 target_rank=item.target_rank,
@@ -200,9 +203,9 @@ def create_watches(
 @router.get("/watches", response_model=WatchListResponse)
 def list_watches(
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> WatchListResponse:
-    repo = KeywordWatchRepository(db)
+    repo = KeywordWatchRepository(db, ctx.company_id)
     watches = repo.list_all()
     latest = repo.latest_snapshots([w.id for w in watches])
     return WatchListResponse(
@@ -216,9 +219,9 @@ def update_watch(
     watch_id: int,
     payload: WatchUpdate,
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> WatchOut:
-    repo = KeywordWatchRepository(db)
+    repo = KeywordWatchRepository(db, ctx.company_id)
     watch = repo.get(watch_id)
     if watch is None:
         raise HTTPException(status_code=404, detail="감시 키워드를 찾을 수 없습니다.")
@@ -240,10 +243,11 @@ def update_watch(
 def delete_watch(
     watch_id: int,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> WatchDeleteResponse:
     """감시와 그 이력을 함께 삭제한다 (되돌릴 수 없음)."""
-    repo = KeywordWatchRepository(db)
+    user = ctx.user
+    repo = KeywordWatchRepository(db, ctx.company_id)
     watch = repo.get(watch_id)
     if watch is None:
         raise HTTPException(status_code=404, detail="감시 키워드를 찾을 수 없습니다.")
@@ -260,9 +264,9 @@ def watch_history(
     watch_id: int,
     limit: int = 90,
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> WatchHistoryResponse:
-    repo = KeywordWatchRepository(db)
+    repo = KeywordWatchRepository(db, ctx.company_id)
     watch = repo.get(watch_id)
     if watch is None:
         raise HTTPException(status_code=404, detail="감시 키워드를 찾을 수 없습니다.")
@@ -281,7 +285,7 @@ async def upload_snapshot_report(
     file: UploadFile,
     stat_date: date = Form(..., description="보고서가 집계된 날짜 (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> SnapshotUploadResponse:
     """키워드 보고서(CSV/Excel)를 해당 날짜의 순위 스냅샷으로 적재한다.
 
@@ -290,6 +294,7 @@ async def upload_snapshot_report(
     check_content_length(request)
     content = await read_data_upload(file)
     filename = file.filename or ""
+    user = ctx.user
 
     def _ingest() -> SnapshotUploadResponse:
         # pandas 파싱·DB 적재 모두 블로킹이라 스레드풀에서 돈다 (B1 원칙).
@@ -301,7 +306,9 @@ async def upload_snapshot_report(
             ) from exc
 
         try:
-            summary = ingest_observations(db, observations, stat_date=stat_date)
+            summary = ingest_observations(
+                db, observations, stat_date=stat_date, company_id=ctx.company_id
+            )
             db.commit()
         except Exception as exc:
             db.rollback()
@@ -313,7 +320,7 @@ async def upload_snapshot_report(
 
         # 적재가 끝난 뒤 바로 평가한다 — 새 데이터가 들어온 그 순간이 하락이
         # 확정되는 시점이고, 다음 날 크론까지 기다릴 이유가 없다.
-        alerts = _evaluate_alerts(db)
+        alerts = _evaluate_alerts(db, ctx.company_id)
 
         return SnapshotUploadResponse(
             stat_date=summary.stat_date,
@@ -340,9 +347,9 @@ def list_alerts(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> AlertLogListResponse:
-    repo = KeywordWatchRepository(db)
+    repo = KeywordWatchRepository(db, ctx.company_id)
     return AlertLogListResponse(
         items=[
             AlertLogOut.model_validate(a)
@@ -357,13 +364,13 @@ async def watch_bid_estimate(
     watch_id: int,
     max_position: int = Query(5, ge=1, le=MAX_POSITION),
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> BidEstimateResponse:
     """이 키워드를 N위로 노출하려면 얼마가 드는지 — 목표 순위를 정할 근거.
 
     외부 API 를 디바이스 수만큼 호출하므로 스레드풀에서 돈다.
     """
-    repo = KeywordWatchRepository(db)
+    repo = KeywordWatchRepository(db, ctx.company_id)
     watch = repo.get(watch_id)
     if watch is None:
         raise HTTPException(status_code=404, detail="감시 키워드를 찾을 수 없습니다.")
@@ -399,10 +406,10 @@ async def watch_bid_estimate(
 async def watch_insight(
     watch_id: int,
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> KeywordInsightResponse:
     """이 키워드가 얼마나 치열한가 — 검색량·경쟁정도·평균 노출 광고 수."""
-    repo = KeywordWatchRepository(db)
+    repo = KeywordWatchRepository(db, ctx.company_id)
     watch = repo.get(watch_id)
     if watch is None:
         raise HTTPException(status_code=404, detail="감시 키워드를 찾을 수 없습니다.")
@@ -458,7 +465,7 @@ async def run_collect_now(
     stat_date: date | None = Query(None, description="수집할 날짜 (기본: 어제)"),
     force_resolve: bool = Query(False, description="키워드 ID를 다시 찾는다"),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> CollectResponse:
     """지금 네이버 API로 순위를 받아 적재하고, 이어서 알림까지 평가한다.
 
@@ -466,10 +473,15 @@ async def run_collect_now(
     그래서 스레드풀에서 돌리고, 프런트는 이 요청에 상한을 걸지 않는다.
     """
 
+    user = ctx.user
+
     def _run() -> CollectResponse:
         try:
             result = collect_ranks(
-                db, target_date=stat_date, force_resolve=force_resolve
+                db,
+                target_date=stat_date,
+                force_resolve=force_resolve,
+                company_id=ctx.company_id,
             )
             db.commit()
         except Exception as exc:
@@ -482,7 +494,7 @@ async def run_collect_now(
 
         # 받아온 직후가 하락이 확정되는 시점이다 — 바로 이어서 평가한다.
         alerts = (
-            _evaluate_alerts(db)
+            _evaluate_alerts(db, ctx.company_id)
             if result.ingest is not None
             else AlertSummary(skipped_reason=result.skipped_reason)
         )
@@ -506,10 +518,11 @@ async def run_collect_now(
 @router.post("/alerts/run", response_model=AlertSummary)
 async def run_alerts_now(
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> AlertSummary:
     """지금 상태로 알림을 평가해 보낸다 — 설정을 고친 뒤 바로 확인할 때 쓴다."""
-    summary = await run_in_threadpool(_evaluate_alerts, db)
+    user = ctx.user
+    summary = await run_in_threadpool(_evaluate_alerts, db, ctx.company_id)
     logger.info(
         "%s 가 순위 알림 수동 평가 — 하락 %d·회복 %d (발송 %s)",
         user.email, summary.drops, summary.recoveries, summary.sent,

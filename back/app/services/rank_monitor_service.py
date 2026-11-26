@@ -107,9 +107,15 @@ def ingest_observations(
     *,
     stat_date: date,
     source: str = "upload",
+    company_id: int | None = None,
 ) -> IngestSummary:
-    """관측값을 스냅샷으로 적재하고 감시 행의 연속 이탈을 갱신한다. commit 은 호출부가 한다."""
-    repo = KeywordWatchRepository(db)
+    """관측값을 스냅샷으로 적재하고 감시 행의 연속 이탈을 갱신한다. commit 은 호출부가 한다.
+
+    company_id 가 있으면(업로드 등 요청 경로) 그 기업의 감시에만 매칭한다 — 없으면
+    A기업 보고서의 키워드가 B기업 감시에 꽂히는 교차 오염이 생긴다. 크론(전 기업
+    수집)은 None 으로 전체를 돌되, 스냅샷 소속은 각 감시의 company_id 를 따른다.
+    """
+    repo = KeywordWatchRepository(db, company_id)
     watches = repo.list_all()
     summary = IngestSummary(stat_date=stat_date)
 
@@ -148,6 +154,7 @@ def ingest_observations(
         if existing is None:
             db.add(
                 KeywordRankSnapshot(
+                    company_id=watch.company_id,
                     watch_id=watch.id,
                     stat_date=stat_date,
                     avg_rank=avg_rank,

@@ -28,7 +28,7 @@ def client():
     app = FastAPI()
     app.include_router(marketing_router.router)
     app.dependency_overrides[get_current_user] = lambda: User(
-        id=1, email="user@example.com", role="user"
+        id=1, email="user@example.com", role="member", company_id=1
     )
     try:
         yield TestClient(app)

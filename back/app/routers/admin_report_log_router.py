@@ -12,9 +12,9 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.security import get_db, require_admin
+from app.core.security import get_db
 from app.core.settings import settings
-from app.models.user_model import User
+from app.core.tenant import TenantContext, get_admin_tenant_context
 from app.repositories.report_log_repo import ReportLogRepository
 from app.schemas.admin_report_log_schema import (
     ReportLogListResponse,
@@ -34,9 +34,9 @@ def list_report_logs(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    ctx: TenantContext = Depends(get_admin_tenant_context),
 ) -> ReportLogListResponse:
-    repo = ReportLogRepository(db)
+    repo = ReportLogRepository(db, ctx.company_id)
     return ReportLogListResponse(
         items=[ReportLogOut.model_validate(r) for r in repo.list_logs(
             status=status_filter, limit=limit, offset=offset
@@ -50,7 +50,7 @@ def list_report_logs(
 def resend_report(
     log_id: int,
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    ctx: TenantContext = Depends(get_admin_tenant_context),
 ) -> ReportResendResponse:
     """실패한 발송 건을 같은 조건으로 다시 시도한다."""
     if not settings.MAIL_ENABLED:
@@ -59,7 +59,7 @@ def resend_report(
             detail="메일 발송 기능이 비활성화되어 있습니다 (MAIL_ENABLED=false).",
         )
 
-    repo = ReportLogRepository(db)
+    repo = ReportLogRepository(db, ctx.company_id)
     log = repo.get(log_id)
     if log is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="발송 기록을 찾을 수 없습니다.")
@@ -71,7 +71,7 @@ def resend_report(
             detail="이 기록에는 수신자가 남아 있지 않아 재발송할 수 없습니다.",
         )
 
-    orchestrator = build_orchestrator(db)
+    orchestrator = build_orchestrator(db, user=ctx.user, company_id=ctx.company_id)
     try:
         orchestrator.run(
             curr_year=log.curr_year,

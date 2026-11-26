@@ -6,12 +6,14 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_refresh_token,
+    ensure_company_access,
     get_current_user,
     get_db,
     validate_password_policy,
     verify_password,
 )
 from app.core.settings import settings
+from app.core.tenant import SY_COMPANY_ID
 from app.models.user_model import User
 from app.repositories.user_repo import AccountLockedError, UserRepository
 from app.schemas.auth_schema import (
@@ -38,8 +40,14 @@ def _to_user_out(user: User) -> UserOut:
     )
 
 
+def _access_claims(user: User) -> dict:
+    # company_id 를 claim 에 싣는 이유: 프론트 세션이 소속 기업을 알아야 하고,
+    # 데이터 접근 기준 기업이 요청 파라미터가 아니라 토큰·DB 에서만 나오게 한다.
+    return {"role": user.role, "company_id": user.company_id}
+
+
 def _to_token_response(user: User) -> TokenResponse:
-    access_token = create_access_token(subject=str(user.id), extra_claims={"role": user.role})
+    access_token = create_access_token(subject=str(user.id), extra_claims=_access_claims(user))
     refresh_token = create_refresh_token(subject=str(user.id))
     return TokenResponse(access_token=access_token, refresh_token=refresh_token, user=_to_user_out(user))
 
@@ -57,7 +65,10 @@ def register(request: Request, body: UserCreate, db: Session = Depends(get_db)):
     if repo.get_by_email(body.email) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 가입된 이메일입니다.")
 
-    user = repo.create_user(email=body.email, password=body.password, name=body.name)
+    # 개발 환경 전용 경로 — 시드 기업 sy 소속의 member 로 만든다.
+    user = repo.create_user(
+        email=body.email, password=body.password, name=body.name, company_id=SY_COMPANY_ID
+    )
     return _to_token_response(user)
 
 
@@ -79,6 +90,8 @@ def login(request: Request, body: UserLogin, db: Session = Depends(get_db)):
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
 
+    # 기업 정지·체험 만료는 로그인 단계에서 바로 거절한다.
+    ensure_company_access(db, user)
     return _to_token_response(user)
 
 
@@ -93,7 +106,9 @@ def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="사용자를 찾을 수 없습니다.")
 
-    access_token = create_access_token(subject=str(user.id), extra_claims={"role": user.role})
+    # 기업 정지·체험 만료 시 refresh 를 거절해 토큰 수명을 즉시 끊는다.
+    ensure_company_access(db, user)
+    access_token = create_access_token(subject=str(user.id), extra_claims=_access_claims(user))
     return AccessTokenResponse(access_token=access_token)
 
 

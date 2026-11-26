@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from app.core.security import require_admin
+from app.core.security import require_dev
 from app.core.settings import settings
 from app.models.user_model import User
 from app.schemas.ai_status_schema import AIProviderStatus, AIStatusOut
@@ -14,8 +14,9 @@ _PROVIDER_LABELS = {
 }
 
 
+# 플랫폼 전역 정보(LLM 키 구성)라 기업 admin 이 아니라 dev 의 권한이다.
 @router.get("", response_model=AIStatusOut, summary="AI 프로바이더 현황 조회")
-def get_ai_status(_admin: User = Depends(require_admin)) -> AIStatusOut:
+def get_ai_status(_dev: User = Depends(require_dev)) -> AIStatusOut:
     """현재 LLM_PROVIDER, 모델, API 키 설정 여부를 반환합니다. 실제 키 값은 노출하지 않습니다."""
     providers = [
         AIProviderStatus(

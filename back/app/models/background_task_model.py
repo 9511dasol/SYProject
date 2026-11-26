@@ -1,6 +1,16 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, LargeBinary, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import PORTABLE_JSON, Base
@@ -20,9 +30,17 @@ class BackgroundTask(Base):
     """
 
     __tablename__ = "background_tasks"
+    __table_args__ = (
+        Index("ix_bg_tasks_company_created", "company_id", "created_at"),
+    )
 
     # uuid4 문자열 (기존 인메모리 스토어의 task_id 형식을 그대로 유지)
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # 소속 기업 — 테넌트 테이블 중 유일하게 NULL 허용: 어느 기업 것도 아닌
+    # 전역 시스템 잡(trial 정리, 자동 수집 크론 등)이 이 테이블에 같이 기록된다.
+    company_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True
+    )
     # "marketing_upload" | "marketing_export" | "marketing_save" | "generic"
     kind: Mapped[str] = mapped_column(String(32), index=True)
     status: Mapped[str] = mapped_column(String(16), default="pending")

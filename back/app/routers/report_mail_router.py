@@ -10,6 +10,7 @@ from app.core.ai_budget import require_ai_budget
 from app.core.database import SessionLocal
 from app.core.feature_flags import require_feature_flag
 from app.core.security import get_current_user, get_db, require_admin
+from app.core.tenant import TenantContext, get_tenant_context
 from app.models.user_model import User
 from app.repositories.report_log_repo import ReportLogRepository
 from app.services.report_factory import build_orchestrator
@@ -86,7 +87,7 @@ class LogResponse(BaseModel):
 def preview_report(
     body: PreviewReportRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> PreviewReportResponse:
     """발송될 메일과 같은 제목·AI 코멘트·HTML 본문을 만들어 돌려준다.
 
@@ -94,7 +95,7 @@ def preview_report(
     결과를 보여준 뒤에 발송을 받는다. 여기서 생성된 코멘트는 캐시에 저장되어
     뒤이은 발송이 그대로 재사용한다 — 미리보기를 거쳐도 비용이 두 번 들지 않는다.
     """
-    orchestrator = build_orchestrator(db, user=current_user)
+    orchestrator = build_orchestrator(db, user=ctx.user, company_id=ctx.company_id)
     result = orchestrator.preview(
         curr_year=body.curr_year,
         curr_month=body.curr_month,
@@ -114,7 +115,7 @@ def send_report(
     body: SendReportRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ):
     """분석 → LLM 코멘트 → HTML 빌드 → 메일 발송을 백그라운드로 실행합니다."""
 
@@ -123,13 +124,16 @@ def send_report(
     # 읽는 순간 DetachedInstanceError 가 난다. log_ai_usage 는 기록 실패를 삼키므로
     # 백그라운드 발송의 토큰 사용량만 조용히 누락됐다. 세션과 무관한 원시 값을
     # 지금 떠 두고, 태스크 안에서는 임시 User 객체로 전달한다(레포는 id/email 만 읽는다).
-    user_id = current_user.id
-    user_email = current_user.email
+    user_id = ctx.user.id
+    user_email = ctx.user.email
+    company_id = ctx.company_id
 
     def _task() -> None:
         task_db = SessionLocal()
         try:
-            orchestrator = build_orchestrator(task_db, user=User(id=user_id, email=user_email))
+            orchestrator = build_orchestrator(
+                task_db, user=User(id=user_id, email=user_email), company_id=company_id
+            )
             orchestrator.run(
                 curr_year=body.curr_year,
                 curr_month=body.curr_month,
@@ -156,6 +160,7 @@ def send_report_sync(
     body: SendReportRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
+    ctx: TenantContext = Depends(get_tenant_context),
 ):
     """즉시 발송하고 결과를 반환합니다 (발송 설정 점검용).
 
@@ -164,7 +169,7 @@ def send_report_sync(
     걸려 있는 AI 예산 게이트도 이 경로에만 빠져 있어 집계를 우회할 수 있었다.
     관리자만 호출하도록 제한한다.
     """
-    orchestrator = build_orchestrator(db, user=current_user)
+    orchestrator = build_orchestrator(db, user=current_user, company_id=ctx.company_id)
     return orchestrator.run(
         curr_year=body.curr_year,
         curr_month=body.curr_month,
@@ -180,6 +185,7 @@ def get_logs(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(get_tenant_context),
 ):
     """발송 이력을 최신순으로 반환한다.
 
@@ -187,7 +193,7 @@ def get_logs(
     읽는 관리자 화면(admin_report_log_router)과 정렬 기준이 갈라지지 않게 한다
     (레포는 created_at 이 같을 때 id 로 한 번 더 정렬해 순서가 흔들리지 않는다).
     """
-    rows = ReportLogRepository(db).list_logs(limit=limit, offset=offset)
+    rows = ReportLogRepository(db, ctx.company_id).list_logs(limit=limit, offset=offset)
     return [
         LogResponse(
             id=r.id,

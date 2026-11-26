@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import NamedTuple
 
-from sqlalchemy import String, UniqueConstraint, and_
+from sqlalchemy import ForeignKey, Index, Integer, String, UniqueConstraint, and_
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import PORTABLE_JSON, Base
@@ -12,9 +12,17 @@ class MarketingPeriodMeta(Base):
     """연월별 Excel summary 부가 정보 — 코멘트(B32)와 매체별 예산."""
 
     __tablename__ = "marketing_period_meta"
-    __table_args__ = (UniqueConstraint("year", "month", name="uq_period_year_month"),)
+    __table_args__ = (
+        # 같은 연월이라도 기업이 다르면 별개의 기간이다.
+        UniqueConstraint("company_id", "year", "month", name="uq_period_company_year_month"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    # 소속 기업 — 생성 경로가 반드시 명시한다(기본값 없음: 빠뜨리면 조용히 sy 로
+    # 귀속되는 대신 그 자리에서 실패한다).
+    company_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("companies.id", ondelete="CASCADE")
+    )
     year: Mapped[int] = mapped_column(index=True)
     month: Mapped[int] = mapped_column(index=True)
     comment: Mapped[str] = mapped_column(default="")
@@ -33,8 +41,17 @@ class MarketingPeriodMeta(Base):
 
 class MarketingData(Base):
     __tablename__ = "marketing_data"
+    __table_args__ = (
+        # 월별 조회·집계(in_month)가 전부 기업 범위 안에서 날짜를 거른다.
+        Index("ix_marketing_company_date", "company_id", "report_date"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    # 소속 기업 — 생성 경로가 반드시 명시한다(기본값 없음: 빠뜨리면 조용히 sy 로
+    # 귀속되는 대신 그 자리에서 실패한다).
+    company_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("companies.id", ondelete="CASCADE")
+    )
     report_date: Mapped[date] = mapped_column(index=True)
     campaign_type: Mapped[str] = mapped_column(index=True)
     impressions: Mapped[int] = mapped_column(default=0)

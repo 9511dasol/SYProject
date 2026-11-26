@@ -15,11 +15,13 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.models.company_model import Company
 from app.models.marketing_model import MarketingData
 from app.repositories import marketing_repo
 from app.repositories.marketing_repo import MarketingRepository
 
 EXISTING = {
+    "company_id": 1,
     "report_date": "2026-07-01",
     "campaign_type": "구글SA",
     "impressions": 951,
@@ -43,12 +45,14 @@ def sqlite_engine(monkeypatch):
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
+    # marketing_data.company_id 의 FK 가 companies 를 참조하므로 먼저 만든다.
+    Company.__table__.create(engine)
     MarketingData.__table__.create(engine)
     monkeypatch.setattr(marketing_repo, "engine", engine)
 
     saved: dict[str, list[dict]] = {}
     monkeypatch.setattr(
-        marketing_repo, "_save_undo_snapshot", lambda undo_id, rows: saved.__setitem__(undo_id, rows)
+        marketing_repo, "_save_undo_snapshot", lambda undo_id, rows, company_id: saved.__setitem__(undo_id, rows)
     )
     engine.snapshots = saved  # 테스트에서 들여다보려고 붙여 둔다
     try:
@@ -81,7 +85,7 @@ def _save_overwriting_the_seed() -> None:
         "impressions": 1, "clicks": 1, "cost": 1.0,
         "total_conv": 1, "revenue": 1.0, "signup": 1.0, "purchase": 1.0, "apply": 1.0,
     }])
-    MarketingRepository(None).save_from_kpis({EXISTING["campaign_type"]: daily})
+    MarketingRepository(None, 1).save_from_kpis({EXISTING["campaign_type"]: daily})
 
 
 def test_failed_insert_leaves_the_existing_rows_intact(sqlite_engine, monkeypatch):
@@ -154,7 +158,7 @@ def test_failed_insert_of_brand_new_data_leaves_no_orphan_rows(sqlite_engine, mo
     ])
 
     with pytest.raises(RuntimeError):
-        MarketingRepository(None).save_from_kpis({"구글SA": daily})
+        MarketingRepository(None, 1).save_from_kpis({"구글SA": daily})
 
     with sqlite_engine.begin() as conn:
         remaining = conn.execute(text("SELECT COUNT(*) FROM marketing_data")).scalar()
@@ -171,12 +175,12 @@ def test_period_snapshot_round_trips(sqlite_engine, monkeypatch):
 
     saved: dict[str, list[dict]] = {}
     monkeypatch.setattr(
-        marketing_repo, "_save_undo_snapshot", lambda undo_id, rows: saved.__setitem__(undo_id, rows)
+        marketing_repo, "_save_undo_snapshot", lambda undo_id, rows, company_id: saved.__setitem__(undo_id, rows)
     )
 
     session = sessionmaker(bind=sqlite_engine)()
     try:
-        repo = MarketingRepository(session)
+        repo = MarketingRepository(session, 1)
         undo_id, snapshot = repo.snapshot_periods([(2026, 7)])
         assert len(snapshot) == 1, "삭제 전 스냅샷이 기존 행을 담지 못했다"
         assert snapshot[0]["impressions"] == 951
@@ -189,7 +193,7 @@ def test_period_snapshot_round_trips(sqlite_engine, monkeypatch):
 
     assert _rows(sqlite_engine) == [], "삭제가 반영되지 않아 테스트가 무의미하다"
 
-    marketing_repo.restore_rows(snapshot)
+    marketing_repo.restore_rows(snapshot, company_id=1)
 
     rows = _rows(sqlite_engine)
     assert len(rows) == 1

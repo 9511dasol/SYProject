@@ -23,25 +23,25 @@ def _patch(mocker, *, budget: int, used: int) -> None:
 def test_unset_budget_allows_call(mocker):
     """budget=0 은 '미설정' — 제한하지 않는다 (기존 동작 유지)."""
     _patch(mocker, budget=0, used=10_000_000)
-    ai_budget.check_ai_budget(mocker.Mock())
+    ai_budget.check_ai_budget(mocker.Mock(), 1)
 
 
 def test_under_budget_allows_call(mocker):
     _patch(mocker, budget=1000, used=999)
-    ai_budget.check_ai_budget(mocker.Mock())
+    ai_budget.check_ai_budget(mocker.Mock(), 1)
 
 
 def test_reaching_budget_blocks_call(mocker):
     _patch(mocker, budget=1000, used=1000)
     with pytest.raises(HTTPException) as exc_info:
-        ai_budget.check_ai_budget(mocker.Mock())
+        ai_budget.check_ai_budget(mocker.Mock(), 1)
     assert exc_info.value.status_code == 429
 
 
 def test_over_budget_blocks_call(mocker):
     _patch(mocker, budget=1000, used=2500)
     with pytest.raises(HTTPException) as exc_info:
-        ai_budget.check_ai_budget(mocker.Mock())
+        ai_budget.check_ai_budget(mocker.Mock(), 1)
     assert exc_info.value.status_code == 429
     assert "예산" in exc_info.value.detail
 

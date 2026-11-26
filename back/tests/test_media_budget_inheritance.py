@@ -33,12 +33,12 @@ def db():
 
 
 def _set(db, year: int, month: int, budgets: dict) -> None:
-    MarketingRepository(db).set_media_budgets(year, month, budgets)
+    MarketingRepository(db, 1).set_media_budgets(year, month, budgets)
     db.commit()
 
 
 def _get(db, year: int, month: int):
-    return MarketingRepository(db).get_media_budgets(year, month)
+    return MarketingRepository(db, 1).get_media_budgets(year, month)
 
 
 # ── 기본 상속 ────────────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ def test_clearing_is_not_mistaken_for_a_value(db):
 def test_a_row_with_only_a_comment_is_skipped(db):
     """코멘트만 저장된 달(예산 미입력)도 건너뛰고 이전 값을 이어받아야 한다."""
     _set(db, 2026, 10, NAVER)
-    db.add(MarketingPeriodMeta(year=2026, month=11, comment="11월 코멘트"))
+    db.add(MarketingPeriodMeta(company_id=1, year=2026, month=11, comment="11월 코멘트"))
     db.commit()
 
     assert _get(db, 2026, 12) == (NAVER, (2026, 10))
@@ -100,7 +100,7 @@ def test_a_row_with_only_a_comment_is_skipped(db):
 def test_all_zero_budgets_are_skipped_as_unset(db):
     """값이 전부 None 이라 걸러지고 나면 빈 dict 다 — 그 달은 없는 셈 쳐야 한다."""
     _set(db, 2026, 10, NAVER)
-    MarketingRepository(db).set_media_budgets(2026, 11, {})
+    MarketingRepository(db, 1).set_media_budgets(2026, 11, {})
     db.commit()
 
     budgets, source = _get(db, 2026, 12)

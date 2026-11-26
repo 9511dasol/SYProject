@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.security import get_db, require_admin
+from app.core.tenant import TenantContext, get_admin_tenant_context
 from app.models.marketing_model import MarketingData, MarketingPeriodMeta
 from app.models.user_model import User
 from app.repositories.marketing_repo import MarketingRepository
@@ -36,7 +37,7 @@ def db():
 
 
 def _add_row(db, year: int, month: int, day: int, campaign_type: str = "네이버") -> None:
-    db.add(MarketingData(
+    db.add(MarketingData(company_id=1, 
         report_date=date(year, month, day), campaign_type=campaign_type,
         impressions=100, clicks=10, cost=1000.0,
         conversions=1, conversion_revenue=5000.0, signup=0.0, purchase=1.0, apply=0.0,
@@ -53,7 +54,7 @@ def _add_meta(
     excel_path: str | None = None,
     media_budgets: dict | None = None,
 ) -> None:
-    db.add(MarketingPeriodMeta(
+    db.add(MarketingPeriodMeta(company_id=1, 
         year=year, month=month, comment=comment,
         excel_path=excel_path, media_budgets=media_budgets,
     ))
@@ -65,7 +66,9 @@ def client(db):
     app = FastAPI()
     app.include_router(admin_period_router.router)
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[require_admin] = lambda: User(id=1, email="admin@example.com", role="admin")
+    _admin = User(id=1, email="admin@example.com", role="admin", company_id=1)
+    app.dependency_overrides[require_admin] = lambda: _admin
+    app.dependency_overrides[get_admin_tenant_context] = lambda: TenantContext(user=_admin, company_id=1)
     try:
         yield TestClient(app)
     finally:
@@ -80,7 +83,7 @@ def test_overview_aggregates_rows_per_period(db):
     _add_row(db, 2026, 6, 2)
     _add_row(db, 2026, 5, 10)
 
-    items = MarketingRepository(db).list_period_overview()
+    items = MarketingRepository(db, 1).list_period_overview()
     june = next(i for i in items if i["month"] == 6)
     assert june["row_count"] == 2
     assert june["first_date"] == "2026-06-01"
@@ -91,7 +94,7 @@ def test_overview_is_newest_first(db):
     _add_row(db, 2025, 12, 1)
     _add_row(db, 2026, 6, 1)
 
-    items = MarketingRepository(db).list_period_overview()
+    items = MarketingRepository(db, 1).list_period_overview()
     assert [(i["year"], i["month"]) for i in items] == [(2026, 6), (2025, 12)]
 
 
@@ -99,7 +102,7 @@ def test_overview_includes_period_with_meta_only(db):
     """데이터 행 없이 코멘트만 남은 기간도 보여야 정리할 수 있다."""
     _add_meta(db, 2026, 3, comment="지난달 대비 CPC 상승")
 
-    items = MarketingRepository(db).list_period_overview()
+    items = MarketingRepository(db, 1).list_period_overview()
     assert len(items) == 1
     assert items[0]["row_count"] == 0
     assert items[0]["has_comment"] is True
@@ -109,7 +112,7 @@ def test_overview_flags_comment_and_excel(db):
     _add_row(db, 2026, 6, 1)
     _add_meta(db, 2026, 6, comment="코멘트", excel_path="2026/06/report.xlsx")
 
-    item = MarketingRepository(db).list_period_overview()[0]
+    item = MarketingRepository(db, 1).list_period_overview()[0]
     assert item["has_comment"] is True
     assert item["has_excel"] is True
 
@@ -118,7 +121,7 @@ def test_empty_comment_is_not_counted_as_having_one(db):
     _add_row(db, 2026, 6, 1)
     _add_meta(db, 2026, 6, comment="")
 
-    assert MarketingRepository(db).list_period_overview()[0]["has_comment"] is False
+    assert MarketingRepository(db, 1).list_period_overview()[0]["has_comment"] is False
 
 
 def test_list_endpoint_returns_total_rows(client, db):
@@ -138,11 +141,11 @@ def test_list_endpoint_returns_total_rows(client, db):
 
 
 def test_budgets_are_empty_when_never_set(db):
-    assert MarketingRepository(db).get_media_budgets(2026, 6) == ({}, None)
+    assert MarketingRepository(db, 1).get_media_budgets(2026, 6) == ({}, None)
 
 
 def test_budgets_round_trip(db):
-    repo = MarketingRepository(db)
+    repo = MarketingRepository(db, 1)
     repo.set_media_budgets(2026, 6, {"네이버SA": 19_000_000})
     db.commit()
 
@@ -150,7 +153,7 @@ def test_budgets_round_trip(db):
 
 
 def test_budgets_are_inherited_from_the_latest_earlier_period(db):
-    repo = MarketingRepository(db)
+    repo = MarketingRepository(db, 1)
     _add_meta(db, 2026, 3, media_budgets={"네이버SA": 1})
     _add_meta(db, 2026, 5, media_budgets={"네이버SA": 2})
 
@@ -163,19 +166,19 @@ def test_later_periods_do_not_leak_backwards(db):
     """7월에 입력한 예산이 5월 리포트에 끼어들면 안 된다."""
     _add_meta(db, 2026, 7, media_budgets={"네이버SA": 9})
 
-    assert MarketingRepository(db).get_media_budgets(2026, 5) == ({}, None)
+    assert MarketingRepository(db, 1).get_media_budgets(2026, 5) == ({}, None)
 
 
 def test_budgets_survive_across_the_year_boundary(db):
     _add_meta(db, 2025, 12, media_budgets={"네이버SA": 5})
 
-    budgets, source = MarketingRepository(db).get_media_budgets(2026, 1)
+    budgets, source = MarketingRepository(db, 1).get_media_budgets(2026, 1)
     assert budgets == {"네이버SA": 5.0}
     assert source == (2025, 12)
 
 
 def test_setting_budgets_keeps_existing_comment(db):
-    repo = MarketingRepository(db)
+    repo = MarketingRepository(db, 1)
     _add_meta(db, 2026, 6, comment="지난달 대비 CPC 상승")
 
     repo.set_media_budgets(2026, 6, {"네이버SA": 1})
@@ -186,7 +189,7 @@ def test_setting_budgets_keeps_existing_comment(db):
 
 def test_overview_flags_budget(db):
     _add_meta(db, 2026, 6, media_budgets={"네이버SA": 1})
-    assert MarketingRepository(db).list_period_overview()[0]["has_budget"] is True
+    assert MarketingRepository(db, 1).list_period_overview()[0]["has_budget"] is True
 
 
 def test_get_budgets_endpoint_reports_inherited_period(client, db):
@@ -203,7 +206,7 @@ def test_put_budgets_endpoint_persists(client, db):
 
     assert res.status_code == 200
     assert res.json()["inherited_from"] == "2026-06"
-    assert MarketingRepository(db).get_media_budgets(2026, 6)[0] == {"구글SA": 7_000_000.0}
+    assert MarketingRepository(db, 1).get_media_budgets(2026, 6)[0] == {"구글SA": 7_000_000.0}
 
 
 def test_put_budgets_rejects_unknown_media(client):
@@ -221,7 +224,7 @@ def test_put_empty_budgets_clears_the_setting(client, db):
 
     client.put("/api/admin/periods/2026/6/budgets", json={"budgets": {}})
 
-    assert MarketingRepository(db).get_media_budgets(2026, 6) == ({}, None)
+    assert MarketingRepository(db, 1).get_media_budgets(2026, 6) == ({}, None)
 
 
 # ── 삭제 ──────────────────────────────────────────────────────────────────────
@@ -237,7 +240,7 @@ def test_delete_removes_rows_and_meta(client, db, mocker):
     assert body["deleted_rows"] == 2
     assert body["deleted_meta"] is True
     assert body["deleted_excel"] is True
-    assert MarketingRepository(db).list_period_overview() == []
+    assert MarketingRepository(db, 1).list_period_overview() == []
 
 
 def test_delete_leaves_other_periods_untouched(client, db):
@@ -246,7 +249,7 @@ def test_delete_leaves_other_periods_untouched(client, db):
 
     client.delete("/api/admin/periods/2026/6")
 
-    remaining = MarketingRepository(db).list_period_overview()
+    remaining = MarketingRepository(db, 1).list_period_overview()
     assert [(i["year"], i["month"]) for i in remaining] == [(2026, 5)]
 
 
@@ -271,4 +274,4 @@ def test_storage_failure_still_deletes_db_rows(client, db, mocker):
     body = client.delete("/api/admin/periods/2026/6").json()
     assert body["deleted_rows"] == 1
     assert body["deleted_excel"] is False  # 고아 객체로 남았음을 응답에 드러낸다
-    assert MarketingRepository(db).list_period_overview() == []
+    assert MarketingRepository(db, 1).list_period_overview() == []

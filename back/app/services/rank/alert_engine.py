@@ -94,14 +94,18 @@ class AlertRunResult:
     keywords: list[str] = field(default_factory=list)
 
 
-def collect_alerts(db: Session, now: datetime) -> list[AlertItem]:
+def collect_alerts(
+    db: Session, now: datetime, company_id: int | None = None
+) -> list[AlertItem]:
     """알릴 거리가 있는 감시를 모은다. 상태는 아직 바꾸지 않는다 —
     발송에 성공한 뒤에 바꿔야 실패했을 때 다음 평가에서 다시 시도된다.
 
     후보를 고른 다음 그 행들만 잠그고 **한 번 더 판정한다**. 업로드 직후 평가와
     크론이 겹치면 둘 다 "아직 안 알림"을 보고 같은 메일을 두 번 보내기 때문이다.
+
+    company_id 가 있으면(요청 경로) 그 기업의 감시만 평가한다. 크론은 None(전체).
     """
-    repo = KeywordWatchRepository(db)
+    repo = KeywordWatchRepository(db, company_id)
     candidates = [w for w in repo.list_all() if decide_alert(w, now) is not None]
     locked = repo.lock_for_alert([w.id for w in candidates])
     # 직전·현재 순위는 후보 전체를 한 쿼리로 — 첫 대량 업로드처럼 여럿이 동시에
@@ -141,6 +145,7 @@ def _save_logs(
     for item in items:
         db.add(
             RankAlertLog(
+                company_id=item.watch.company_id,
                 watch_id=item.watch.id,
                 keyword=item.watch.keyword,
                 device=item.watch.device,
@@ -163,6 +168,7 @@ def evaluate_and_notify(
     mail_sender: AbstractMailSender | None,
     build_html,
     now: datetime | None = None,
+    company_id: int | None = None,
 ) -> AlertRunResult:
     """알림 대상을 모아 한 통으로 보내고 이력을 남긴다. commit 은 호출부가 한다.
 
@@ -170,7 +176,7 @@ def evaluate_and_notify(
     않고 "알렸음"으로 표시하면, 설정을 고친 뒤에도 그 하락은 영영 알려지지 않는다.
     """
     now = now or datetime.now(timezone.utc)
-    items = collect_alerts(db, now)
+    items = collect_alerts(db, now, company_id)
 
     result = AlertRunResult(
         drops=sum(1 for i in items if i.alert_type == ALERT_DROP),

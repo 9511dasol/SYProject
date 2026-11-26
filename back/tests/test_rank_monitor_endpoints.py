@@ -49,7 +49,7 @@ def client(db):
     app.include_router(rank_monitor_router.router)
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_user] = lambda: User(
-        id=1, email="user@example.com", role="user"
+        id=1, email="user@example.com", role="member", company_id=1
     )
     try:
         yield TestClient(app)
@@ -254,7 +254,7 @@ def test_alert_failure_does_not_fail_the_upload(client, monkeypatch):
 
 def test_alerts_endpoint_lists_history(client, db):
     watch_id = _create(client)["results"][0]["id"]
-    db.add(RankAlertLog(
+    db.add(RankAlertLog(company_id=1, 
         watch_id=watch_id, keyword="마케팅자동화", device="all", alert_type="drop",
         target_rank=3.0, curr_rank=6.0, prev_rank=3.2, breach_streak=2,
         recipients="팀@example.com", status="sent",
@@ -275,7 +275,7 @@ def test_alerts_endpoint_lists_history(client, db):
 
 def test_deleting_watch_keeps_alert_history(client, db):
     watch_id = _create(client)["results"][0]["id"]
-    db.add(RankAlertLog(
+    db.add(RankAlertLog(company_id=1, 
         watch_id=watch_id, keyword="마케팅자동화", device="all", alert_type="drop",
         target_rank=3.0, curr_rank=6.0, prev_rank=3.2, breach_streak=2,
         recipients="팀@example.com", status="sent",

@@ -182,7 +182,7 @@ def client(db_session, monkeypatch):
     app.include_router(heading_router.router)
     app.dependency_overrides[get_db] = lambda: db_session
     app.dependency_overrides[get_current_user] = lambda: User(
-        id=1, email="user@example.com", role="user"
+        id=1, email="user@example.com", role="member", company_id=1
     )
     app.dependency_overrides[require_ai_budget] = lambda: None
     try:
@@ -192,7 +192,7 @@ def client(db_session, monkeypatch):
 
 
 def _seed_record(db_session, user_id: int = 1) -> HeadingSuggestion:
-    record = HeadingSuggestion(
+    record = HeadingSuggestion(company_id=1, 
         user_id=user_id,
         user_email=f"user{user_id}@example.com",
         image_filename="img.jpg",

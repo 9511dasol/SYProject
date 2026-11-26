@@ -65,12 +65,13 @@ def build_rank_section(
     # 행마다 부르므로 상한이 필요하고, 값은 설정(RANK_REPORT_MAX_ROWS)으로 조정한다.
     max_rows: int | None = None,
     estimator: BidEstimateService | None = None,
+    company_id: int | None = None,
 ) -> RankReportSection:
     """리포트용 순위 현황을 만든다. 실패해도 예외를 밖으로 내지 않는다 —
     순위 한 조각 때문에 월간 리포트 전체가 안 나가면 안 된다."""
     if max_rows is None:
         max_rows = settings.RANK_REPORT_MAX_ROWS
-    repo = KeywordWatchRepository(db)
+    repo = KeywordWatchRepository(db, company_id)
     watches = [w for w in repo.list_all() if w.status == "active"]
     section = RankReportSection(total_watched=len(watches))
     if not watches:

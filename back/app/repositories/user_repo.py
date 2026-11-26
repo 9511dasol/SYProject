@@ -38,10 +38,46 @@ class UserRepository:
         return self.db.get(User, user_id)
 
     def list_all(self) -> list[User]:
+        """전 기업 계정 — dev 전용 경로에서만 쓴다. 기업 admin 은 list_by_company."""
         return self.db.query(User).order_by(User.id).all()
 
-    def create_user(self, email: str, password: str, name: str = "", role: str = "user") -> User:
-        user = User(email=email, name=name, hashed_password=hash_password(password), role=role)
+    def list_by_company(self, company_id: int) -> list[User]:
+        return (
+            self.db.query(User)
+            .filter(User.company_id == company_id)
+            .order_by(User.id)
+            .all()
+        )
+
+    def get_by_id_in_company(self, user_id: int, company_id: int) -> User | None:
+        """기업 경계 안에서만 단건 조회 — 타기업 계정은 존재 자체가 안 보인다(404 용)."""
+        return (
+            self.db.query(User)
+            .filter(User.id == user_id, User.company_id == company_id)
+            .first()
+        )
+
+    def create_user(
+        self,
+        email: str,
+        password: str,
+        company_id: int,
+        name: str = "",
+        role: str = "member",
+    ) -> User:
+        """계정을 만든다. company_id 는 **필수**다.
+
+        기본값을 두지 않는 이유: 빠뜨린 호출부가 조용히 sy 소속 계정을 만드는 대신
+        그 자리에서 드러나게 한다. dev(무소속) 계정은 이 경로로 만들지 않는다 —
+        scripts/promote_dev.py 가 기존 계정을 승격한다.
+        """
+        user = User(
+            email=email,
+            name=name,
+            hashed_password=hash_password(password),
+            role=role,
+            company_id=company_id,
+        )
         self.db.add(user)
         self.db.commit()
         self.db.refresh(user)

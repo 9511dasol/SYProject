@@ -49,7 +49,7 @@ def _add(
     filename: str = "img.jpg",
     headings: list[dict] | None = None,
 ) -> HeadingSuggestion:
-    record = HeadingSuggestion(
+    record = HeadingSuggestion(company_id=1, 
         user_id=user_id,
         user_email=f"user{user_id}@example.com",
         image_filename=filename,

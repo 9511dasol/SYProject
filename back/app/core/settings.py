@@ -125,6 +125,21 @@ class Settings(BaseSettings):
     # 월간 리포트의 순위 현황에 싣는 최대 키워드 수 (넘치면 "외 N개"로 알린다)
     RANK_REPORT_MAX_ROWS: int = 8
 
+    # ── 체험(trial) 계정 — 영업 정책에 따라 바뀌는 값이라 설정으로 둔다 ──────────
+    # 자동 생성 로그인 이메일의 도메인. 특수용 TLD(.local/.test/example.com)는
+    # EmailStr 검증이 거부해 "발급은 되는데 로그인이 안 되는" 계정이 된다 —
+    # 실제로 소유한 도메인(또는 그 서브도메인)만 넣을 것.
+    TRIAL_EMAIL_DOMAIN: str = "trial.syproject.kr"
+    # 발급 화면의 기본 체험 기간(일). 기획 기준 2~3일.
+    TRIAL_DEFAULT_DAYS: int = 3
+    # 체험 기업의 월간 AI 토큰 예산 — 맛보기에 충분하되 비용 폭주는 막는 소액.
+    TRIAL_TOKEN_BUDGET: int = 200_000
+    # 샘플 데이터로 깔아 두는 개월 수 (대시보드 MoM 비교가 되려면 2개월 이상)
+    TRIAL_SAMPLE_MONTHS: int = 2
+    # 만료된 체험 기업을 물리 삭제하는 시각. 즉시 차단은 인증 경로가 하므로
+    # 이 잡은 2차 정리이며, 하루 1회로 충분하다.
+    TRIAL_PURGE_CRON_HOUR: str = "4"
+
     @property
     def is_naver_searchad_configured(self) -> bool:
         return bool(
@@ -196,9 +211,18 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _validate(self) -> "Settings":
         if self.RUN_MIGRATIONS_ON_STARTUP is None:
-            # 개발에서는 켜두는 편이 편하고, 운영에서는 배포 단계가 책임진다.
-            # 명시적으로 지정하면 그 값이 우선한다.
-            self.RUN_MIGRATIONS_ON_STARTUP = not self.is_production
+            # 기본값은 **끔**. 기동은 스키마 상태만 점검하고(_verify_schema), 적용은
+            # 배포 단계나 `python scripts/migrate.py` 처럼 사람이 부른 경로가 맡는다.
+            #
+            # 예전 기본값은 `not is_production` 이었다. 그런데 로컬 .env 의
+            # DATABASE_URL 이 운영 Supabase 를 가리키고 있어서, ENVIRONMENT=development
+            # 인 채로 백엔드를 한 번 띄우는 것만으로 **검토 전 마이그레이션이 운영 DB 에
+            # 그대로 적용**됐다. 실제로 리비전 하나가 아무도 실행을 지시하지 않았는데
+            # 적용된 일이 있었다. 편의보다 "운영 스키마는 명시적으로만 바뀐다"가 우선이다.
+            #
+            # 로컬에서 자동 적용이 편하면 .env 에 RUN_MIGRATIONS_ON_STARTUP=true 를
+            # 명시한다 — 그때는 DATABASE_URL 이 어디를 보는지 확인하고 켜는 셈이 된다.
+            self.RUN_MIGRATIONS_ON_STARTUP = False
 
         if self.is_production:
             problems: list[str] = []

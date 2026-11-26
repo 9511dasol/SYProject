@@ -18,6 +18,7 @@ from alembic.operations import Operations
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
+from app.models.company_model import Company
 from app.models.keyword_watch_model import KeywordRankSnapshot, KeywordWatch
 from app.models.rank_alert_log_model import RankAlertLog
 from app.models.user_model import User
@@ -26,6 +27,10 @@ _VERSIONS = Path(__file__).resolve().parents[1] / "migrations" / "versions"
 _M0009 = "20261118_0000_0009_keyword_rank_monitor.py"
 _M0010 = "20261118_0100_0010_rank_alerts.py"
 _M0011 = "20261122_0000_0011_rank_api_collect.py"
+# 멀티테넌시(0012~0014)가 순위 테이블에도 company_id 를 더하므로 체인에 포함한다.
+_M0012 = "20261125_0000_0012_companies_roles.py"
+_M0013 = "20261125_0100_0013_tenant_columns.py"
+_M0014 = "20261125_0200_0014_audit_budget.py"
 
 
 def _load(filename: str):
@@ -43,6 +48,8 @@ def engine():
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     # 마이그레이션은 users 가 이미 있다고 가정한다 (0001 baseline 소관).
+    # users.company_id 의 FK 가 companies 를 참조하므로 companies 를 먼저 만든다.
+    Company.__table__.create(eng)
     User.__table__.create(eng)
     try:
         yield eng
@@ -67,7 +74,7 @@ def _model_columns(model) -> set[str]:
 
 
 def test_migrations_create_schema_matching_models(engine):
-    _run_upgrades(engine, _M0009, _M0010, _M0011)
+    _run_upgrades(engine, _M0009, _M0010, _M0011, _M0012, _M0013, _M0014)
 
     for model, table in (
         (KeywordWatch, "keyword_watch"),
@@ -98,8 +105,8 @@ def test_upgrades_are_idempotent(engine):
     KeywordRankSnapshot.__table__.create(engine)
     RankAlertLog.__table__.create(engine)
 
-    _run_upgrades(engine, _M0009, _M0010, _M0011)   # 전부 건너뛰어야 한다
-    _run_upgrades(engine, _M0009, _M0010, _M0011)   # 두 번 돌려도 마찬가지
+    _run_upgrades(engine, _M0009, _M0010, _M0011, _M0012, _M0013, _M0014)   # 전부 건너뛰어야 한다
+    _run_upgrades(engine, _M0009, _M0010, _M0011, _M0012, _M0013, _M0014)   # 두 번 돌려도 마찬가지
 
     assert _columns(engine, "keyword_watch") == _model_columns(KeywordWatch)
 

@@ -34,7 +34,7 @@ def _json_safe(value):
     return value
 
 
-def _save_undo_snapshot(undo_id: str, rows: list[dict]) -> None:
+def _save_undo_snapshot(undo_id: str, rows: list[dict], company_id: int) -> None:
     """되돌리기 스냅샷을 DB에 저장한다.
 
     이 클래스는 self.db가 None인 채로도 쓰이므로(save_mapped_dataframe 경로)
@@ -42,21 +42,22 @@ def _save_undo_snapshot(undo_id: str, rows: list[dict]) -> None:
     """
     db = SessionLocal()
     try:
-        UndoSnapshotRepository(db).create(undo_id, rows)
+        UndoSnapshotRepository(db).create(undo_id, rows, company_id=company_id)
         db.commit()
     finally:
         db.close()
 
 
-def _pop_undo_snapshot(undo_id: str) -> list[dict] | None:
-    """스냅샷을 꺼내고 삭제한다. 없거나 만료됐으면 None."""
+def _pop_undo_snapshot(undo_id: str, company_id: int) -> list[dict] | None:
+    """스냅샷을 꺼내고 삭제한다. 없거나 만료됐거나 **타기업 것이면** None."""
     from app.services.task_store import UNDO_TTL_SECONDS  # 순환 임포트 방지용 지연 임포트
 
     db = SessionLocal()
     try:
         repo = UndoSnapshotRepository(db)
         snapshot = repo.get(undo_id)
-        if snapshot is None:
+        if snapshot is None or snapshot.company_id != company_id:
+            # undo_id(uuid)를 알아도 남의 기업 데이터를 되돌릴 수는 없다.
             return None
 
         age = (datetime.now(timezone.utc) - snapshot.created_at).total_seconds()
@@ -84,14 +85,21 @@ def _insert_in_chunks(db_df: pd.DataFrame, chunk_size: int = _INSERT_CHUNK_SIZE)
         _insert_chunk(db_df.iloc[start : start + chunk_size])
 
 
-def _delete_combo(conn, report_date, campaign_type) -> None:
+def _delete_combo(conn, report_date, campaign_type, company_id: int) -> None:
+    # raw SQL 은 ORM 스코핑 밖이다 — company 조건을 빠뜨리면 같은 날짜·매체의
+    # 타기업 행까지 지운다. 이 파일의 모든 raw 쿼리는 :cid 를 반드시 바인딩한다.
     conn.execute(
-        text("DELETE FROM marketing_data WHERE report_date = :d AND campaign_type = :c"),
-        {"d": report_date, "c": campaign_type},
+        text(
+            "DELETE FROM marketing_data "
+            "WHERE report_date = :d AND campaign_type = :c AND company_id = :cid"
+        ),
+        {"d": report_date, "c": campaign_type, "cid": company_id},
     )
 
 
-def _rewrite_rows(rows: list[dict], clear_combos: pd.DataFrame | None = None) -> int:
+def _rewrite_rows(
+    rows: list[dict], clear_combos: pd.DataFrame | None = None, *, company_id: int
+) -> int:
     """비울 범위를 지운 뒤 rows 를 그대로 되돌려 놓는다.
 
     clear_combos 를 주면 그 (날짜, 매체) 범위를, 주지 않으면 rows 가 덮는 범위를
@@ -114,11 +122,13 @@ def _rewrite_rows(rows: list[dict], clear_combos: pd.DataFrame | None = None) ->
 
     with engine.begin() as conn:
         for _, row in combos.iterrows():
-            _delete_combo(conn, row["report_date"], str(row["campaign_type"]))
+            _delete_combo(conn, row["report_date"], str(row["campaign_type"]), company_id)
 
     if df is None:
         return 0
 
+    # 스냅샷 행에는 company_id 가 없다(_SNAPSHOT_FIELDS) — 소속은 인자가 결정한다.
+    df["company_id"] = company_id
     _insert_in_chunks(df)
     return len(df)
 
@@ -140,14 +150,22 @@ def _model_to_snapshot(row: MarketingData) -> dict:
     return snapshot
 
 
-def restore_rows(rows: list[dict]) -> int:
+def restore_rows(rows: list[dict], *, company_id: int) -> int:
     """스냅샷 행을 DB 에 되돌린다 — 삭제가 이미 커밋된 뒤 실패했을 때 쓰는 진입점."""
-    return _rewrite_rows(rows)
+    return _rewrite_rows(rows, company_id=company_id)
 
 
 class MarketingRepository:
-    def __init__(self, db: Session):
+    """마케팅 실적·기간 메타 저장소 — 모든 읽기·쓰기가 생성 시 받은 기업 범위다.
+
+    company_id 가 **필수**인 이유: 기본값을 두면 빠뜨린 호출부가 에러 대신 조용히
+    엉뚱한 기업(sy)의 데이터를 읽는다 — 격리 위반이 가장 들키기 어려운 형태로
+    숨는다. 빠뜨리면 그 자리에서 TypeError 로 드러나게 한다.
+    """
+
+    def __init__(self, db: Session | None, company_id: int):
         self.db = db
+        self.company_id = company_id
 
     # ── 저장 ──────────────────────────────────────────────────────────────────
 
@@ -260,9 +278,10 @@ class MarketingRepository:
                         "conversions, conversion_revenue, "
                         "COALESCE(signup,0) AS signup, COALESCE(purchase,0) AS purchase, "
                         "COALESCE(apply,0) AS apply "
-                        "FROM marketing_data WHERE report_date = :d AND campaign_type = :c"
+                        "FROM marketing_data "
+                        "WHERE report_date = :d AND campaign_type = :c AND company_id = :cid"
                     ),
-                    {"d": row["report_date"], "c": ct},
+                    {"d": row["report_date"], "c": ct, "cid": self.company_id},
                 ).fetchall()
 
                 bucket = "updated" if existing else "added"
@@ -289,7 +308,7 @@ class MarketingRepository:
 
         # 2단계 — 아무것도 지우기 전에 스냅샷부터 남긴다.
         try:
-            _save_undo_snapshot(undo_id, undo_rows)
+            _save_undo_snapshot(undo_id, undo_rows, self.company_id)
         except Exception:
             if undo_rows:
                 # 덮어쓸 기존 행이 있는데 복구 지점을 못 남겼다면 지우면 안 된다 —
@@ -306,15 +325,17 @@ class MarketingRepository:
             if stale_combos:
                 with engine.begin() as conn:
                     for report_date, ct in stale_combos:
-                        _delete_combo(conn, report_date, ct)
+                        _delete_combo(conn, report_date, ct, self.company_id)
 
+            db_df = db_df.copy()
+            db_df["company_id"] = self.company_id
             _insert_in_chunks(db_df)
         except Exception:
             logger.exception("업서트 실패 — 스냅샷(undo_id=%s)으로 복구를 시도합니다.", undo_id)
             try:
                 # 비울 범위는 스냅샷이 아니라 이번 업서트가 건드린 전체 범위다 —
                 # 원래 값이 없던 조합에도 청크 INSERT 로 새 행이 들어갔을 수 있다.
-                _rewrite_rows(undo_rows, clear_combos=combos)
+                _rewrite_rows(undo_rows, clear_combos=combos, company_id=self.company_id)
             except Exception:
                 # 복구까지 실패하면 스냅샷은 DB 에 남아 있으므로 undo_id 로 되돌릴 수 있다.
                 logger.exception("복구 실패 — undo_id=%s 로 수동 복구가 필요합니다.", undo_id)
@@ -325,7 +346,7 @@ class MarketingRepository:
     # ── 되돌리기 ──────────────────────────────────────────────────────────────
 
     def restore_undo(self, undo_id: str) -> tuple[bool, str]:
-        saved_rows = _pop_undo_snapshot(undo_id)
+        saved_rows = _pop_undo_snapshot(undo_id, self.company_id)
         if saved_rows is None:
             return False, "되돌릴 수 없습니다. 시간이 초과되었거나 이미 되돌렸습니다."
 
@@ -335,7 +356,7 @@ class MarketingRepository:
             # 아무 일도 하지 않고 성공했다고 보고하고 있었다.
             return False, "되돌릴 이전 데이터가 없습니다. (이 기간에 처음 저장된 업로드입니다.)"
 
-        restored = _rewrite_rows(saved_rows)
+        restored = _rewrite_rows(saved_rows, company_id=self.company_id)
         return True, f"이전 상태로 되돌렸습니다. ({restored}개 행 복원)"
 
     # ── 조회 ──────────────────────────────────────────────────────────────────
@@ -346,6 +367,7 @@ class MarketingRepository:
                 extract("year", MarketingData.report_date).label("year"),
                 extract("month", MarketingData.report_date).label("month"),
             )
+            .filter(MarketingData.company_id == self.company_id)
             .distinct()
             .order_by(
                 extract("year", MarketingData.report_date).desc(),
@@ -358,7 +380,11 @@ class MarketingRepository:
     def _get_period_meta(self, year: int, month: int) -> MarketingPeriodMeta | None:
         return (
             self.db.query(MarketingPeriodMeta)
-            .filter(MarketingPeriodMeta.year == year, MarketingPeriodMeta.month == month)
+            .filter(
+                MarketingPeriodMeta.company_id == self.company_id,
+                MarketingPeriodMeta.year == year,
+                MarketingPeriodMeta.month == month,
+            )
             .first()
         )
 
@@ -387,7 +413,10 @@ class MarketingRepository:
         ordinal = MarketingPeriodMeta.year * 12 + MarketingPeriodMeta.month
         candidates = (
             self.db.query(MarketingPeriodMeta)
-            .filter(ordinal <= year * 12 + month)
+            .filter(
+                MarketingPeriodMeta.company_id == self.company_id,
+                ordinal <= year * 12 + month,
+            )
             .order_by(ordinal.desc())
         )
 
@@ -409,7 +438,13 @@ class MarketingRepository:
             row.media_budgets = value
         else:
             self.db.add(
-                MarketingPeriodMeta(year=year, month=month, comment="", media_budgets=value)
+                MarketingPeriodMeta(
+                    company_id=self.company_id,
+                    year=year,
+                    month=month,
+                    comment="",
+                    media_budgets=value,
+                )
             )
 
     def get_excel_content(self, year: int, month: int) -> bytes | None:
@@ -455,6 +490,7 @@ class MarketingRepository:
         else:
             self.db.add(
                 MarketingPeriodMeta(
+                    company_id=self.company_id,
                     year=year,
                     month=month,
                     comment=comment or "",
@@ -489,6 +525,7 @@ class MarketingRepository:
                 func.min(MarketingData.report_date).label("first_date"),
                 func.max(MarketingData.report_date).label("last_date"),
             )
+            .filter(MarketingData.company_id == self.company_id)
             .group_by(year_col, month_col)
             .all()
         )
@@ -507,7 +544,11 @@ class MarketingRepository:
             for r in rows
         }
 
-        for meta in self.db.query(MarketingPeriodMeta).all():
+        for meta in (
+            self.db.query(MarketingPeriodMeta)
+            .filter(MarketingPeriodMeta.company_id == self.company_id)
+            .all()
+        ):
             key = (meta.year, meta.month)
             entry = overview.setdefault(key, {
                 "year": meta.year,
@@ -565,13 +606,13 @@ class MarketingRepository:
             for row in self.get_rows_by_period(year, month)
         ]
         undo_id = str(_uuid.uuid4())
-        _save_undo_snapshot(undo_id, rows)
+        _save_undo_snapshot(undo_id, rows, self.company_id)
         return undo_id, rows
 
     def delete_rows_by_period(self, year: int, month: int) -> int:
         deleted = (
             self.db.query(MarketingData)
-            .filter(in_month(year, month))
+            .filter(MarketingData.company_id == self.company_id, in_month(year, month))
             .delete(synchronize_session=False)
         )
         return int(deleted)
@@ -579,7 +620,7 @@ class MarketingRepository:
     def get_rows_by_period(self, year: int, month: int) -> list[MarketingData]:
         return (
             self.db.query(MarketingData)
-            .filter(in_month(year, month))
+            .filter(MarketingData.company_id == self.company_id, in_month(year, month))
             .order_by(MarketingData.report_date, MarketingData.campaign_type)
             .all()
         )
@@ -601,7 +642,7 @@ class MarketingRepository:
                 func.sum(MarketingData.purchase).label("purchase"),
                 func.sum(MarketingData.apply).label("apply"),
             )
-            .filter(in_month(year, month))
+            .filter(MarketingData.company_id == self.company_id, in_month(year, month))
             .one()
         )
         if r.impressions is None and r.clicks is None and r.cost is None:
@@ -635,7 +676,7 @@ class MarketingRepository:
                 func.sum(MarketingData.purchase).label("purchase"),
                 func.sum(MarketingData.apply).label("apply"),
             )
-            .filter(in_month(year, month))
+            .filter(MarketingData.company_id == self.company_id, in_month(year, month))
             .group_by(MarketingData.campaign_type)
             .all()
         )
@@ -663,7 +704,7 @@ class MarketingRepository:
                 func.sum(MarketingData.conversions).label("conversions"),
                 func.sum(MarketingData.conversion_revenue).label("conversion_revenue"),
             )
-            .filter(in_month(year, month))
+            .filter(MarketingData.company_id == self.company_id, in_month(year, month))
             .group_by(MarketingData.campaign_type)
             .all()
         )

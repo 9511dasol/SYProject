@@ -10,7 +10,7 @@ keyword 를 복사해 두는 이유: 감시를 지워도 "그때 이런 알림�
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -18,8 +18,15 @@ from app.core.database import Base
 
 class RankAlertLog(Base):
     __tablename__ = "rank_alert_log"
+    __table_args__ = (
+        Index("ix_rank_alert_company_created", "company_id", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    # 소속 기업 — watch 가 SET NULL 로 지워진 뒤에도 기업 귀속은 유지돼야 한다.
+    company_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("companies.id", ondelete="CASCADE")
+    )
     # 감시가 삭제되면 NULL 로 남는다 — 이력 자체는 지우지 않는다.
     watch_id: Mapped[int | None] = mapped_column(
         Integer,

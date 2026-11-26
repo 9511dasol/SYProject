@@ -158,7 +158,9 @@ class CommentPeriods:
     yoy_is_exact: bool
 
 
-def _query_kpis(db: Session, year: int, month: int) -> dict[str, MediaKPI]:
+def _query_kpis(
+    db: Session, year: int, month: int, company_id: int
+) -> dict[str, MediaKPI]:
     rows = (
         db.query(
             MarketingData.campaign_type,
@@ -171,7 +173,7 @@ def _query_kpis(db: Session, year: int, month: int) -> dict[str, MediaKPI]:
             func.sum(MarketingData.purchase).label("purchase"),
             func.sum(MarketingData.apply).label("apply"),
         )
-        .filter(in_month(year, month))
+        .filter(MarketingData.company_id == company_id, in_month(year, month))
         .group_by(MarketingData.campaign_type)
         .all()
     )
@@ -203,13 +205,21 @@ def _query_kpis(db: Session, year: int, month: int) -> dict[str, MediaKPI]:
 
 
 class AnalysisService:
-    def __init__(self, db: Session):
+    """기간 비교 집계 — 생성 시 받은 기업 범위 안에서만 계산한다.
+
+    company_id 가 필수인 이유는 MarketingRepository 와 같다: 빠뜨린 호출부가
+    조용히 타기업 숫자를 섞는 대신 그 자리에서 드러나게 한다.
+    """
+
+    def __init__(self, db: Session, company_id: int):
         self.db = db
+        self.company_id = company_id
 
     def available_periods(self) -> list[tuple[int, int]]:
         """데이터가 있는 (연, 월) 목록 — 오래된 순."""
         rows = (
             self.db.query(MarketingData.report_date)
+            .filter(MarketingData.company_id == self.company_id)
             .distinct()
             .all()
         )
@@ -288,11 +298,15 @@ class AnalysisService:
                 (prev_year - 1, 12) if prev_month == 1 else (prev_year, prev_month - 1)
             )
 
-        curr_map = _query_kpis(self.db, curr_year, curr_month)
-        prev_map = _query_kpis(self.db, prev_year, prev_month)
-        prev2_map = _query_kpis(self.db, prev2_year, prev2_month)
+        curr_map = _query_kpis(self.db, curr_year, curr_month, self.company_id)
+        prev_map = _query_kpis(self.db, prev_year, prev_month, self.company_id)
+        prev2_map = _query_kpis(self.db, prev2_year, prev2_month, self.company_id)
         yoy_requested = yoy_year is not None and yoy_month is not None
-        yoy_map = _query_kpis(self.db, yoy_year, yoy_month) if yoy_requested else {}
+        yoy_map = (
+            _query_kpis(self.db, yoy_year, yoy_month, self.company_id)
+            if yoy_requested
+            else {}
+        )
 
         all_types = sorted(set(curr_map) | set(prev_map) | set(prev2_map) | set(yoy_map))
         by_media: list[MediaComparison] = []

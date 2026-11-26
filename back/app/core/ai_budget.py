@@ -17,6 +17,7 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.security import get_db
+from app.core.tenant import TenantContext, get_tenant_context
 from app.repositories.ai_tool_usage_log_repo import AIToolUsageLogRepository
 from app.repositories.ai_usage_budget_repo import AIUsageBudgetRepository
 
@@ -26,13 +27,15 @@ def current_month_start() -> datetime:
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
-def check_ai_budget(db: Session) -> None:
-    """예산을 초과했으면 429를 발생시킨다."""
-    budget = AIUsageBudgetRepository(db).get()
+def check_ai_budget(db: Session, company_id: int) -> None:
+    """해당 기업이 예산을 초과했으면 429를 발생시킨다 — 예산도 사용량도 기업 범위다."""
+    budget = AIUsageBudgetRepository(db).get(company_id)
     if budget <= 0:
         return
 
-    used = AIToolUsageLogRepository(db).sum_tokens_since(current_month_start())
+    used = AIToolUsageLogRepository(db).sum_tokens_since(
+        current_month_start(), company_id=company_id
+    )
     if used >= budget:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -43,6 +46,9 @@ def check_ai_budget(db: Session) -> None:
         )
 
 
-def require_ai_budget(db: Session = Depends(get_db)) -> None:
-    """AI를 호출하는 라우터의 dependencies에 걸어 쓰는 의존성."""
-    check_ai_budget(db)
+def require_ai_budget(
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(get_tenant_context),
+) -> None:
+    """AI를 호출하는 라우터의 dependencies에 걸어 쓰는 의존성 — 사용자 기업 기준."""
+    check_ai_budget(db, ctx.company_id)

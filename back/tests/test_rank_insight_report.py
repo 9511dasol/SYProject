@@ -50,14 +50,14 @@ def _watch(db, keyword="마케팅자동화", **kwargs):
         status="active", breach_streak=0,
     )
     defaults.update(kwargs)
-    watch = KeywordWatch(**defaults)
+    watch = KeywordWatch(company_id=1, **defaults)
     db.add(watch)
     db.commit()
     return watch
 
 
 def _snap(db, watch, avg_rank, stat_date=TARGET):
-    db.add(KeywordRankSnapshot(
+    db.add(KeywordRankSnapshot(company_id=1, 
         watch_id=watch.id, stat_date=stat_date, avg_rank=avg_rank,
         impressions=10, clicks=1, source="api",
     ))

@@ -1,6 +1,14 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -8,12 +16,34 @@ from app.core.database import Base
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        # dev(플랫폼 운영자)만 무소속(NULL), 나머지 역할은 반드시 기업 소속.
+        CheckConstraint(
+            "(role = 'dev') = (company_id IS NULL)", name="ck_users_dev_no_company"
+        ),
+        # 기업당 admin 정확히 1개 — 애플리케이션 버그로도 깨질 수 없게 DB 가 강제한다.
+        Index(
+            "uq_one_admin_per_company",
+            "company_id",
+            unique=True,
+            postgresql_where=text("role = 'admin'"),
+            sqlite_where=text("role = 'admin'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     email: Mapped[str] = mapped_column(unique=True, index=True)
     name: Mapped[str] = mapped_column(default="")
     hashed_password: Mapped[str] = mapped_column()
-    role: Mapped[str] = mapped_column(default="user")  # "user" | "admin"
+    role: Mapped[str] = mapped_column(default="member")  # "dev" | "admin" | "member" | "trial"
+    # 소속 기업 — dev 만 NULL(ck_users_dev_no_company). 기본값이 없으므로 계정 생성
+    # 경로는 반드시 소속을 명시해야 한다.
+    company_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 

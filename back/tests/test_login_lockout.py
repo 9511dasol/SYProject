@@ -34,7 +34,7 @@ def db():
 @pytest.fixture
 def repo(db):
     repo = UserRepository(db)
-    repo.create_user(email="user@example.com", password=_PASSWORD)
+    repo.create_user(email="user@example.com", password=_PASSWORD, company_id=1)
     return repo
 
 

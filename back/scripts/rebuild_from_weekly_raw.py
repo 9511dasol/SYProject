@@ -77,7 +77,7 @@ def _load(path: Path, periods: list[str] | None):
 def _existing_counts(periods: list[tuple[int, int]]) -> dict[tuple[int, int], int]:
     db = SessionLocal()
     try:
-        repo = MarketingRepository(db)
+        repo = MarketingRepository(db, 1)
         return {key: len(repo.get_rows_by_period(*key)) for key in periods}
     finally:
         db.close()
@@ -119,7 +119,7 @@ def _snapshot_and_delete(periods: list[tuple[int, int]]) -> tuple[int, str]:
     """
     db = SessionLocal()
     try:
-        repo = MarketingRepository(db)
+        repo = MarketingRepository(db, 1)
         undo_id, _rows = repo.snapshot_periods(periods)
         deleted = sum(repo.delete_rows_by_period(y, m) for y, m in periods)
         db.commit()
@@ -136,7 +136,7 @@ def _save_comments(comments: dict[tuple[int, int], str]) -> int:
         return 0
     db = SessionLocal()
     try:
-        repo = MarketingRepository(db)
+        repo = MarketingRepository(db, 1)
         for (year, month), text in comments.items():
             repo.upsert_period_meta(year, month, comment=text)
         db.commit()
@@ -183,7 +183,7 @@ def main() -> int:
     failed: list[tuple[int, int]] = []
     for key in periods:
         try:
-            saved, _diff, _undo = MarketingRepository(None).save_mapped_dataframe(frames[key])
+            saved, _diff, _undo = MarketingRepository(None, 1).save_mapped_dataframe(frames[key])
             saved_total += saved
             print(f"  {_label(*key):<10} {saved:>5}행 저장")
         except Exception as exc:  # 한 기간이 실패해도 나머지는 계속 — 끝에 모아서 알린다

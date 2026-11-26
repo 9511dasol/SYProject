@@ -11,6 +11,7 @@
 import logging
 
 from app.core.database import SessionLocal
+from app.core.tenant import SY_COMPANY_ID
 from app.models.user_model import User
 from app.repositories.ai_tool_usage_log_repo import AIToolUsageLogRepository
 from app.services.token_usage import TokenUsage
@@ -35,6 +36,7 @@ def log_ai_usage(
     label: str,
     usage: TokenUsage | None,
     prompt: str = "",
+    company_id: int | None = None,
 ) -> None:
     """AI 호출 1건을 기록한다.
 
@@ -44,12 +46,23 @@ def log_ai_usage(
     usage 가 None 이면(제공자가 사용량을 안 줬거나 응답 형태가 바뀐 경우) 토큰 칸을
     비워 둔 채 호출 사실만 남긴다 — 건수까지 사라지면 '안 썼다'와 구분되지 않는다.
 
+    과금 귀속 기업은 ① 호출부가 명시한 company_id(테넌트 컨텍스트 — dev 가 남의
+    기업을 봐 줄 때도 그 기업에 귀속) ② 사용자 소속 ③ 시스템 호출은 sy 순서로
+    정한다.
+
     기록 실패는 삼킨다(모듈 docstring 참고).
     """
+    resolved_company = company_id
+    if resolved_company is None and user is not None:
+        resolved_company = user.company_id
+    if resolved_company is None:
+        resolved_company = SY_COMPANY_ID  # 크론·자동 발송의 과도기 귀속처
+
     db = SessionLocal()
     try:
         AIToolUsageLogRepository(db).create(
             user=user or User(id=_SYSTEM_USER_ID, email=_SYSTEM_USER_EMAIL),
+            company_id=resolved_company,
             tool=tool,
             image_filename=label,
             prompt=prompt,

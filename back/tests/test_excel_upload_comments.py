@@ -93,8 +93,8 @@ class TestSavePeriodComments:
     def test_nothing_to_save_does_not_touch_the_db(self, mocker):
         session = mocker.patch.object(marketing_router, "SessionLocal")
 
-        assert _save_period_comments({}) == 0
-        assert _save_period_comments({(2026, 6): "  "}) == 0
+        assert _save_period_comments({}, 1) == 0
+        assert _save_period_comments({(2026, 6): "  "}, 1) == 0
         session.assert_not_called()
 
     def test_saves_each_period_and_commits(self, mocker):
@@ -102,7 +102,7 @@ class TestSavePeriodComments:
         mocker.patch.object(marketing_router, "SessionLocal", return_value=db)
         repo = mocker.patch.object(marketing_router, "MarketingRepository").return_value
 
-        saved = _save_period_comments({(2026, 5): "5월", (2026, 6): " 6월 "})
+        saved = _save_period_comments({(2026, 5): "5월", (2026, 6): " 6월 "}, 1)
 
         assert saved == 2
         repo.upsert_period_meta.assert_any_call(2026, 5, comment="5월")
@@ -117,7 +117,7 @@ class TestSavePeriodComments:
         repo.upsert_period_meta.side_effect = RuntimeError("db down")
 
         with pytest.raises(RuntimeError):
-            _save_period_comments({(2026, 6): "코멘트"})
+            _save_period_comments({(2026, 6): "코멘트"}, 1)
 
         db.rollback.assert_called_once()
         db.commit.assert_not_called()

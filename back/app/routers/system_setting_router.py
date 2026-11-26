@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.security import get_db, require_admin
+from app.core.security import get_db, require_dev
 from app.models.user_model import User
 from app.repositories.system_setting_repo import SystemSettingRepository
 from app.schemas.system_setting_schema import (
@@ -25,12 +25,15 @@ def get_flags(db: Session = Depends(get_db)) -> dict[str, bool]:
     return {setting.key: setting.value == "true" for setting in repo.list_all()}
 
 
-# ── 관리자: 기능 플래그 조회 / 토글 ───────────────────────────────────────────
+# ── dev 전용: 기능 플래그 조회 / 토글 ─────────────────────────────────────────
+# 플래그는 전역(전 기업 적용)이라 기업 admin 이 아니라 플랫폼 운영자(dev)의 권한이다
+# (기획 확정 #4·#6). 경로는 기존 /api/admin/settings 를 유지한다 — BFF·화면이
+# 그대로 쓰고, 권한만 조였다.
 
 @router.get("/api/admin/settings", response_model=list[FeatureFlagOut])
 def list_settings(
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    _dev: User = Depends(require_dev),
 ):
     repo = SystemSettingRepository(db)
     known, unknown = [], []
@@ -53,7 +56,7 @@ def update_setting(
     key: str,
     body: FeatureFlagUpdate,
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    _dev: User = Depends(require_dev),
 ):
     if key not in FEATURE_FLAG_KEYS:
         raise HTTPException(

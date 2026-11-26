@@ -23,7 +23,9 @@ class BackgroundTaskRepository:
         message: str = "",
         result: dict | None = None,
         user_id: int | None = None,
+        company_id: int | None = None,
     ) -> BackgroundTask:
+        # company_id=None 은 전역 시스템 잡 전용 — 요청에서 만든 작업은 반드시 채운다.
         task = BackgroundTask(
             id=task_id,
             kind=kind,
@@ -32,6 +34,7 @@ class BackgroundTaskRepository:
             message=message,
             result=result or {},
             user_id=user_id,
+            company_id=company_id,
         )
         self.db.add(task)
         return task

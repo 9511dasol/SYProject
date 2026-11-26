@@ -6,7 +6,9 @@ from pydantic import BaseModel, ConfigDict, EmailStr
 # 계정 권한 — users.role 이 가질 수 있는 값. 정의는 여기 한 곳에만 둔다.
 # (예전에는 user_admin_schema 에만 있었고 UserOut.role 은 그냥 str 이라,
 #  OpenAPI 로 생성한 프런트 타입이 string 으로 풀려 권한 비교가 느슨해졌다.)
-UserRole = Literal["user", "admin"]
+# dev: 플랫폼 운영자(무소속) / admin: 기업 관리자(기업당 1) / member: 사원 /
+# trial: 체험 샌드박스 계정. 구 "user" 값은 마이그레이션 0012 가 member 로 바꿨다.
+UserRole = Literal["dev", "admin", "member", "trial"]
 
 
 class UserCreate(BaseModel):

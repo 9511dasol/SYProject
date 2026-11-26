@@ -9,8 +9,8 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 from sqlalchemy.orm import Session
 
-from app.core.security import get_db, require_admin
-from app.models.user_model import User
+from app.core.security import get_db
+from app.core.tenant import TenantContext, get_admin_tenant_context
 from app.repositories.marketing_repo import MarketingRepository
 from app.schemas.admin_period_schema import (
     BUDGET_MEDIA,
@@ -29,9 +29,9 @@ router = APIRouter(prefix="/api/admin/periods", tags=["admin-periods"])
 @router.get("", response_model=PeriodOverviewResponse)
 def list_periods(
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    ctx: TenantContext = Depends(get_admin_tenant_context),
 ) -> PeriodOverviewResponse:
-    items = MarketingRepository(db).list_period_overview()
+    items = MarketingRepository(db, ctx.company_id).list_period_overview()
     return PeriodOverviewResponse(
         items=[PeriodOverviewItem(**item) for item in items],
         total_rows=sum(item["row_count"] for item in items),
@@ -43,14 +43,14 @@ def get_media_budgets(
     year: int = Path(..., ge=2000, le=2999),
     month: int = Path(..., ge=1, le=12),
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    ctx: TenantContext = Depends(get_admin_tenant_context),
 ) -> MediaBudgetsResponse:
     """엑셀 summary '■ 매체별 예산'에 채울 값.
 
     해당 기간에 저장된 값이 없으면 그 이전 기간에서 이어받는다 — 어디서 왔는지는
     inherited_from 으로 알려준다.
     """
-    budgets, source = MarketingRepository(db).get_media_budgets(year, month)
+    budgets, source = MarketingRepository(db, ctx.company_id).get_media_budgets(year, month)
     return MediaBudgetsResponse(
         year=year,
         month=month,
@@ -66,9 +66,9 @@ def update_media_budgets(
     year: int = Path(..., ge=2000, le=2999),
     month: int = Path(..., ge=1, le=12),
     db: Session = Depends(get_db),
-    admin: User = Depends(require_admin),
+    ctx: TenantContext = Depends(get_admin_tenant_context),
 ) -> MediaBudgetsResponse:
-    repo = MarketingRepository(db)
+    repo = MarketingRepository(db, ctx.company_id)
     try:
         repo.set_media_budgets(year, month, payload.budgets)
         db.commit()
@@ -80,7 +80,7 @@ def update_media_budgets(
             detail="저장하지 못했습니다. 잠시 후 다시 시도해 주세요.",
         ) from exc
 
-    logger.info("관리자 %s 가 %d년 %d월 매체별 예산 수정", admin.email, year, month)
+    logger.info("관리자 %s 가 %d년 %d월 매체별 예산 수정", ctx.user.email, year, month)
     budgets, source = repo.get_media_budgets(year, month)
     return MediaBudgetsResponse(
         year=year,
@@ -96,10 +96,10 @@ def delete_period(
     year: int = Path(..., ge=2000, le=2999),
     month: int = Path(..., ge=1, le=12),
     db: Session = Depends(get_db),
-    admin: User = Depends(require_admin),
+    ctx: TenantContext = Depends(get_admin_tenant_context),
 ) -> PeriodDeleteResponse:
     """해당 연월의 데이터 행·코멘트·엑셀 원본을 모두 삭제한다 (되돌릴 수 없음)."""
-    repo = MarketingRepository(db)
+    repo = MarketingRepository(db, ctx.company_id)
     try:
         result = repo.delete_period(year, month)
         db.commit()
@@ -118,7 +118,7 @@ def delete_period(
 
     logger.info(
         "관리자 %s 가 %d년 %d월 데이터 삭제 (행 %d건)",
-        admin.email, year, month, result["deleted_rows"],
+        ctx.user.email, year, month, result["deleted_rows"],
     )
     return PeriodDeleteResponse(
         year=year,

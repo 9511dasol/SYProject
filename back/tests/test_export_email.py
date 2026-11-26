@@ -16,6 +16,13 @@ from app.services.mail.smtp_sender import SmtpSender
 class _FakeUser:
     id = 1
     email = "me@example.com"
+    company_id = 1
+
+
+def _fake_ctx():
+    from app.core.tenant import TenantContext
+
+    return TenantContext(user=_FakeUser(), company_id=1)
 
 
 class TestCleanRecipients:
@@ -245,7 +252,7 @@ class TestExportEmailBlocked:
         with pytest.raises(HTTPException) as exc:
             marketing_router.start_export_db_task(
                 year=2026, month=6, deliver_by="email", recipient=None,
-                background_tasks=BackgroundTasks(), current_user=_FakeUser(),
+                background_tasks=BackgroundTasks(), ctx=_fake_ctx(),
             )
         assert exc.value.status_code == 503
         assert "준비중" in exc.value.detail
@@ -258,6 +265,6 @@ class TestExportEmailBlocked:
         with pytest.raises(HTTPException) as exc:
             marketing_router.start_export_db_task(
                 year=2026, month=6, deliver_by="email", recipient=None,
-                background_tasks=BackgroundTasks(), current_user=_FakeUser(),
+                background_tasks=BackgroundTasks(), ctx=_fake_ctx(),
             )
         assert exc.value.status_code == 400  # 503이 아니라 원래의 설정 검증으로 넘어갔다

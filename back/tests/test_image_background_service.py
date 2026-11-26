@@ -32,9 +32,15 @@ def test_collects_variant_per_preset(monkeypatch):
     suggestion, usage = asyncio.run(svc.suggest_backgrounds(b"img"))
 
     assert len(suggestion.variants) == len(svc.PRESETS)
+    # 결과 순서는 단언해도 된다 — asyncio.gather 는 완료 순서가 아니라 인자 순서로
+    # 결과를 돌려주므로, 어느 호출이 먼저 끝나든 시안 순서는 PRESETS 를 따른다.
     assert [v.style for v in suggestion.variants] == [k for k, _, _ in svc.PRESETS]
-    # 프리셋 묘사가 각 프롬프트에 들어갔는지
-    assert all(desc in prompt for (_, _, desc), prompt in zip(svc.PRESETS, calls))
+
+    # 반면 calls 는 to_thread 워커들이 "끝난 순서"로 append 한 목록이다. PRESETS 와
+    # 위치로 짝지으면 스레드 스케줄링에 따라 간헐적으로 깨진다(실제로 전체 실행 3회 중
+    # 1회 실패했다). 순서와 무관하게 "프리셋 묘사마다 정확히 한 번씩" 나갔는지를 본다.
+    assert len(calls) == len(svc.PRESETS)
+    assert all(sum(desc in prompt for prompt in calls) == 1 for _, _, desc in svc.PRESETS)
     # 토큰은 성공 호출 합산 — 한 줄 로그로 남아도 집계가 정확해야 한다
     assert usage.prompt_tokens == 10 * len(svc.PRESETS)
     assert usage.output_tokens == 20 * len(svc.PRESETS)

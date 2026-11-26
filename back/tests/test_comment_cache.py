@@ -66,43 +66,43 @@ def test_fingerprint_is_stored_as_a_hex_digest():
 
 def test_saved_comment_is_reused_for_the_same_prompt(cache):
     key = comment_cache.fingerprint("7월 실적 요약해줘")
-    comment_cache.save(2026, 7, key, "7월은 전월 대비 매출이 늘었습니다.")
+    comment_cache.save(2026, 7, key, "7월은 전월 대비 매출이 늘었습니다.", company_id=1)
 
-    assert comment_cache.lookup(2026, 7, key) == "7월은 전월 대비 매출이 늘었습니다."
+    assert comment_cache.lookup(2026, 7, key, company_id=1) == "7월은 전월 대비 매출이 늘었습니다."
 
 
 def test_nothing_is_reused_when_the_data_changed(cache):
     """실적이 바뀌면 프롬프트가 달라진다 — 낡은 코멘트를 내보내면 안 된다."""
-    comment_cache.save(2026, 7, comment_cache.fingerprint("비용 100만원"), "예전 코멘트")
+    comment_cache.save(2026, 7, comment_cache.fingerprint("비용 100만원"), "예전 코멘트", company_id=1)
 
-    assert comment_cache.lookup(2026, 7, comment_cache.fingerprint("비용 250만원")) is None
+    assert comment_cache.lookup(2026, 7, comment_cache.fingerprint("비용 250만원"), company_id=1) is None
 
 
 def test_nothing_is_reused_for_another_period(cache):
     key = comment_cache.fingerprint("같은 질문")
-    comment_cache.save(2026, 7, key, "7월 코멘트")
+    comment_cache.save(2026, 7, key, "7월 코멘트", company_id=1)
 
-    assert comment_cache.lookup(2026, 8, key) is None
+    assert comment_cache.lookup(2026, 8, key, company_id=1) is None
 
 
 def test_lookup_on_an_empty_store_returns_none(cache):
-    assert comment_cache.lookup(2026, 7, comment_cache.fingerprint("질문")) is None
+    assert comment_cache.lookup(2026, 7, comment_cache.fingerprint("질문"), company_id=1) is None
 
 
 def test_regenerating_replaces_the_previous_comment(cache):
     first = comment_cache.fingerprint("질문 1")
     second = comment_cache.fingerprint("질문 2")
 
-    comment_cache.save(2026, 7, first, "첫 코멘트")
-    comment_cache.save(2026, 7, second, "두 번째 코멘트")
+    comment_cache.save(2026, 7, first, "첫 코멘트", company_id=1)
+    comment_cache.save(2026, 7, second, "두 번째 코멘트", company_id=1)
 
-    assert comment_cache.lookup(2026, 7, second) == "두 번째 코멘트"
-    assert comment_cache.lookup(2026, 7, first) is None   # 옛 지문으로는 안 나온다
+    assert comment_cache.lookup(2026, 7, second, company_id=1) == "두 번째 코멘트"
+    assert comment_cache.lookup(2026, 7, first, company_id=1) is None   # 옛 지문으로는 안 나온다
 
 
 def test_save_returns_the_time_it_was_stored(cache):
     """화면이 '언제 생성됐는지'를 보여준다."""
-    saved_at = comment_cache.save(2026, 7, comment_cache.fingerprint("질문"), "코멘트")
+    saved_at = comment_cache.save(2026, 7, comment_cache.fingerprint("질문"), "코멘트", company_id=1)
     assert saved_at is not None
 
 
@@ -114,34 +114,34 @@ def test_a_human_written_comment_is_never_reused_as_ai_output(cache):
     Session = comment_cache.SessionLocal
     db = Session()
     try:
-        MarketingRepository(db).upsert_period_meta(2026, 7, comment="담당자가 직접 쓴 코멘트")
+        MarketingRepository(db, 1).upsert_period_meta(2026, 7, comment="담당자가 직접 쓴 코멘트")
         db.commit()
     finally:
         db.close()
 
     # 어떤 지문으로 물어도 재사용되지 않는다
-    assert comment_cache.lookup(2026, 7, comment_cache.fingerprint("아무 질문")) is None
+    assert comment_cache.lookup(2026, 7, comment_cache.fingerprint("아무 질문"), company_id=1) is None
 
 
 def test_overwriting_an_ai_comment_by_hand_clears_the_fingerprint(cache):
     """AI 코멘트를 사람이 덮어썼는데 옛 지문이 남아 있으면, 그 사람 글이 AI 답으로 재사용된다."""
     key = comment_cache.fingerprint("질문")
-    comment_cache.save(2026, 7, key, "AI 코멘트")
+    comment_cache.save(2026, 7, key, "AI 코멘트", company_id=1)
 
     Session = comment_cache.SessionLocal
     db = Session()
     try:
-        MarketingRepository(db).upsert_period_meta(2026, 7, comment="사람이 고친 코멘트")
+        MarketingRepository(db, 1).upsert_period_meta(2026, 7, comment="사람이 고친 코멘트")
         db.commit()
     finally:
         db.close()
 
-    assert comment_cache.lookup(2026, 7, key) is None
+    assert comment_cache.lookup(2026, 7, key, company_id=1) is None
 
 
 def test_an_empty_comment_is_not_reused(cache):
-    comment_cache.save(2026, 7, comment_cache.fingerprint("질문"), "")
-    assert comment_cache.lookup(2026, 7, comment_cache.fingerprint("질문")) is None
+    comment_cache.save(2026, 7, comment_cache.fingerprint("질문"), "", company_id=1)
+    assert comment_cache.lookup(2026, 7, comment_cache.fingerprint("질문"), company_id=1) is None
 
 
 # ── 캐시가 깨져도 기능은 살아야 한다 ────────────────────────────────────────
@@ -153,7 +153,7 @@ def test_lookup_failure_is_treated_as_a_miss(cache, monkeypatch):
         "app.repositories.marketing_repo.MarketingRepository.get_comment_for_prompt",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("DB 끊김")),
     )
-    assert comment_cache.lookup(2026, 7, "어떤지문") is None
+    assert comment_cache.lookup(2026, 7, "어떤지문", company_id=1) is None
 
 
 def test_save_failure_does_not_raise(cache, monkeypatch):
@@ -162,4 +162,4 @@ def test_save_failure_does_not_raise(cache, monkeypatch):
         "app.repositories.marketing_repo.MarketingRepository.upsert_period_meta",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("DB 끊김")),
     )
-    assert comment_cache.save(2026, 7, "지문", "코멘트") is None
+    assert comment_cache.save(2026, 7, "지문", "코멘트", company_id=1) is None

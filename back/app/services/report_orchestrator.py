@@ -1,6 +1,7 @@
 import logging
 
 from app.core.database import SessionLocal
+from app.core.tenant import SY_COMPANY_ID
 from app.models.report_log_model import ReportLog
 from app.models.user_model import User
 from app.services import comment_cache
@@ -45,6 +46,7 @@ class ReportOrchestrator:
         builder_svc: ReportBuilderService,
         mail_sender: AbstractMailSender,
         user: User | None = None,
+        company_id: int = SY_COMPANY_ID,
     ):
         # 세션은 받지 않는다 — 발송 기록은 _save_report_log 가 전용 세션으로 남기고,
         # DB 조회는 이미 세션을 들고 있는 AnalysisService 가 맡는다.
@@ -54,6 +56,8 @@ class ReportOrchestrator:
         self.mail = mail_sender
         # 사용량 로그에 남길 실행 주체. 월간 크론처럼 사람이 없으면 None.
         self.user = user
+        # 리포트가 집계·발송·과금 귀속되는 기업 — AnalysisService 의 범위와 같아야 한다.
+        self.company_id = company_id
 
     def _comment_for(self, comparison, curr_year: int, curr_month: int) -> str:
         """이 달의 코멘트. 같은 질문이면 저장된 답을 재사용한다.
@@ -64,7 +68,9 @@ class ReportOrchestrator:
         """
         prompt_hash = comment_cache.fingerprint(self.comment.build_prompt(comparison))
 
-        cached = comment_cache.lookup(curr_year, curr_month, prompt_hash)
+        cached = comment_cache.lookup(
+            curr_year, curr_month, prompt_hash, company_id=self.company_id
+        )
         if cached is not None:
             logger.info("코멘트 재사용 (%d-%02d) — LLM 호출 생략", curr_year, curr_month)
             return cached
@@ -76,8 +82,11 @@ class ReportOrchestrator:
             tool=AI_TOOL_REPORT_MAIL,
             label=f"{curr_year}년 {curr_month}월",
             usage=result.usage,
+            company_id=self.company_id,
         )
-        comment_cache.save(curr_year, curr_month, prompt_hash, result.text)
+        comment_cache.save(
+            curr_year, curr_month, prompt_hash, result.text, company_id=self.company_id
+        )
         return result.text
 
     def preview(
@@ -109,7 +118,7 @@ class ReportOrchestrator:
         """
         db = SessionLocal()
         try:
-            return build_rank_section(db)
+            return build_rank_section(db, company_id=self.company_id)
         except Exception:
             logger.exception("리포트 순위 현황 생성 실패 — 해당 구역 없이 발송")
             return None
@@ -129,6 +138,7 @@ class ReportOrchestrator:
             subject = f"[마케팅 리포트] {curr_year}년 {curr_month}월 성과 요약"
 
         log = ReportLog(
+            company_id=self.company_id,
             curr_year=curr_year,
             curr_month=curr_month,
             prev_year=prev_year,

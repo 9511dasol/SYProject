@@ -19,6 +19,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.rate_limit import limiter
 from app.core.security import get_db
 from app.core.settings import settings
+from app.models.company_model import Company
 from app.models.user_model import User
 from app.repositories.user_repo import UserRepository
 from app.routers import auth_router
@@ -36,11 +37,15 @@ def client():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    # 로그인이 소속 기업 상태(ensure_company_access)를 검사하므로 companies 도 만든다.
+    Company.__table__.create(engine)
     User.__table__.create(engine)
     Session = sessionmaker(bind=engine)
 
     session = Session()
-    UserRepository(session).create_user(email=_EMAIL, password=_PASSWORD)
+    session.add(Company(id=1, name="sy"))
+    session.commit()
+    UserRepository(session).create_user(email=_EMAIL, password=_PASSWORD, company_id=1)
 
     app = FastAPI()
     app.state.limiter = limiter

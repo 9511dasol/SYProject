@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import PORTABLE_JSON, Base
@@ -16,8 +16,16 @@ class HeadingSuggestion(Base):
     """
 
     __tablename__ = "heading_suggestions"
+    __table_args__ = (
+        Index("ix_heading_company_created", "company_id", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    # 소속 기업 — 생성 경로가 반드시 명시한다(기본값 없음: 빠뜨리면 조용히 sy 로
+    # 귀속되는 대신 그 자리에서 실패한다).
+    company_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("companies.id", ondelete="CASCADE")
+    )
     user_id: Mapped[int] = mapped_column(Integer, index=True)
     user_email: Mapped[str] = mapped_column(String(255), default="")
     image_filename: Mapped[str] = mapped_column(String(255), default="")

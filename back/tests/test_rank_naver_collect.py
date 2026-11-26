@@ -93,7 +93,7 @@ def _watch(db, keyword="마케팅자동화", **kwargs):
         status="active",
     )
     defaults.update(kwargs)
-    watch = KeywordWatch(**defaults)
+    watch = KeywordWatch(company_id=1, **defaults)
     db.add(watch)
     db.commit()
     return watch

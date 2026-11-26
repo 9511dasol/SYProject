@@ -18,7 +18,9 @@ from app.core.rate_limit import limiter
 from app.core.settings import settings
 from app.models.ai_tool_usage_log_model import AIToolUsageLog as _ATUL  # noqa: F401
 from app.models.ai_usage_budget_model import AIUsageBudget as _AUB  # noqa: F401
+from app.models.audit_log_model import AuditLog as _AL  # noqa: F401
 from app.models.background_task_model import BackgroundTask as _BT  # noqa: F401
+from app.models.company_model import Company as _CO  # noqa: F401
 from app.models.keyword_watch_model import (  # noqa: F401
     KeywordRankSnapshot as _KRS,
     KeywordWatch as _KW,
@@ -36,6 +38,7 @@ from app.routers import (
     admin_report_log_router,
     ai_status_router,
     auth_router,
+    dev_router,
     health_router,
     heading_router,
     image_filter_router,
@@ -46,7 +49,7 @@ from app.routers import (
     system_setting_router,
     user_admin_router,
 )
-from app.services import task_store
+from app.services import task_store, trial_service
 from app.services.rank.alert_factory import run_rank_alerts
 from app.services.rank.collector import collect_ranks
 from app.services.report_factory import build_orchestrator
@@ -165,6 +168,24 @@ def _purge_expired_tasks() -> None:
         logger.info("만료 정리 — 작업 %d건, 되돌리기 스냅샷 %d건 삭제", tasks, undos)
 
 
+def _purge_expired_trials() -> None:
+    """만료된 체험(trial) 기업을 기업째 물리 삭제한다.
+
+    로그인 차단은 ensure_company_access 가 만료 즉시 하고 있으므로, 이 잡은
+    데이터를 실제로 비우는 2차 정리다 — 하루 늦어도 보안 문제는 없다.
+    """
+    db = SessionLocal()
+    try:
+        deleted = trial_service.purge_expired_trials(db)
+        if deleted:
+            logger.info("만료 체험 정리 — 기업 %d곳 삭제", deleted)
+    except Exception:
+        db.rollback()
+        logger.exception("만료 체험 정리 실패")
+    finally:
+        db.close()
+
+
 def _collect_ranks() -> None:
     """APScheduler 가 호출하는 일일 순위 자동 수집 (M2).
 
@@ -253,6 +274,15 @@ async def lifespan(_: FastAPI):
         trigger="interval",
         hours=1,
         id="purge_expired_tasks",
+        replace_existing=True,
+    )
+
+    # 만료된 체험 기업 물리 삭제 — 즉시 차단은 인증 경로가 하므로 하루 1회면 충분하다.
+    scheduler.add_job(
+        _purge_expired_trials,
+        trigger="cron",
+        hour=int(settings.TRIAL_PURGE_CRON_HOUR),
+        id="trial_purge",
         replace_existing=True,
     )
 
@@ -366,6 +396,7 @@ app.include_router(admin_ai_usage_log_router.router)
 # (재발송만 라우터 안에서 MAIL_ENABLED를 확인한다)
 app.include_router(admin_report_log_router.router)
 app.include_router(admin_period_router.router)
+app.include_router(dev_router.router)
 
 if settings.MAIL_ENABLED:
     from app.routers import report_mail_router

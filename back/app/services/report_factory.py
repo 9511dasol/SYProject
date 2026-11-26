@@ -7,6 +7,7 @@
 
 from sqlalchemy.orm import Session
 
+from app.core.tenant import SY_COMPANY_ID
 from app.models.user_model import User
 from app.services.analysis_service import AnalysisService
 from app.services.comment_service import CommentService
@@ -16,12 +17,20 @@ from app.services.report_builder_service import ReportBuilderService
 from app.services.report_orchestrator import ReportOrchestrator
 
 
-def build_orchestrator(db: Session, user: User | None = None) -> ReportOrchestrator:
-    """user 는 AI 사용량 로그에 남길 실행 주체 — 월간 크론처럼 사람이 없으면 생략한다."""
+def build_orchestrator(
+    db: Session, user: User | None = None, company_id: int = SY_COMPANY_ID
+) -> ReportOrchestrator:
+    """user 는 AI 사용량 로그에 남길 실행 주체 — 월간 크론처럼 사람이 없으면 생략한다.
+
+    company_id 는 리포트가 집계·발송·과금 귀속되는 기업이다. 요청 경로는 테넌트
+    컨텍스트를 넘기고, 월간 크론은 기본값(sy) — 기업별 수신자 저장소가 생기면
+    크론이 기업 루프를 돌며 명시하게 된다.
+    """
     return ReportOrchestrator(
-        analysis_svc=AnalysisService(db),
+        analysis_svc=AnalysisService(db, company_id),
         comment_svc=CommentService(llm=build_llm()),
         builder_svc=ReportBuilderService(),
         mail_sender=build_mail_sender(),
         user=user,
+        company_id=company_id,
     )

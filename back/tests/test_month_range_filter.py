@@ -32,7 +32,7 @@ def session():
 
 def _add(db, *dates: str) -> None:
     for d in dates:
-        db.add(MarketingData(
+        db.add(MarketingData(company_id=1, 
             report_date=datetime.date.fromisoformat(d), campaign_type="구글SA",
         ))
     db.commit()

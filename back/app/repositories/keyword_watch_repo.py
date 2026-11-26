@@ -9,16 +9,35 @@ from app.services.rank.report_parser import normalize_keyword
 
 
 class KeywordWatchRepository:
-    def __init__(self, db: Session):
+    """감시 키워드 저장소 — 요청 경로는 반드시 company_id 를 들고 들어온다.
+
+    company_id=None 은 크론(수집·알림) 같은 시스템 경로 전용이다: 전 기업의 감시를
+    한 번에 돌리되, 각 감시의 소속은 watch.company_id 가 들고 있어 기록이 섞이지
+    않는다. 요청 핸들러에서 None 으로 만들면 격리가 깨진다 — 금지.
+    """
+
+    def __init__(self, db: Session, company_id: int | None = None):
         self.db = db
+        self.company_id = company_id
+
+    def _scope(self, query):
+        if self.company_id is not None:
+            query = query.filter(KeywordWatch.company_id == self.company_id)
+        return query
 
     # ── 감시 대상 ──────────────────────────────────────────────────────────────
 
     def list_all(self) -> list[KeywordWatch]:
-        return self.db.query(KeywordWatch).order_by(KeywordWatch.id.asc()).all()
+        return self._scope(self.db.query(KeywordWatch)).order_by(KeywordWatch.id.asc()).all()
 
     def get(self, watch_id: int) -> KeywordWatch | None:
-        return self.db.get(KeywordWatch, watch_id)
+        watch = self.db.get(KeywordWatch, watch_id)
+        if watch is None:
+            return None
+        # 타기업 감시는 "없는 것"이다 — 라우터가 그대로 404 를 내게 None 을 돌려준다.
+        if self.company_id is not None and watch.company_id != self.company_id:
+            return None
+        return watch
 
     def lock_for_alert(self, watch_ids: list[int]) -> dict[int, KeywordWatch]:
         """알림 후보 행만 잠그고 다시 읽는다 — 같은 하락이 두 번 발송되는 걸 막는다.
@@ -45,10 +64,12 @@ class KeywordWatchRepository:
         'Nike' 와 'nike' 를 따로 등록하면 보고서 한 줄이 두 감시에 동시에 꽂혀
         이력과 연속 이탈 카운터가 갈라진다 — 어느 쪽이 진짜인지 알 수 없게 된다.
         """
-        rows = self.db.query(KeywordWatch.keyword, KeywordWatch.device).all()
+        rows = self._scope(self.db.query(KeywordWatch.keyword, KeywordWatch.device)).all()
         return {(normalize_keyword(k), d) for k, d in rows}
 
     def add(self, watch: KeywordWatch) -> KeywordWatch:
+        if self.company_id is not None and watch.company_id is None:
+            watch.company_id = self.company_id
         self.db.add(watch)
         return watch
 
@@ -66,24 +87,29 @@ class KeywordWatchRepository:
 
     # ── 알림 이력 ──────────────────────────────────────────────────────────────
 
+    def _alerts_query(self, watch_id: int | None):
+        query = self.db.query(RankAlertLog)
+        if self.company_id is not None:
+            # 알림 이력은 감시가 지워져도(watch_id NULL) 남으므로, watch 조인이 아니라
+            # 이력 자신의 company_id 로 거른다.
+            query = query.filter(RankAlertLog.company_id == self.company_id)
+        if watch_id is not None:
+            query = query.filter(RankAlertLog.watch_id == watch_id)
+        return query
+
     def list_alerts(
         self, *, watch_id: int | None = None, limit: int = 50, offset: int = 0
     ) -> list[RankAlertLog]:
-        query = self.db.query(RankAlertLog)
-        if watch_id is not None:
-            query = query.filter(RankAlertLog.watch_id == watch_id)
         return (
-            query.order_by(RankAlertLog.created_at.desc(), RankAlertLog.id.desc())
+            self._alerts_query(watch_id)
+            .order_by(RankAlertLog.created_at.desc(), RankAlertLog.id.desc())
             .offset(offset)
             .limit(limit)
             .all()
         )
 
     def count_alerts(self, *, watch_id: int | None = None) -> int:
-        query = self.db.query(RankAlertLog)
-        if watch_id is not None:
-            query = query.filter(RankAlertLog.watch_id == watch_id)
-        return query.count()
+        return self._alerts_query(watch_id).count()
 
     # ── 순위 이력 ──────────────────────────────────────────────────────────────
 

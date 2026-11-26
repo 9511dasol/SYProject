@@ -28,7 +28,7 @@ def fingerprint(prompt: str) -> str:
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
 
-def lookup(year: int, month: int, prompt_hash: str) -> str | None:
+def lookup(year: int, month: int, prompt_hash: str, *, company_id: int) -> str | None:
     """같은 질문으로 이미 받아 둔 코멘트. 없으면 None.
 
     조회 실패는 삼킨다 — 캐시는 비용을 아끼려는 장치이지 기능의 전제가 아니다.
@@ -36,7 +36,9 @@ def lookup(year: int, month: int, prompt_hash: str) -> str | None:
     """
     db = SessionLocal()
     try:
-        return MarketingRepository(db).get_comment_for_prompt(year, month, prompt_hash)
+        return MarketingRepository(db, company_id).get_comment_for_prompt(
+            year, month, prompt_hash
+        )
     except Exception:
         logger.exception("코멘트 캐시 조회 실패 (%d-%02d)", year, month)
         return None
@@ -44,11 +46,13 @@ def lookup(year: int, month: int, prompt_hash: str) -> str | None:
         db.close()
 
 
-def save(year: int, month: int, prompt_hash: str, comment: str) -> datetime | None:
+def save(
+    year: int, month: int, prompt_hash: str, comment: str, *, company_id: int
+) -> datetime | None:
     """코멘트와 지문을 저장하고 저장 시각을 돌려준다. 실패하면 None."""
     db = SessionLocal()
     try:
-        saved_at = MarketingRepository(db).upsert_period_meta(
+        saved_at = MarketingRepository(db, company_id).upsert_period_meta(
             year, month, comment=comment, comment_prompt_hash=prompt_hash
         )
         db.commit()

@@ -42,7 +42,7 @@ def client(session_factory, monkeypatch):
     app = FastAPI()
     app.include_router(marketing_router.router)
     app.dependency_overrides[get_current_user] = lambda: User(
-        id=1, email="user@example.com", role="user"
+        id=1, email="user@example.com", role="member", company_id=1
     )
     try:
         yield TestClient(app)
@@ -63,7 +63,7 @@ def _add_row(
     purchase: float = 2.0,
 ) -> None:
     db = session_factory()
-    db.add(MarketingData(
+    db.add(MarketingData(company_id=1, 
         report_date=date(year, month, 1), campaign_type="네이버",
         impressions=impressions, clicks=clicks, cost=cost,
         conversions=0, conversion_revenue=revenue,

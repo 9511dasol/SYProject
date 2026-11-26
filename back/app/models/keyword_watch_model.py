@@ -31,11 +31,19 @@ class KeywordWatch(Base):
     __tablename__ = "keyword_watch"
     __table_args__ = (
         # 같은 키워드를 같은 디바이스로 두 번 감시하면 이력이 갈라져 어느 쪽이
-        # 진짜인지 알 수 없게 된다. 등록 단계에서 막는다.
-        UniqueConstraint("keyword", "device", name="uq_watch_keyword_device"),
+        # 진짜인지 알 수 없게 된다. 등록 단계에서 막는다 — 단, 기업이 다르면
+        # 같은 키워드를 각자 감시할 수 있어야 하므로 기업 범위 안에서만 막는다.
+        UniqueConstraint(
+            "company_id", "keyword", "device", name="uq_watch_company_keyword_device"
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    # 소속 기업 — 생성 경로가 반드시 명시한다(기본값 없음: 빠뜨리면 조용히 sy 로
+    # 귀속되는 대신 그 자리에서 실패한다).
+    company_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("companies.id", ondelete="CASCADE")
+    )
     keyword: Mapped[str] = mapped_column(String(100), index=True)
     device: Mapped[str] = mapped_column(String(10), default="all")  # "all" | "pc" | "mobile"
 
@@ -112,6 +120,14 @@ class KeywordRankSnapshot(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    # 소속 기업 — watch 를 조인하면 알 수 있지만 일부러 복제한다: RLS 정책과
+    # 리포지토리 스코핑이 전 테이블에서 같은 단순 비교(company_id = ?)가 되게.
+    # 기본값 없음 — 생성 경로가 반드시 명시한다.
+    company_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        index=True,
+    )
     watch_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("keyword_watch.id", ondelete="CASCADE"), index=True
     )

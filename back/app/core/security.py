@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.core.settings import settings
+from app.models.company_model import Company
 from app.models.user_model import User
 
 # 프론트(NextAuth)에서 로그인 폼이 아닌 BFF Route Handler를 통해 토큰을 받으므로
@@ -92,6 +93,31 @@ def get_db():
         db.close()
 
 
+def ensure_company_access(db: Session, user: User) -> None:
+    """소속 기업이 접근 가능한 상태인지 검사한다 — 로그인·refresh·매 요청 공통.
+
+    기업 정지(is_active=False)와 체험 만료는 "다음 토큰 갱신"이 아니라 즉시 반영돼야
+    한다. 정리 잡이 아직 안 돌았어도 만료된 체험 계정은 여기서 바로 막힌다.
+    dev 는 무소속(company_id NULL)이라 검사 대상이 아니다.
+    """
+    if user.company_id is None:
+        return
+    company = db.get(Company, user.company_id)
+    if company is None or not company.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="소속 기업이 비활성화되었습니다."
+        )
+    if company.is_trial and company.expires_at is not None:
+        expires = company.expires_at
+        if expires.tzinfo is None:
+            # SQLite 등 일부 백엔드는 naive 로 돌려준다 — 저장은 항상 UTC 기준.
+            expires = expires.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) >= expires:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="체험 기간이 종료되었습니다."
+            )
+
+
 def get_current_user(
     token: str | None = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
@@ -108,10 +134,19 @@ def get_current_user(
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="사용자를 찾을 수 없습니다.")
 
+    ensure_company_access(db, user)
     return user
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role != "admin":
+    # dev(플랫폼 운영자)는 admin 의 상위 권한 — 기업 admin 이 하는 일은 전부 할 수 있다.
+    if current_user.role not in ("admin", "dev"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="관리자 권한이 필요합니다.")
+    return current_user
+
+
+def require_dev(current_user: User = Depends(get_current_user)) -> User:
+    """dev(플랫폼 운영자) 전용 — 기업·계정·예산 등 /api/dev/* 관리 경로의 가드."""
+    if current_user.role != "dev":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="개발자 권한이 필요합니다.")
     return current_user

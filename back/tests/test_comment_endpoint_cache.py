@@ -40,7 +40,11 @@ def wired(mocker):
 
 
 async def _call(router, *, force=False):
-    return await router.update_comment(year=2026, month=7, force=force, current_user=object())
+    from app.core.tenant import TenantContext
+    from app.models.user_model import User
+
+    ctx = TenantContext(user=User(id=1, email="t@example.com", company_id=1), company_id=1)
+    return await router.update_comment(year=2026, month=7, force=force, ctx=ctx)
 
 
 # ── 저장된 코멘트가 없을 때 ──────────────────────────────────────────────────

@@ -24,7 +24,7 @@ class UserAdminCreate(BaseModel):
     email: EmailStr
     password: str
     name: str = ""
-    role: UserRole = "user"
+    role: UserRole = "member"
 
 
 class UserRoleUpdate(BaseModel):

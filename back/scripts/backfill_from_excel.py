@@ -237,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print()
     # 기간 단위로 나눠 저장한다 — 실패해도 그 달만 다시 돌리면 된다.
-    repo = MarketingRepository(None)  # type: ignore[arg-type]  # _upsert 는 engine 을 직접 쓴다
+    repo = MarketingRepository(None, 1)  # type: ignore[arg-type]  # _upsert 는 engine 을 직접 쓴다
     total = 0
     for ym in sorted(data_targets):
         chunk = df[df["ym"] == ym].drop(columns=["ym"])
@@ -250,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     if budget_targets or (args.with_comments and comments):
         db = SessionLocal()
         try:
-            meta_repo = MarketingRepository(db)
+            meta_repo = MarketingRepository(db, 1)
             for ym in sorted(budget_targets):
                 year, month = int(ym[:4]), int(ym[5:])
                 meta_repo.set_media_budgets(year, month, budgets[ym])
