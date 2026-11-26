@@ -52,6 +52,7 @@ from app.routers import (
 from app.services import task_store, trial_service
 from app.services.rank.alert_factory import run_rank_alerts
 from app.services.rank.collector import collect_ranks
+from app.services.rank.credentials import naver_scope_company_id
 from app.services.report_factory import build_orchestrator
 
 configure_logging(settings.LOG_LEVEL)  # 아래 기동 로그가 실제로 남으려면 먼저 호출돼야 한다
@@ -192,9 +193,17 @@ def _collect_ranks() -> None:
     전일 확정치를 받아 적재하고, 이어서 바로 알림을 평가한다 — 받아온 그 순간이
     하락이 확정되는 시점이라 다음 크론까지 기다릴 이유가 없다.
     """
+    # 키가 전역 1벌이라 "전 기업"으로 돌리면 남의 기업 키워드를 소유 기업 계정으로
+    # 조회하게 된다. 범위를 소유 기업으로 못박는다 — 기업별 자격증명이 생기면
+    # 이 한 줄이 "자격증명을 가진 기업 목록 순회"로 바뀐다.
+    scope = naver_scope_company_id()
+    if scope is None:
+        logger.info("일일 순위 수집 건너뜀 — 네이버 검색광고 API 미설정")
+        return
+
     db = SessionLocal()
     try:
-        result = collect_ranks(db)
+        result = collect_ranks(db, company_id=scope)
         db.commit()
         if result.skipped_reason:
             logger.info("일일 순위 수집 건너뜀 — %s", result.skipped_reason)
@@ -203,7 +212,7 @@ def _collect_ranks() -> None:
             "일일 순위 수집 완료 — %s, 적재 %d건 (ID 해석 %d, 미발견 %d)",
             result.stat_date, result.collected, result.resolved, len(result.not_found),
         )
-        alerts = run_rank_alerts(db)
+        alerts = run_rank_alerts(db, scope)
         db.commit()
         if alerts.drops or alerts.recoveries:
             logger.info(
@@ -223,9 +232,15 @@ def _run_rank_alerts() -> None:
     업로드 직후에도 평가하지만, 그 경로만 두면 "하루 종일 아무도 올리지 않아
     하락을 아무도 모르는" 날이 생긴다. API 수집(M2)이 붙으면 이 경로가 주 경로가 된다.
     """
+    # 수집 크론과 같은 이유로 범위를 고정한다 — 전역 수신자에게 남의 기업
+    # 키워드가 담긴 메일이 나가지 않게.
+    scope = naver_scope_company_id()
+    if scope is None:
+        return
+
     db = SessionLocal()
     try:
-        result = run_rank_alerts(db)
+        result = run_rank_alerts(db, scope)
         db.commit()
         if result.drops or result.recoveries:
             logger.info(

@@ -108,6 +108,11 @@ class Settings(BaseSettings):
     NAVER_SEARCHAD_API_KEY: str = ""
     NAVER_SEARCHAD_SECRET_KEY: str = ""
     NAVER_SEARCHAD_CUSTOMER_ID: str = ""
+    # 위 키가 **어느 기업의 광고 계정인지**. 키가 전역 1벌인 동안, 이 기업 외에는
+    # 외부 API 경로를 막는다(app/services/rank/credentials.py) — 막지 않으면 다른
+    # 기업·체험 계정이 이 계정의 순위·입찰가를 들여다보게 된다.
+    # 기업별 자격증명 저장소가 생기면 이 설정은 사라진다.
+    NAVER_CREDENTIAL_COMPANY_ID: int = 1
     NAVER_SEARCHAD_BASE_URL: str = "https://api.searchad.naver.com"
     # 매일 이 시각에 전일 확정치를 수집한다. 알림 평가는 수집 직후 이어서 돈다.
     RANK_COLLECT_CRON_HOUR: str = "8"

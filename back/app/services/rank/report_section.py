@@ -27,6 +27,7 @@ from app.core.settings import settings
 from app.repositories.keyword_watch_repo import KeywordWatchRepository
 from app.services.rank.base import RankProviderError
 from app.services.rank.bid_estimate import BidEstimateService
+from app.services.rank.credentials import has_naver_access
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,12 @@ def build_rank_section(
     company_id: int | None = None,
 ) -> RankReportSection:
     """리포트용 순위 현황을 만든다. 실패해도 예외를 밖으로 내지 않는다 —
-    순위 한 조각 때문에 월간 리포트 전체가 안 나가면 안 된다."""
+    순위 한 조각 때문에 월간 리포트 전체가 안 나가면 안 된다.
+
+    company_id 는 감시를 고르는 범위이자 **입찰가를 조회해도 되는지의 기준**이다.
+    자격증명을 갖지 않은 기업에는 입찰가 없이 순위만 싣는다 — 순위는 DB 에서
+    나오므로 구역 자체는 그대로 나간다.
+    """
     if max_rows is None:
         max_rows = settings.RANK_REPORT_MAX_ROWS
     repo = KeywordWatchRepository(db, company_id)
@@ -86,7 +92,15 @@ def build_rank_section(
     shown = breached[:max_rows]
     section.omitted = len(breached) - len(shown)
 
-    service = estimator or (BidEstimateService() if with_estimates else None)
+    # 감시는 기업별로 골라 놓고 입찰가만 서버 키로 조회하면, 남의 기업 리포트에
+    # **소유 기업 계정의 입찰가**가 박힌다 — 격리가 리포트 경로에서만 뚫린다.
+    # 주입된 estimator(테스트·호출부 지정)는 가짜이므로 유출이 없어 그대로 쓴다.
+    if estimator is not None:
+        service = estimator
+    elif with_estimates and has_naver_access(company_id):
+        service = BidEstimateService()
+    else:
+        service = None
     use_estimates = bool(service and service.is_configured)
 
     for watch in shown:
