@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useRef } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { cx } from '@/lib/cx';
 
 interface ModalProps {
@@ -13,7 +13,7 @@ interface ModalProps {
    */
   title: ReactNode;
   icon?: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
   /** 본문 아래 고정 액션 영역. 스크롤되지 않고 항상 보인다 */
   footer?: ReactNode;
   /**
@@ -21,13 +21,22 @@ interface ModalProps {
    * Escape · 오버레이 클릭 · 닫기 버튼이 모두 잠긴다.
    */
   busy?: boolean;
+  /**
+   * 열었을 때 포커스를 줄 요소.
+   *
+   * 기본값(첫 focusable)은 헤더의 닫기 버튼을 집는다 — 헤더도 포커스 트랩 안에
+   * 있기 때문이다. 본문 첫 입력칸으로 바로 넣고 싶으면 이걸 넘긴다.
+   */
+  initialFocusRef?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }
 
 const SIZES = {
   sm: 'max-w-sm',
   md: 'max-w-lg',
+  // xl: 미리보기와 긴 글 입력칸을 나란히 두는 편집용 모달 (이미지 정제의 지시 편집)
   lg: 'max-w-2xl',
+  xl: 'max-w-4xl',
 } as const;
 
 /** Tab 순환에 넣을 요소. 순서는 DOM 순서를 그대로 따른다 */
@@ -48,6 +57,7 @@ export default function Modal({
   size = 'md',
   footer,
   busy = false,
+  initialFocusRef,
   children,
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -68,15 +78,16 @@ export default function Modal({
 
     restoreRef.current = document.activeElement as HTMLElement | null;
 
-    // 첫 입력칸으로 바로 넣어 준다. 없으면 패널 자체(tabIndex=-1)를 잡는다.
+    // 호출부가 지정한 요소 → 첫 focusable → 패널 자체(tabIndex=-1) 순으로 잡는다.
     const first = panelRef.current?.querySelector<HTMLElement>(FOCUSABLE);
-    (first ?? panelRef.current)?.focus();
+    (initialFocusRef?.current ?? first ?? panelRef.current)?.focus();
 
     return () => {
       // 트리거가 사라진 경우(행 삭제 후 모달 닫기 등)에는 되돌릴 곳이 없다
       if (restoreRef.current?.isConnected) restoreRef.current.focus();
     };
-  }, [open]);
+    // initialFocusRef 는 ref 객체라 참조가 안정적이다 — 의존성에 넣어도 재실행되지 않는다
+  }, [open, initialFocusRef]);
 
   // ── 배경 스크롤 잠금 ──────────────────────────────────────────────────────
   // 모바일에서 특히 문제였다 — 모달 위에서 스크롤하면 뒤 페이지가 밀려 올라갔다.

@@ -1,28 +1,50 @@
 'use client';
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import AgentComposer from '@/components/image-filter/AgentComposer';
-import Button from '@/components/ui/Button';
-import type {
-  BackgroundStyle,
-  FilterFormState,
-  FilterProcessingState,
-  ImageElement,
-  PromptDrafts,
-} from '@/types/imageFilter';
-import { ALL_ELEMENTS_KEY, draftKeyOf } from '@/types/imageFilter';
-import { ACCEPTED_IMAGE_HINT, validateImageFile } from '@/lib/imageFile';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import CanvasStage from '@/components/image-filter/CanvasStage';
+import EmptyCanvas from '@/components/image-filter/EmptyCanvas';
+import FilterToolbar from '@/components/image-filter/FilterToolbar';
+import ImageLightbox from '@/components/image-filter/ImageLightbox';
+import InstructionEditorModal from '@/components/image-filter/InstructionEditorModal';
+import type { InstructionPatch } from '@/components/image-filter/InstructionEditorModal';
+import InstructionPanel from '@/components/image-filter/InstructionPanel';
+import type { PanelSection } from '@/components/image-filter/InstructionPanel';
+import { useToast } from '@/components/providers/ToastProvider';
 import { useAspectRatioInputs } from '@/hooks/useAspectRatioInputs';
 import { useFileDrop } from '@/hooks/useFileDrop';
-import { useImageUpload } from '@/hooks/useImageUpload';
+import { useImageVersions } from '@/hooks/useImageVersions';
+import { isUserCancel } from '@/lib/api/authFetch';
+import { triggerDownload } from '@/lib/api/download';
+import { validateImageFile } from '@/lib/imageFile';
 import {
   analyzeElements,
   editAndResize,
   fetchBackgroundStyles,
   suggestBackgrounds,
 } from '@/lib/imageFilterClient';
-import { isUserCancel } from '@/lib/api/authFetch';
-import { triggerDownload } from '@/lib/api/download';
+import {
+  composeEditPrompt,
+  describeInstructions,
+  stripResizeSuffix,
+  type ResolvedInstruction,
+} from '@/lib/imageFilterPrompt';
+import {
+  clearSession,
+  peekSession,
+  saveSession,
+  subscribeSession,
+  type StoredDraft,
+  type StoredInstruction,
+} from '@/lib/imageFilterStorage';
+import { makeInstruction } from '@/types/imageFilter';
+import type {
+  BackgroundStyle,
+  FilterFormState,
+  FilterProcessingState,
+  ImageDimensions,
+  ImageElement,
+  Instruction,
+} from '@/types/imageFilter';
 
 const INITIAL_FORM: FilterFormState = {
   targetWidth: '',
@@ -32,111 +54,112 @@ const INITIAL_FORM: FilterFormState = {
   useAiUpscale: false,
 };
 
-const EXAMPLE_PROMPTS = [
-  { icon: 'bx-landscape', text: '배경을 하얀색 배경으로 바꿔줘' },
-  { icon: 'bx-adjust', text: '흑백 사진으로 변환해줘' },
-  { icon: 'bx-eraser', text: '사진 속 워터마크나 텍스트를 제거해줘' },
-  { icon: 'bx-sun', text: '더 화사하고 밝은 분위기로 보정해줘' },
-  { icon: 'bx-aperture', text: '배경을 흐릿하게(아웃포커스) 처리해줘' },
-  { icon: 'bx-film', text: '오래된 필름 사진 느낌으로 바꿔줘' },
-] as const;
+/** 지시가 없는 버전이 돌려줄 고정 배열 — 매 렌더 새 [] 를 만들지 않기 위한 것 */
+const NO_INSTRUCTIONS: Instruction[] = [];
 
-/** 배경 시안 1종 — base64 를 상태에 두면 렌더마다 수 MB 문자열을 재조립하므로 objectURL 로 변환해 보관 */
-interface BackgroundView {
-  style: string;
-  label: string;
-  url: string;
-  blob: Blob;
+/** 전송할 지시 한 건 — 어느 지시에서 나왔는지 알아야 성공·실패 후처리를 할 수 있다 */
+type SendPart = ResolvedInstruction & { id: string };
+
+/** 지금 편집 중인 지시 — 되돌리기의 기준점(snapshot)과 소속 버전을 함께 들고 있다 */
+interface EditingState {
+  versionId: string;
+  snapshot: Instruction;
+  isNew: boolean;
 }
 
-/** 대화 피드 한 줄 — 사용자 요청과 에이전트 응답(결과·오류·배경 시안) */
-type FeedItem =
-  | { id: number; role: 'user'; prompt: string; thumbUrl: string | null; chips: string[] }
-  | {
-      id: number;
-      role: 'agent';
-      kind: 'result';
-      imageUrl: string;
-      blob: Blob;
-      filename: string;
-      provider: string;
-    }
-  | { id: number; role: 'agent'; kind: 'error'; message: string }
-  | { id: number; role: 'agent'; kind: 'notice'; message: string }
-  | {
-      id: number;
-      role: 'agent';
-      kind: 'backgrounds';
-      variants: BackgroundView[];
-      baseName: string;
-    };
-
-/** id 는 pushItem 이 붙인다 — 유니언이라 Omit 이 분배되지 않아 직접 펼친다 */
-type NewFeedItem = FeedItem extends infer T ? (T extends { id: number } ? Omit<T, 'id'> : never) : never;
-
+/**
+ * AI 이미지 정제 화면.
+ *
+ * 구조는 "왼쪽 캔버스 + 오른쪽 지시 패널" 2열이고, 높이는 뷰포트에 고정된다.
+ * 예전에는 하단에 입력 독이 붙은 세로 채팅형이었는데 세 가지가 겹쳐 답답했다 —
+ * 공통 헤더 위에 페이지 헤더가 또 있었고, `min-h-screen` 이 뷰포트 높이를 한 번
+ * 더 요구해 입력창을 보려면 스크롤부터 해야 했고, 요소 선택·출력 설정·배경 시안이
+ * 전부 입력 독 안의 320px 스크롤 박스를 돌려 쓰고 있었다.
+ *
+ * 상태를 **버전별로** 보관하는 게 이 화면의 뼈대다. 요소 id 는 이미지마다 새로
+ * 매겨지므로 분석 결과와 지시를 한 통에 담으면 버전을 오갈 때마다 서로 엉킨다.
+ * 버전 id 로 칸을 나눠 두면 레일로 오가도 각자의 분석 결과와 지시가 그대로 돌아온다.
+ */
 export default function ImageFilterClient() {
+  const { toast } = useToast();
+
   const [form, setForm] = useState<FilterFormState>(INITIAL_FORM);
   const [processing, setProcessing] = useState<FilterProcessingState>('idle');
   const [analyzing, setAnalyzing] = useState(false);
   const [bgLoading, setBgLoading] = useState(false);
   const [backgroundStyles, setBackgroundStyles] = useState<BackgroundStyle[]>([]);
-  const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [lastError, setLastError] = useState<string | null>(null);
 
-  // 요소 분석 — null 은 "아직 분석 안 함" (빈 배열과 구분)
-  const [elements, setElements] = useState<ImageElement[] | null>(null);
-  const [selectedElementId, setSelectedElementId] = useState<number | null>(null);
+  // 버전별 보관 — 키는 버전 id
+  const [elementsByVersion, setElementsByVersion] = useState<Record<string, ImageElement[]>>({});
+  const [instructionsByVersion, setInstructionsByVersion] = useState<
+    Record<string, Instruction[]>
+  >({});
 
-  /* 프롬프트는 "지금 고른 대상"의 것만 보인다 — 요소를 바꿔도 각자 쓰던 글이 남고,
-     선택을 풀면 이미지 전체에 대한 글로 돌아온다. */
-  const [drafts, setDrafts] = useState<PromptDrafts>({});
-  const draftKey = draftKeyOf(selectedElementId);
-  const prompt = drafts[draftKey] ?? '';
-  const setPrompt = useCallback(
-    (value: string) => setDrafts((prev) => ({ ...prev, [draftKey]: value })),
-    [draftKey],
-  );
-  // 글이 남아 있는 요소는 선택 목록에서 표시해 준다 (안 그러면 저장된 줄 모른다).
-  // 매 렌더 새 Set 을 만들면 키 입력마다 ElementPicker(memo)가 깨진다 — 집합의
-  // "내용"은 글이 생기거나 비워질 때만 바뀌므로, 내용 키로 참조를 안정시킨다.
-  const draftedIdsKey = Object.entries(drafts)
-    .filter(([key, text]) => key !== ALL_ELEMENTS_KEY && text.trim())
-    .map(([key]) => key)
-    .sort()
-    .join(',');
-  const draftedElementIds = useMemo(
-    () => new Set(draftedIdsKey ? draftedIdsKey.split(',').map(Number) : []),
-    [draftedIdsKey],
-  );
+  const [openSection, setOpenSection] = useState<PanelSection | null>('elements');
+  const [zoomOpen, setZoomOpen] = useState(false);
+  const [editing, setEditing] = useState<EditingState | null>(null);
+  /**
+   * 이미지를 올리기 전에 정해 둔 지시 — 첨부 직후 그대로 등록한다.
+   * 예시를 고른 경우와 저장소에서 복구한 경우가 모두 여기로 들어온다.
+   */
+  const [seed, setSeed] = useState<StoredInstruction[]>([]);
+
+  /* ── 저장소 복구 ────────────────────────────────────────────── */
+  // localStorage 는 서버에 없다. effect 로 읽어 setState 하면 렌더가 한 번 더
+  // 돌고, 렌더 중에 읽으면 서버(null)와 클라이언트가 달라 hydration 이 깨진다.
+  // useSyncExternalStore 는 서버 스냅샷을 따로 받아 두 문제를 모두 피한다.
+  const storedSession = useSyncExternalStore(subscribeSession, peekSession, () => null);
+  const [restoreHandled, setRestoreHandled] = useState(false);
+  const restorable = restoreHandled ? null : storedSession;
 
   // 진행 중인 AI 요청의 취소 핸들 — 이미지 생성은 수십 초라 끊을 수단이 필요하다
   const abortRef = useRef<AbortController | null>(null);
+  const insSeqRef = useRef(0);
 
-  // 피드가 들고 있는 objectURL 들 — 파일을 바꿔도 지난 대화의 썸네일·결과는
-  // 계속 보여야 하므로 즉시 해제하지 않고 모아 뒀다 초기화·언마운트 때 해제한다.
-  const urlsRef = useRef<string[]>([]);
-  const idRef = useRef(0);
-  const endRef = useRef<HTMLDivElement>(null);
-
-  const busy = processing !== 'idle' || analyzing || bgLoading;
-
-  /* ── 파일 선택 (업로드·미리보기·치수 측정은 공용 훅) ────────── */
-  const { file, previewUrl, dimensions: originalDimensions, select, clear } = useImageUpload(
-    (dims) =>
+  /* ── 버전 계보 ──────────────────────────────────────────────── */
+  // 치수는 비동기로 도착한다. 측정이 끝나면 출력 크기를 그 이미지 크기로 맞추는데,
+  // 이걸 effect 로 state 를 따라가게 만들면 렌더가 한 번 더 도는 데다 사용자가
+  // 입력 중인 값을 덮을 위험도 있다 — "측정 완료"라는 사건에만 반응하게 둔다.
+  const { versions, active, start, add, addMany, select, reset } = useImageVersions(
+    useCallback((dimensions: ImageDimensions) => {
       setForm((prev) => ({
         ...prev,
-        targetWidth: String(dims.width),
-        targetHeight: String(dims.height),
-      })),
+        targetWidth: String(dimensions.width),
+        targetHeight: String(dimensions.height),
+      }));
+    }, []),
   );
 
-  // 분석 응답이 돌아온 시점에 파일이 바뀌었으면 결과를 버리기 위한 최신 파일 추적
-  const latestFileRef = useRef<File | null>(null);
-  useEffect(() => {
-    latestFileRef.current = file;
-  }, [file]);
+  const sending = processing !== 'idle';
+  const aiBusy = sending || analyzing || bgLoading;
 
-  // 배경 스타일 목록은 서버가 단일 출처 — 실패해도 화면은 그대로 쓸 수 있어야 해서
-  // 조용히 넘기고, 목록이 비면 배경 시안 패널만 안내 문구를 띄운다.
+  const activeId = active?.id ?? null;
+  const elements = activeId ? (elementsByVersion[activeId] ?? null) : null;
+  // 빈 배열을 인라인으로 쓰면 지시가 없는 버전에서 매 렌더 새 참조가 나와,
+  // 이 값을 보는 memo 와 memo 컴포넌트가 전부 헛돈다 — 상수를 돌려준다.
+  const instructions = useMemo(
+    () => (activeId ? (instructionsByVersion[activeId] ?? NO_INSTRUCTIONS) : NO_INSTRUCTIONS),
+    [activeId, instructionsByVersion],
+  );
+
+  /* ── 버전별 지시 갱신 도우미 ─────────────────────────────────── */
+  // 토스트의 실행취소처럼 나중에 실행되는 콜백도 있어서, 버전 id 를 인자로 받아
+  // "그때 보고 있던 버전"에 정확히 쓰도록 한다 (activeId 를 캡처하면 그 사이
+  // 레일로 다른 버전을 고른 경우 엉뚱한 칸에 들어간다).
+  const updateInstructions = useCallback(
+    (versionId: string, updater: (prev: Instruction[]) => Instruction[]) => {
+      setInstructionsByVersion((prev) => ({
+        ...prev,
+        [versionId]: updater(prev[versionId] ?? []),
+      }));
+    },
+    [],
+  );
+
+  /* ── 배경 스타일 목록 ───────────────────────────────────────── */
+  // 서버가 단일 출처 — 실패해도 화면은 그대로 쓸 수 있어야 해서 조용히 넘기고,
+  // 목록이 비면 배경 시안 섹션만 안내 문구를 띄운다.
   useEffect(() => {
     let alive = true;
     fetchBackgroundStyles()
@@ -147,275 +170,531 @@ export default function ImageFilterClient() {
     };
   }, []);
 
-  const pushItem = useCallback((item: NewFeedItem) => {
-    idRef.current += 1;
-    setFeed((prev) => [...prev, { ...item, id: idRef.current }]);
-  }, []);
+  /* ── 버전 전환 ──────────────────────────────────────────────── */
+  // 레일로 다른 버전을 고르면 출력 크기도 그 이미지 기준으로 되돌린다.
+  // (새로 만들어진 버전은 측정 콜백이 맡으므로 여기선 이미 측정된 것만 다룬다)
+  const handleSelectVersion = useCallback(
+    (versionId: string) => {
+      select(versionId);
+      const picked = versions.find((v) => v.id === versionId);
+      if (picked?.dimensions) {
+        setForm((prev) => ({
+          ...prev,
+          targetWidth: String(picked.dimensions!.width),
+          targetHeight: String(picked.dimensions!.height),
+        }));
+      }
+    },
+    [select, versions],
+  );
 
-  const trackUrl = useCallback((url: string) => {
-    urlsRef.current.push(url);
-    return url;
-  }, []);
+  const { onWidthChange, onHeightChange } = useAspectRatioInputs(
+    active?.dimensions ?? null,
+    setForm,
+  );
 
   /* ── 이미지 첨부 (버튼·드래그·붙여넣기 공통 진입점) ─────────── */
-  /** 첨부에 성공하면 true — 호출부가 후속 안내를 띄울지 판단한다. */
   const handleAttach = useCallback(
-    (f: File): boolean => {
-      const problem = validateImageFile(f);
+    (file: File): boolean => {
+      const problem = validateImageFile(file);
       if (problem) {
-        pushItem({ role: 'agent', kind: 'error', message: problem });
+        setLastError(problem);
+        toast('error', problem);
         return false;
       }
-      setElements(null);
-      setSelectedElementId(null);
-      // 요소 id 는 이미지마다 새로 매겨진다 — 요소별 초안은 버리고 전체 프롬프트만 남긴다
-      setDrafts((prev) => ({ [ALL_ELEMENTS_KEY]: prev[ALL_ELEMENTS_KEY] ?? '' }));
+
+      // 이미지가 바뀌면 요소 id 가 새로 매겨지므로 요소를 지정한 지시는 쓸 수 없다.
+      // 반면 "이미지 전체" 지시는 그대로 유효하니 새 원본으로 옮겨 준다 —
+      // 같은 지시를 다른 이미지에 적용해 보는 건 흔한 작업이다.
+      const carried: Instruction[] = (activeId ? (instructionsByVersion[activeId] ?? []) : [])
+        .filter((ins) => ins.targetElementId === null && ins.text.trim())
+        .map((ins) => ({ ...ins, status: 'draft' }));
+
+      abortRef.current?.abort();
+      const original = start(file);
+
+      setElementsByVersion({});
+
+      // 미리 정해 둔 지시(예시 선택 · 저장소 복구)를 첫 지시로 등록한다.
+      // 복구된 지시 중 원래 특정 요소를 가리키던 건 needsTarget 을 달아 전송에서
+      // 빼 둔다 — 대상 없이 보내면 "로고를 지워줘"가 이미지 전체 지시가 된다.
+      seed.forEach((item) => {
+        insSeqRef.current += 1;
+        const created = makeInstruction(insSeqRef.current, null, item.text);
+        carried.push(
+          item.targetHint
+            ? { ...created, needsTarget: true, enabled: false, targetHint: item.targetHint }
+            : created,
+        );
+      });
+      if (seed.length) setSeed([]);
+
+      setInstructionsByVersion(carried.length ? { [original.id]: carried } : {});
       setForm((prev) => ({ ...prev, targetWidth: '', targetHeight: '' }));
-      select(f);
+      setLastError(null);
+      setEditing(null);
+      setOpenSection('elements');
       return true;
     },
-    [pushItem, select],
+    [activeId, instructionsByVersion, seed, start, toast],
   );
 
-  /**
-   * 편집 결과(또는 배경 시안)를 다음 작업의 입력으로 삼는다.
-   *
-   * 편집·분석은 언제나 "현재 첨부된 파일" 하나만 보기 때문에, 결과를 File 로
-   * 바꿔 첨부 자리에 넣어 주면 요소 분석·요소 지정 편집이 그대로 결과물 기준으로
-   * 돌아간다. 자동으로 이어받지 않고 버튼을 거치게 둔 건, 원본에서 다시
-   * 시도하는 분기를 사용자가 잃지 않게 하기 위해서다.
-   */
-  const handleContinueFrom = useCallback(
-    (blob: Blob, filename: string) => {
-      if (busy) return;
-      // 서버가 붙인 _resized_WxH 를 걷어내지 않으면 이어받을 때마다 이름이 길어진다
-      const nextName = stripResizeSuffix(filename);
-      const attached = handleAttach(
-        new File([blob], nextName, { type: blob.type || 'image/png' }),
-      );
-      if (!attached) return;
-      pushItem({
-        role: 'agent',
-        kind: 'notice',
-        message: `이제 이 결과를 편집합니다. 요소 선택도 이 이미지 기준으로 다시 분석돼요.`,
-      });
-    },
-    [busy, handleAttach, pushItem],
-  );
-
-  const handleClearFile = useCallback(() => {
-    clear();
-    setElements(null);
-    setSelectedElementId(null);
-    setForm((prev) => ({ ...prev, targetWidth: '', targetHeight: '' }));
-  }, [clear]);
-
-  /* ── 대화 초기화 ────────────────────────────────────────────── */
+  /* ── 새 작업 ────────────────────────────────────────────────── */
   const handleReset = useCallback(() => {
     abortRef.current?.abort();
-    urlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-    // 재할당하면 언마운트 정리가 들고 있는 배열 참조와 끊어져 이후 URL이 샌다
-    urlsRef.current.length = 0;
-    setFeed([]);
-    clear();
+    reset();
+    setElementsByVersion({});
+    setInstructionsByVersion({});
     setForm(INITIAL_FORM);
-    setDrafts({});
-    setElements(null);
-    setSelectedElementId(null);
-  }, [clear]);
+    setLastError(null);
+    setEditing(null);
+    setZoomOpen(false);
+    setSeed([]);
+    setOpenSection('elements');
+    // 사용자가 직접 비운 것이므로 저장해 둔 초안도 같이 버린다 —
+    // 안 그러면 방금 치운 지시가 복구 배너로 다시 올라온다
+    clearSession();
+    setRestoreHandled(true);
+  }, [reset]);
+
+  /* ── 복구 ───────────────────────────────────────────────────── */
+  const handleRestore = useCallback(() => {
+    if (!storedSession) return;
+    setSeed(storedSession.instructions);
+    setForm((prev) => ({
+      ...prev,
+      outputFormat: storedSession.outputFormat,
+      keepAspectRatio: storedSession.keepAspectRatio,
+    }));
+    setRestoreHandled(true);
+    toast('info', `지시 ${storedSession.instructions.length}건을 불러왔어요. 이미지를 첨부해 주세요.`);
+  }, [storedSession, toast]);
+
+  const handleDiscardRestore = useCallback(() => {
+    clearSession();
+    setRestoreHandled(true);
+  }, []);
 
   /* ── 요소 분석 ──────────────────────────────────────────────── */
-  const handleAnalyze = useCallback(async (): Promise<boolean> => {
-    if (!file || busy) return false;
-    setAnalyzing(true);
+  const handleAnalyze = useCallback(async () => {
+    if (!active || aiBusy) return;
+    const versionId = active.id;
+    const target = active.file;
 
+    setAnalyzing(true);
+    setOpenSection('elements');
     const controller = new AbortController();
     abortRef.current = controller;
-    const target = file;
 
     try {
       const found = await analyzeElements(target, controller.signal);
-      // 분석 중 파일이 교체됐으면(붙여넣기 등) 이전 이미지의 박스를 새 이미지에 붙이지 않는다
-      if (latestFileRef.current !== target) return false;
-      setElements(found);
-      setSelectedElementId(null);
-      // 다시 분석하면 요소 id 가 새로 매겨져 예전 초안이 엉뚱한 요소에 붙는다
-      setDrafts((prev) => ({ [ALL_ELEMENTS_KEY]: prev[ALL_ELEMENTS_KEY] ?? '' }));
-      return true;
+      // 결과를 그 버전의 칸에만 넣는다 — 늦게 도착해도 다른 이미지에 박스가 붙지 않는다
+      setElementsByVersion((prev) => ({ ...prev, [versionId]: found }));
+
+      // 다시 분석하면 요소 id 가 새로 매겨진다. 예전에는 요소별 초안을 그냥 버렸는데,
+      // 애써 쓴 글을 날리는 대신 대상만 비워 두고 다시 고르게 한다.
+      const foundIds = new Set(found.map((el) => el.id));
+      updateInstructions(versionId, (prev) =>
+        prev.map((ins) =>
+          ins.targetElementId !== null && !foundIds.has(ins.targetElementId)
+            ? { ...ins, targetElementId: null }
+            : ins,
+        ),
+      );
+
+      if (!found.length) {
+        toast('info', '선택할 수 있는 요소를 찾지 못했어요. 이미지 전체 지시로 편집해 보세요.');
+      }
     } catch (err) {
       if (!isUserCancel(err)) {
-        pushItem({
-          role: 'agent',
-          kind: 'error',
-          message: err instanceof Error ? err.message : '요소 분석에 실패했습니다.',
-        });
+        const message = err instanceof Error ? err.message : '요소 분석에 실패했습니다.';
+        setLastError(message);
+        toast('error', message);
       }
-      return false;
     } finally {
       abortRef.current = null;
       setAnalyzing(false);
     }
-  }, [file, busy, pushItem]);
-
-  /* ── 가로·세로 변경 (비율 유지 계산은 공용 훅) ──────────────── */
-  const { onWidthChange: handleWidthChange, onHeightChange: handleHeightChange } =
-    useAspectRatioInputs(originalDimensions, setForm);
+  }, [active, aiBusy, toast, updateInstructions]);
 
   /* ── 편집 요청 전송 ─────────────────────────────────────────── */
+  const handleSend = useCallback(async () => {
+    if (!active || aiBusy) return;
+    const versionId = active.id;
+    const list = instructionsByVersion[versionId] ?? [];
+    const versionElements = elementsByVersion[versionId] ?? null;
 
-  /**
-   * 지금 보내야 할 지시들 — 지금 보고 있는 칸뿐 아니라 요소별로 써 둔 글을 모두 모은다.
-   * 요소마다 따로 적어 두고 한 번에 보내는 게 자연스러운데, 매번 한 건씩 보내면
-   * 이미지 생성 비용도 건수만큼 들고 앞 결과가 뒤 편집에 깔리지 않는다.
-   */
-  const pending: EditInstruction[] = Object.entries(drafts)
-    .filter(([, text]) => text.trim())
-    .map(([key, text]) => ({
-      key,
-      element: key === ALL_ELEMENTS_KEY ? null : elements?.find((el) => String(el.id) === key) ?? null,
-      text: text.trim(),
-    }))
-    // 분석을 다시 돌려 사라진 요소의 초안은 버린다 (전체 지시는 element 가 null 이 정상)
-    .filter((part) => part.key === ALL_ELEMENTS_KEY || part.element);
+    // 체크를 켠 지시만 보낸다. 예전에는 써 둔 지시가 전부 함께 전송돼, 써 두고
+    // 잊은 지시가 결과물과 AI 호출 비용을 조용히 바꿔 놓았다.
+    const parts: SendPart[] = list
+      .filter((ins) => ins.enabled && ins.text.trim())
+      .map((ins) => ({
+        id: ins.id,
+        element:
+          ins.targetElementId === null
+            ? null
+            : (versionElements?.find((el) => el.id === ins.targetElementId) ?? null),
+        text: ins.text.trim(),
+        targeted: ins.targetElementId !== null,
+      }))
+      // 재분석으로 대상이 사라진 지시는 좌표를 붙일 수 없어 보내지 않는다
+      .filter((part) => !part.targeted || part.element)
+      .map(({ id, element, text }) => ({ id, element, text }));
 
-  // 지금 칸이 비어 있어도 다른 곳에 써 둔 지시가 있으면 보낼 수 있다
-  const otherPending = pending.filter((part) => part.key !== draftKey);
+    if (!parts.length) return;
 
-  const handleSend = async () => {
-    if (!file || busy || !pending.length) return;
-    // 전송 시점의 지시 묶음 — 기다리는 동안 선택이 바뀌어도 제자리에 되돌린다
-    const sent = pending;
+    const width = parseInt(form.targetWidth, 10) || 0;
+    const height = parseInt(form.targetHeight, 10) || 0;
+    const note = describeInstructions(parts);
+    const sentIds = new Set(parts.map((part) => part.id));
 
-    const w = parseInt(form.targetWidth, 10) || 0;
-    const h = parseInt(form.targetHeight, 10) || 0;
-
-    const targeted = sent.filter((part) => part.element);
-    const chips: string[] = [];
-    if (targeted.length) chips.push(`대상: ${targeted.map((t) => t.element!.label).join(', ')}`);
-    if (w > 0 && h > 0) chips.push(`${w}×${h}px`);
-    chips.push(form.outputFormat.toUpperCase());
-
-    pushItem({
-      role: 'user',
-      prompt: describeInstructions(sent),
-      thumbUrl: trackUrl(URL.createObjectURL(file)),
-      chips,
-    });
-    setDrafts((prev) => {
-      const next = { ...prev };
-      sent.forEach((part) => (next[part.key] = ''));
-      return next;
-    });
-
-    // 요소를 고른 지시는 "그 영역만 수정" 좌표 설명을 입힌다 —
-    // 백엔드 편집 엔드포인트는 그대로 두고 지시만 정밀해진다
-    const fullPrompt = composeEditPrompt(sent);
-
+    setLastError(null);
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
       const { provider, blob, filename } = await editAndResize(
-        file,
-        fullPrompt,
-        w,
-        h,
+        active.file,
+        composeEditPrompt(parts),
+        width,
+        height,
         form.outputFormat,
         () => setProcessing('compressing'),
         () => setProcessing('editing'),
         controller.signal,
       );
-      pushItem({
-        role: 'agent',
-        kind: 'result',
-        imageUrl: trackUrl(URL.createObjectURL(blob)),
-        blob,
-        filename,
+
+      // 결과를 File 로 바꿔 새 버전으로 올린다 — 그대로 다음 편집·분석의 입력이 된다.
+      // 서버가 덧붙이는 _resized_WxH 를 걷어내지 않으면 이어 갈 때마다 이름이 길어진다.
+      add({
+        file: new File([blob], stripResizeSuffix(filename), {
+          type: blob.type || 'image/png',
+        }),
+        kind: 'edited',
+        parentId: versionId,
         provider,
+        filename,
+        note,
       });
+
+      // 보낸 지시는 원래 버전의 목록에서 빠진다 — 기록은 새 버전의 note 로 남는다
+      updateInstructions(versionId, (prev) => prev.filter((ins) => !sentIds.has(ins.id)));
+      toast('success', `편집을 마쳤어요 — 지시 ${parts.length}건 적용`);
     } catch (err) {
-      // 수십 초 기다린 끝의 실패·취소다 — 입력을 되살려 바로 고쳐 재시도할 수 있게 한다
-      setDrafts((prev) => {
-        const next = { ...prev };
-        sent.forEach((part) => {
-          if (!next[part.key]?.trim()) next[part.key] = part.text;
-        });
-        return next;
-      });
-      // 사용자가 직접 취소한 건 실패가 아니므로 오류 응답으로 남기지 않는다
+      // 사용자가 직접 끊은 건 실패가 아니다. 그 외에는 지시를 목록에 그대로 남겨
+      // 두고 실패 표시만 붙인다 — 예전처럼 비웠다 되살리는 복구 과정이 필요 없다.
       if (!isUserCancel(err)) {
-        pushItem({
-          role: 'agent',
-          kind: 'error',
-          message: err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.',
-        });
+        const message = err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.';
+        setLastError(message);
+        toast('error', message);
+        updateInstructions(versionId, (prev) =>
+          prev.map((ins) => (sentIds.has(ins.id) ? { ...ins, status: 'failed' } : ins)),
+        );
       }
     } finally {
       abortRef.current = null;
       setProcessing('idle');
     }
-  };
+  }, [
+    active,
+    aiBusy,
+    add,
+    elementsByVersion,
+    form.outputFormat,
+    form.targetHeight,
+    form.targetWidth,
+    instructionsByVersion,
+    toast,
+    updateInstructions,
+  ]);
 
   /* ── 배경 시안 생성 ─────────────────────────────────────────── */
-  const handleBackgrounds = useCallback(async (styles: string[]) => {
-    if (!file || busy || !styles.length) return;
+  const handleBackgrounds = useCallback(
+    async (styles: string[]) => {
+      if (!active || aiBusy || !styles.length) return;
+      const versionId = active.id;
+      const baseName = active.file.name.replace(/\.[^.]+$/, '');
 
-    const labels = styles
-      .map((key) => backgroundStyles.find((s) => s.key === key)?.label ?? key)
-      .join(', ');
-    pushItem({
-      role: 'user',
-      prompt: `피사체는 그대로 두고, 배경을 바꾼 시안을 만들어줘 (${labels})`,
-      thumbUrl: trackUrl(URL.createObjectURL(file)),
-      chips: [`배경 시안 ${styles.length}종`],
-    });
+      setBgLoading(true);
+      setLastError(null);
+      const controller = new AbortController();
+      abortRef.current = controller;
 
-    setBgLoading(true);
-    const controller = new AbortController();
-    abortRef.current = controller;
+      try {
+        const variants = await suggestBackgrounds(active.file, styles, controller.signal);
+        // base64 를 상태에 두면 렌더마다 수 MB 문자열을 재조립한다 — File 로 바꿔 보관
+        const files = await Promise.all(
+          variants.map(async (variant) => {
+            const blob = await (
+              await fetch(`data:${variant.mime};base64,${variant.image_base64}`)
+            ).blob();
+            const filename = `${baseName}_bg_${variant.style}.png`;
+            return {
+              file: new File([blob], filename, { type: variant.mime || 'image/png' }),
+              kind: 'background' as const,
+              parentId: versionId,
+              label: variant.label,
+              filename,
+              note: `배경을 "${variant.label}" 스타일로`,
+            };
+          }),
+        );
+        addMany(files);
+        toast('success', `배경 시안 ${files.length}종을 만들었어요`);
+      } catch (err) {
+        if (!isUserCancel(err)) {
+          const message = err instanceof Error ? err.message : '배경 시안 생성에 실패했습니다.';
+          setLastError(message);
+          toast('error', message);
+        }
+      } finally {
+        abortRef.current = null;
+        setBgLoading(false);
+      }
+    },
+    [active, addMany, aiBusy, toast],
+  );
 
-    try {
-      const variants = await suggestBackgrounds(file, styles, controller.signal);
-      // base64 를 상태에 두면 렌더마다 수 MB 문자열을 재조립한다 — Blob/objectURL 로 바꿔 보관
-      const views: BackgroundView[] = await Promise.all(
-        variants.map(async (v) => {
-          const blob = await (await fetch(`data:${v.mime};base64,${v.image_base64}`)).blob();
-          return {
-            style: v.style,
-            label: v.label,
-            url: trackUrl(URL.createObjectURL(blob)),
-            blob,
-          };
-        }),
-      );
-      pushItem({
-        role: 'agent',
-        kind: 'backgrounds',
-        variants: views,
-        baseName: file.name.replace(/\.[^.]+$/, ''),
+  const handleCancel = useCallback(() => abortRef.current?.abort(), []);
+
+  /* ── 지시 편집 ──────────────────────────────────────────────── */
+
+  /**
+   * 되돌리기 · 실행취소 공통 복원.
+   *
+   * 세 가지 경우를 한 함수로 덮는다 — 고친 걸 되돌리기(교체), 지운 걸 되살리기
+   * (재삽입), 새로 만든 걸 없애기(제거).
+   */
+  const restoreInstruction = useCallback(
+    (versionId: string, snapshot: Instruction, wasNew: boolean) => {
+      updateInstructions(versionId, (prev) => {
+        if (wasNew) return prev.filter((ins) => ins.id !== snapshot.id);
+        return prev.some((ins) => ins.id === snapshot.id)
+          ? prev.map((ins) => (ins.id === snapshot.id ? snapshot : ins))
+          : [...prev, snapshot];
       });
-    } catch (err) {
-      if (!isUserCancel(err)) {
-        pushItem({
-          role: 'agent',
-          kind: 'error',
-          message: err instanceof Error ? err.message : '배경 시안 생성에 실패했습니다.',
+    },
+    [updateInstructions],
+  );
+
+  const openEditor = useCallback(
+    (instructionId: string) => {
+      if (!activeId) return;
+      const found = (instructionsByVersion[activeId] ?? []).find(
+        (ins) => ins.id === instructionId,
+      );
+      if (found) setEditing({ versionId: activeId, snapshot: found, isNew: false });
+    },
+    [activeId, instructionsByVersion],
+  );
+
+  /**
+   * 대상을 정해 새 지시를 만든다 (이미지 위 요소 클릭 · 요소 칩 · 지시 추가).
+   *
+   * 요소를 눌렀을 때 그 요소에 이미 지시가 있으면 새로 만들지 않고 그걸 연다 —
+   * 같은 대상 카드가 두 장 생기면 어느 쪽이 반영될지 알 수 없다. "이미지 전체"는
+   * 여러 건을 따로 적는 게 자연스러우므로 그대로 새로 만든다.
+   */
+  const openNewEditor = useCallback(
+    (targetElementId: number | null) => {
+      if (!activeId) return;
+      const list = instructionsByVersion[activeId] ?? [];
+
+      if (targetElementId !== null) {
+        const existing = list.find((ins) => ins.targetElementId === targetElementId);
+        if (existing) {
+          setEditing({ versionId: activeId, snapshot: existing, isNew: false });
+          return;
+        }
+      }
+
+      insSeqRef.current += 1;
+      const created = makeInstruction(insSeqRef.current, targetElementId);
+      updateInstructions(activeId, (prev) => [...prev, created]);
+      setEditing({ versionId: activeId, snapshot: created, isNew: true });
+    },
+    [activeId, instructionsByVersion, updateInstructions],
+  );
+
+  /**
+   * 모달이 닫힐 때(밖 클릭 · Esc · X · 저장) 호출된다 — 닫는 모든 경로가 저장이다.
+   *
+   * 내용이 비면 삭제로 처리한다. 그러지 않으면 실수로 열었다 닫을 때마다 "내용 없음"
+   * 카드가 목록에 쌓인다. 어느 쪽이든 실행취소를 붙여 되돌릴 수 있게 한다.
+   */
+  const handleSaveInstruction = useCallback(
+    (patch: InstructionPatch) => {
+      if (!editing) return;
+      const { versionId, snapshot, isNew } = editing;
+      const trimmed = patch.text.trim();
+      const changed =
+        trimmed !== snapshot.text.trim() || patch.targetElementId !== snapshot.targetElementId;
+
+      setEditing(null);
+
+      if (!trimmed) {
+        updateInstructions(versionId, (prev) => prev.filter((ins) => ins.id !== snapshot.id));
+        if (snapshot.text.trim()) {
+          toast('info', '내용이 비어 지시를 지웠어요', {
+            label: '실행취소',
+            onClick: () => restoreInstruction(versionId, snapshot, false),
+          });
+        }
+        return;
+      }
+
+      updateInstructions(versionId, (prev) =>
+        prev.map((ins) =>
+          ins.id === snapshot.id
+            ? {
+                ...ins,
+                text: patch.text,
+                targetElementId: patch.targetElementId,
+                enabled: true,
+                status: 'draft',
+                // 대상을 직접 확인했으므로("이미지 전체"를 고른 것도 선택이다)
+                // 복구 지시에 달려 있던 "대상 다시 고르기" 표시를 뗀다
+                needsTarget: false,
+                targetHint: undefined,
+              }
+            : ins,
+        ),
+      );
+
+      if (changed) {
+        toast('success', isNew ? '지시를 추가했어요' : '지시를 저장했어요', {
+          label: '실행취소',
+          onClick: () => restoreInstruction(versionId, snapshot, isNew),
         });
       }
-    } finally {
-      abortRef.current = null;
-      setBgLoading(false);
-    }
-  }, [file, busy, backgroundStyles, pushItem, trackUrl]);
+    },
+    [editing, restoreInstruction, toast, updateInstructions],
+  );
 
-  /** 진행 중인 AI 요청을 끊는다. */
-  const handleCancel = useCallback(() => {
-    abortRef.current?.abort();
-  }, []);
+  const handleRevertInstruction = useCallback(() => {
+    if (!editing) return;
+    const { versionId, snapshot, isNew } = editing;
+    setEditing(null);
+    restoreInstruction(versionId, snapshot, isNew);
+  }, [editing, restoreInstruction]);
+
+  const handleDeleteEditing = useCallback(() => {
+    if (!editing) return;
+    const { versionId, snapshot } = editing;
+    setEditing(null);
+    updateInstructions(versionId, (prev) => prev.filter((ins) => ins.id !== snapshot.id));
+    toast('info', '지시를 지웠어요', {
+      label: '실행취소',
+      onClick: () => restoreInstruction(versionId, snapshot, false),
+    });
+  }, [editing, restoreInstruction, toast, updateInstructions]);
+
+  const handleDeleteInstruction = useCallback(
+    (instructionId: string) => {
+      if (!activeId) return;
+      const snapshot = (instructionsByVersion[activeId] ?? []).find(
+        (ins) => ins.id === instructionId,
+      );
+      if (!snapshot) return;
+      updateInstructions(activeId, (prev) => prev.filter((ins) => ins.id !== instructionId));
+      toast('info', '지시를 지웠어요', {
+        label: '실행취소',
+        onClick: () => restoreInstruction(activeId, snapshot, false),
+      });
+    },
+    [activeId, instructionsByVersion, restoreInstruction, toast, updateInstructions],
+  );
+
+  const handleToggleInstruction = useCallback(
+    (instructionId: string) => {
+      if (!activeId) return;
+      updateInstructions(activeId, (prev) =>
+        prev.map((ins) => (ins.id === instructionId ? { ...ins, enabled: !ins.enabled } : ins)),
+      );
+    },
+    [activeId, updateInstructions],
+  );
+
+  /* ── 지시를 써 둔 요소 ──────────────────────────────────────── */
+  // 매 렌더 새 Set 을 만들면 지시를 타이핑할 때마다 ElementOverlay(memo)가 깨진다 —
+  // 집합의 "내용"은 지시가 생기거나 비워질 때만 바뀌므로 내용 키로 참조를 안정시킨다.
+  const instructedKey = instructions
+    .filter((ins) => ins.text.trim() && ins.targetElementId !== null)
+    .map((ins) => ins.targetElementId)
+    .sort((a, b) => (a ?? 0) - (b ?? 0))
+    .join(',');
+  const instructedIds = useMemo(
+    () => new Set(instructedKey ? instructedKey.split(',').map(Number) : []),
+    [instructedKey],
+  );
 
   /* ── 페이지 전체 드래그&드롭 ────────────────────────────────── */
   const onFiles = useCallback((files: File[]) => handleAttach(files[0]), [handleAttach]);
-  const { isDragging, handlers } = useFileDrop(onFiles, busy);
+  const { isDragging, handlers } = useFileDrop(onFiles, aiBusy);
+
+  /* ── 클립보드 붙여넣기 ─────────────────────────────────────── */
+  // 예전에는 프롬프트 textarea 의 onPaste 였다. 그 칸이 모달로 옮겨 갔으니 문서
+  // 수준에서 받되, 입력칸 안에서의 붙여넣기와 모달이 열린 동안은 건드리지 않는다.
+  useEffect(() => {
+    function onPaste(event: ClipboardEvent) {
+      if (aiBusy || editing || zoomOpen) return;
+      const node = event.target as HTMLElement | null;
+      if (node?.closest('input, textarea, select, [contenteditable="true"]')) return;
+
+      const item = Array.from(event.clipboardData?.items ?? []).find((entry) =>
+        entry.type.startsWith('image/'),
+      );
+      const pasted = item?.getAsFile();
+      if (pasted) {
+        event.preventDefault();
+        handleAttach(pasted);
+      }
+    }
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [aiBusy, editing, handleAttach, zoomOpen]);
+
+  /* ── 지시 자동 저장 ────────────────────────────────────────── */
+  // 새로고침·뒤로가기로 사라지던 지시를 브라우저에 남긴다. 이미지는 저장하지 않으므로
+  // (서버에도 저장하지 않는다는 약속과 같은 이유) 복구하면 이미지만 다시 첨부하면 된다.
+  //
+  // 저장할 내용을 렌더 중에 만들어 문자열로 굳힌다. 그러면 effect 의 의존성이
+  // "저장할 내용" 딱 하나가 되어, 저장 대상 필드가 늘어나도 의존성을 따로 챙길 필요가
+  // 없다. 예전에는 일부 필드만 추려 만든 키를 의존성으로 쓰고 exhaustive-deps 를
+  // 꺼 뒀는데, 그 방식은 키에 빠진 필드가 바뀌면 저장이 조용히 건너뛴다 —
+  // 실제로 targetHint 가 그 구멍에 걸려 있었다.
+  const pendingSave = useMemo(() => {
+    if (!active) return null;
+    const draft: StoredDraft = {
+      imageName: active.file.name,
+      outputFormat: form.outputFormat,
+      keepAspectRatio: form.keepAspectRatio,
+      instructions: instructions
+        .filter((ins) => ins.text.trim())
+        .map((ins) => {
+          // 요소 id 는 복구 때 못 쓴다 — 사람이 읽는 이름만 남겨 다시 고르게 한다
+          const label =
+            ins.targetElementId === null
+              ? undefined
+              : elements?.find((el) => el.id === ins.targetElementId)?.label;
+          const targetHint = label ?? ins.targetHint;
+          return targetHint ? { text: ins.text, targetHint } : { text: ins.text };
+        }),
+    };
+    return JSON.stringify(draft);
+  }, [active, elements, form.keepAspectRatio, form.outputFormat, instructions]);
+
+  useEffect(() => {
+    if (!pendingSave) return;
+    // 문자열이 변경 감지와 저장할 값을 겸한다 — 되돌려 쓰는 비용은 디바운스 1회분이다
+    const timer = setTimeout(() => saveSession(JSON.parse(pendingSave) as StoredDraft), 500);
+    return () => clearTimeout(timer);
+  }, [pendingSave]);
+
+  /* ── 언마운트 정리 ──────────────────────────────────────────── */
+  // 정리 시점의 최신 컨트롤러를 봐야 한다 — 마운트 때 값을 담아 두면(그때는 null)
+  // 떠나는 순간 돌고 있던 요청을 못 끊는다. objectURL 해제는 useImageVersions 가 맡는다.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   /* ── 진행 상태 문구 ─────────────────────────────────────────── */
   const statusText = analyzing
@@ -428,479 +707,117 @@ export default function ImageFilterClient() {
           ? 'Gemini가 이미지를 편집하는 중 — 보통 5~10초 걸려요'
           : null;
 
-  /* ── 새 메시지가 오면 피드 맨 아래로 ────────────────────────── */
-  useEffect(() => {
-    if (feed.length > 0 || statusText) {
-      endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }
-  }, [feed.length, statusText]);
-
-  /* ── 언마운트 정리 ──────────────────────────────────────────── */
-  useEffect(() => {
-    const urls = urlsRef.current;
-    return () => {
-      abortRef.current?.abort();
-      urls.forEach((url) => URL.revokeObjectURL(url));
-    };
-  }, []);
+  const original = versions[0] ?? null;
 
   /* ── 렌더 ───────────────────────────────────────────────────── */
   return (
     <div
       {...handlers}
-      className="min-h-screen bg-linear-to-br from-bg via-surface to-indigo-50/30 dark:to-indigo-950/20"
+      className="flex flex-col lg:h-[calc(100dvh-var(--header-h))] lg:overflow-hidden bg-bg"
     >
       {/* 드래그 중 오버레이 */}
       {isDragging && (
-        <div className="fixed inset-0 z-50 bg-indigo-500/10 backdrop-blur-[2px] flex items-center justify-center pointer-events-none">
-          <div className="flex items-center gap-3 rounded-2xl border-2 border-dashed border-indigo-400 bg-surface px-8 py-6 shadow-xl">
+        <div className="fixed inset-0 z-[var(--z-modal)] bg-indigo-500/10 backdrop-blur-[2px] flex items-center justify-center pointer-events-none">
+          <div className="flex items-center gap-3 rounded-2xl border-2 border-dashed border-indigo-400 bg-surface px-8 py-6 shadow-overlay">
             <i className="bx bx-image-add text-3xl text-indigo-500" />
             <p className="font-semibold text-fg">여기에 놓으면 이미지가 첨부됩니다</p>
           </div>
         </div>
       )}
 
-      <div className="max-w-3xl mx-auto px-4 flex flex-col min-h-screen">
-        {/* 헤더 */}
-        <header className="flex items-center justify-between gap-3 py-5">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-linear-to-br from-indigo-500 to-violet-500 flex items-center justify-center shadow-card shrink-0">
-              <i className="bx bxs-magic-wand text-xl text-white" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-lg font-bold text-fg tracking-tight truncate">이미지 정제</h1>
-              <p className="text-xs text-fg-muted truncate">
-                채팅하듯 지시하면 Gemini가 이미지를 편집해 드려요
-              </p>
-            </div>
-          </div>
-          {feed.length > 0 && (
-            <Button variant="outline" size="sm" onClick={handleReset} className="shrink-0">
-              <i className="bx bx-plus text-base" />
-              새 대화
-            </Button>
-          )}
-        </header>
-
-        {/* 대화 피드 */}
-        <main className="flex-1 flex flex-col">
-          {feed.length === 0 && !statusText ? (
-            <EmptyState
-              hasFile={!!file}
-              onAttach={handleAttach}
-              onExample={setPrompt}
-              disabled={busy}
-            />
-          ) : (
-            <div role="log" aria-label="편집 대화 내역" className="space-y-4 py-2">
-              {feed.map((item) =>
-                item.role === 'user' ? (
-                  <UserBubble key={item.id} item={item} />
-                ) : (
-                  <AgentBubble
-                    key={item.id}
-                    item={item}
-                    onContinue={handleContinueFrom}
-                    disabled={busy}
-                  />
-                ),
-              )}
-
-              {/* 진행 중 상태 버블 */}
-              {statusText && (
-                <div className="flex items-start gap-3">
-                  <AgentAvatar />
-                  <div className="rounded-2xl rounded-tl-md border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/30 px-4 py-3 flex items-center gap-3">
-                    <span className="relative flex w-2.5 h-2.5 shrink-0">
-                      <span className="absolute inset-0 rounded-full bg-indigo-400 animate-ping opacity-60" />
-                      <span className="relative w-2.5 h-2.5 rounded-full bg-indigo-500" />
-                    </span>
-                    <p className="text-sm text-indigo-700 dark:text-indigo-300">{statusText}</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-          <div ref={endRef} />
-        </main>
-
-        {/* 하단 고정 컴포저 */}
-        <div className="sticky bottom-0 z-20 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] bg-linear-to-t from-bg via-bg/95 to-transparent">
-          <AgentComposer
-            file={file}
-            previewUrl={previewUrl}
-            originalDimensions={originalDimensions}
-            prompt={prompt}
-            onPromptChange={setPrompt}
-            onAttach={handleAttach}
-            onClearFile={handleClearFile}
-            targetWidth={form.targetWidth}
-            targetHeight={form.targetHeight}
-            keepAspectRatio={form.keepAspectRatio}
-            outputFormat={form.outputFormat}
-            onWidthChange={handleWidthChange}
-            onHeightChange={handleHeightChange}
-            onToggleAspectRatio={() =>
-              setForm((prev) => ({ ...prev, keepAspectRatio: !prev.keepAspectRatio }))
-            }
-            onFormatChange={(fmt) => setForm((prev) => ({ ...prev, outputFormat: fmt }))}
-            elements={elements}
-            selectedElementId={selectedElementId}
-            onSelectElement={setSelectedElementId}
-            draftedElementIds={draftedElementIds}
-            pendingLabels={otherPending.map((part) =>
-              part.element ? part.element.label : '이미지 전체',
-            )}
-            analyzing={analyzing}
-            onAnalyze={handleAnalyze}
-            backgroundStyles={backgroundStyles}
-            onSuggestBackgrounds={handleBackgrounds}
-            onSubmit={handleSend}
-            onCancel={handleCancel}
-            busy={busy}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── 파일명 정리 ─────────────────────────────────────────────── */
-
-/**
- * 서버가 덧붙인 `_resized_640x400` 접미사를 걷어낸다.
- *
- * 편집 결과를 다시 입력으로 쓰면 서버가 그 이름 뒤에 또 붙이기 때문에,
- * 두세 번만 이어가도 `a_resized_640x400_resized_640x400...` 이 된다.
- * 배경 시안의 `_bg_<style>` 은 어느 시안에서 나왔는지 알려주므로 남긴다.
- */
-function stripResizeSuffix(filename: string): string {
-  const dot = filename.lastIndexOf('.');
-  const stem = dot > 0 ? filename.slice(0, dot) : filename;
-  const ext = dot > 0 ? filename.slice(dot) : '';
-  const cleaned = stem.replace(/(?:_resized_\d+x\d+)+$/, '');
-  return `${cleaned || stem}${ext}`;
-}
-
-/* ── 요소 지정 프롬프트 조합 ─────────────────────────────────── */
-
-/** 보낼 지시 한 건 — element 가 null 이면 이미지 전체에 대한 지시 */
-interface EditInstruction {
-  key: string;
-  element: ImageElement | null;
-  text: string;
-}
-
-/** 요소 박스를 "가로 12%~45%, 세로 30%~40%" 같은 자연어로 */
-function boxText(el: ImageElement): string {
-  const range = (start: number, size: number) =>
-    `${Math.round(start * 100)}%~${Math.round((start + size) * 100)}%`;
-  return `가로 ${range(el.box.x, el.box.w)}, 세로 ${range(el.box.y, el.box.h)} 영역`;
-}
-
-/**
- * 지시 묶음을 편집 모델에 보낼 한 덩어리 프롬프트로 만든다.
- *
- * 백엔드 편집 엔드포인트는 자유 프롬프트 하나만 받으므로, 요소별 지시를
- * 좌표 설명과 함께 번호 매겨 늘어놓는다. 요소 하나만 보낼 때는 기존에 쓰던
- * 문장 그대로 둔다 — 모델이 가장 잘 따르던 형태라 굳이 바꾸지 않는다.
- */
-function composeEditPrompt(parts: EditInstruction[]): string {
-  const general = parts.find((part) => !part.element)?.text ?? '';
-  const targeted = parts.filter((part) => part.element);
-
-  if (!targeted.length) return general;
-
-  if (targeted.length === 1 && !general) {
-    const only = targeted[0];
-    return (
-      `이미지 속 "${only.element!.label}" 요소(${boxText(only.element!)})만 ` +
-      `다음 지시대로 수정해주세요: ${only.text}. ` +
-      `그 외 영역은 원본과 똑같이 유지해주세요.`
-    );
-  }
-
-  const lines = targeted.map(
-    (part, i) => `${i + 1}) "${part.element!.label}" 요소(${part.element ? boxText(part.element) : ''}): ${part.text}`,
-  );
-  return [
-    '이미지에서 아래 영역들을 각각 지시대로 수정해주세요.',
-    ...lines,
-    general && `전체 적용: ${general}`,
-    '지시하지 않은 영역은 원본과 똑같이 유지해주세요.',
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-/** 대화 버블에 보여 줄 사람이 읽기 좋은 요약 (모델에 보내는 문장과 별개) */
-function describeInstructions(parts: EditInstruction[]): string {
-  const general = parts.find((part) => !part.element)?.text ?? '';
-  const targeted = parts.filter((part) => part.element);
-  if (!targeted.length) return general;
-  return [general, ...targeted.map((part) => `${part.element!.label} → ${part.text}`)]
-    .filter(Boolean)
-    .join('\n');
-}
-
-/* ── 피드 버블 ───────────────────────────────────────────────── */
-
-function AgentAvatar() {
-  return (
-    <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/50 ring-1 ring-indigo-200 dark:ring-indigo-800 flex items-center justify-center shrink-0">
-      <i className="bx bx-bot text-lg text-indigo-500 dark:text-indigo-400" />
-    </div>
-  );
-}
-
-/* 피드 항목은 불변 객체라 memo 가 그대로 먹힌다 — 프롬프트 상태가 이 페이지에
-   있어 키 입력마다 리렌더되는데, 묶지 않으면 타이핑 한 번에 대화 전체가 다시 그려진다. */
-const UserBubble = memo(function UserBubble({
-  item,
-}: {
-  item: Extract<FeedItem, { role: 'user' }>;
-}) {
-  return (
-    <div className="flex justify-end">
-      <div className="max-w-[85%] sm:max-w-[75%] rounded-2xl rounded-br-md bg-indigo-600 dark:bg-indigo-500 text-white px-4 py-3 space-y-2 shadow-card">
-        {item.thumbUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={item.thumbUrl}
-            alt="첨부 이미지"
-            className="rounded-lg max-h-40 w-auto max-w-full border border-white/20"
-          />
-        )}
-        <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{item.prompt}</p>
-        {item.chips.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {item.chips.map((chip) => (
-              <span
-                key={chip}
-                className="text-[10px] font-medium bg-white/15 rounded-md px-1.5 py-0.5"
-              >
-                {chip}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-});
-
-/** AI 모델명 → 아이콘 / 색상 매핑 */
-const PROVIDER_META: Record<string, { icon: string; color: string }> = {
-  Gemini: { icon: 'bx-diamond', color: 'text-blue-500' },
-};
-
-function ProviderBadge({ provider }: { provider: string }) {
-  if (!provider) return null;
-  const key = Object.keys(PROVIDER_META).find((k) => provider.startsWith(k));
-  const meta = (key && PROVIDER_META[key]) || { icon: 'bx-chip', color: 'text-fg-subtle' };
-  return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-fg-muted bg-surface-3 rounded-md px-1.5 py-0.5">
-      <i className={`bx ${meta.icon} text-xs ${meta.color}`} />
-      {provider}
-    </span>
-  );
-}
-
-const AgentBubble = memo(function AgentBubble({
-  item,
-  onContinue,
-  disabled,
-}: {
-  item: Extract<FeedItem, { role: 'agent' }>;
-  onContinue: (blob: Blob, filename: string) => void;
-  disabled: boolean;
-}) {
-  return (
-    <div className="flex items-start gap-3">
-      <AgentAvatar />
-
-      {item.kind === 'error' ? (
-        <div className="max-w-[85%] sm:max-w-[75%] rounded-2xl rounded-tl-md border border-red-100 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 px-4 py-3 flex items-start gap-2.5">
-          <i className="bx bx-error-circle text-red-400 shrink-0 mt-0.5" />
-          <p className="text-sm text-red-600 dark:text-red-400">{item.message}</p>
-        </div>
-      ) : item.kind === 'notice' ? (
-        <div className="max-w-[85%] sm:max-w-[75%] rounded-2xl rounded-tl-md border border-border bg-surface-2 px-4 py-2.5 flex items-start gap-2.5">
-          <i className="bx bx-info-circle text-fg-subtle shrink-0 mt-0.5" />
-          <p className="text-xs text-fg-muted leading-relaxed">{item.message}</p>
-        </div>
-      ) : item.kind === 'result' ? (
-        <div className="max-w-[85%] sm:max-w-[75%] rounded-2xl rounded-tl-md border border-border bg-surface shadow-card px-4 py-3.5 space-y-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <i className="bx bx-check-shield text-emerald-500 text-lg" />
-            <p className="text-sm font-semibold text-fg-body">편집이 완료됐어요</p>
-            <ProviderBadge provider={item.provider} />
-          </div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={item.imageUrl}
-            alt="편집 결과"
-            className="rounded-xl border border-border max-h-80 w-auto max-w-full bg-surface-2"
-          />
-          <p className="text-xs text-fg-subtle truncate">{item.filename}</p>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => triggerDownload(item.blob, item.filename)}
-            >
-              <i className="bx bx-download text-sm" />
-              다운로드
-            </Button>
-            {/* 결과물을 다음 편집의 입력으로 — 이 버튼을 누르지 않으면 계속 원본을 편집한다 */}
-            <Button
-              variant="ghost"
-              tone="indigo"
-              size="sm"
-              onClick={() => onContinue(item.blob, item.filename)}
-              disabled={disabled}
-            >
-              <i className="bx bx-edit-alt text-sm" />
-              이 결과로 계속 편집
-            </Button>
-          </div>
-        </div>
-      ) : (
-        /* 배경 시안 */
-        <div className="flex-1 max-w-full sm:max-w-[85%] rounded-2xl rounded-tl-md border border-border bg-surface shadow-card px-4 py-3.5 space-y-3">
-          <div className="flex items-center gap-2">
-            <i className="bx bx-landscape text-lg text-indigo-500" />
-            <p className="text-sm font-semibold text-fg-body">
-              배경 시안 {item.variants.length}종을 만들었어요
-            </p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {item.variants.map((v) => (
-              <figure
-                key={v.style}
-                className="rounded-xl border border-border overflow-hidden bg-surface-2"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={v.url}
-                  alt={`배경 시안 — ${v.label}`}
-                  className="block w-full h-auto"
-                />
-                <figcaption className="flex items-center justify-between gap-1 px-3 py-2">
-                  <span className="text-xs font-medium text-fg-muted truncate">{v.label}</span>
-                  <span className="flex items-center gap-1 shrink-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => triggerDownload(v.blob, `${item.baseName}_bg_${v.style}.png`)}
-                    >
-                      <i className="bx bx-download text-sm" />
-                      저장
-                    </Button>
-                    {/* 마음에 드는 시안을 고른 뒤 그 위에서 계속 다듬을 수 있게 한다 */}
-                    <Button
-                      variant="ghost"
-                      tone="indigo"
-                      size="sm"
-                      title="이 시안을 편집 대상으로"
-                      onClick={() => onContinue(v.blob, `${item.baseName}_bg_${v.style}.png`)}
-                      disabled={disabled}
-                    >
-                      <i className="bx bx-edit-alt text-sm" />
-                      편집
-                    </Button>
-                  </span>
-                </figcaption>
-              </figure>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-});
-
-/* ── 빈 피드 첫 화면 ─────────────────────────────────────────── */
-
-function EmptyState({
-  hasFile,
-  onAttach,
-  onExample,
-  disabled,
-}: {
-  hasFile: boolean;
-  onAttach: (f: File) => void;
-  onExample: (text: string) => void;
-  disabled: boolean;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-6 py-10 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-linear-to-br from-indigo-500 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-200 dark:shadow-indigo-950">
-        <i className="bx bxs-magic-wand text-3xl text-white" />
-      </div>
-
-      <div className="space-y-1.5">
-        <h2 className="text-xl sm:text-2xl font-bold text-fg tracking-tight">
-          무엇을 어떻게 바꿔볼까요?
-        </h2>
-        <p className="text-sm text-fg-muted max-w-sm mx-auto">
-          이미지를 첨부하고 채팅하듯 지시하면, 결과를 대화로 바로 보여드려요.
-        </p>
-      </div>
-
-      {!hasFile && (
+      {active && original ? (
         <>
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            disabled={disabled}
-            className="group flex items-center gap-3 rounded-2xl border-2 border-dashed border-border hover:border-indigo-300 dark:hover:border-indigo-700 bg-surface hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 px-6 py-4 transition-all disabled:opacity-50"
-          >
-            <i className="bx bx-cloud-upload text-2xl text-indigo-400 group-hover:scale-110 transition-transform" />
-            <span className="text-left">
-              <span className="block text-sm font-semibold text-fg-body">
-                이미지를 올리거나 여기로 드래그
-              </span>
-              <span className="block text-xs text-fg-subtle mt-0.5">
-                {ACCEPTED_IMAGE_HINT} · 붙여넣기(Ctrl+V)도 돼요
-              </span>
-            </span>
-          </button>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            className="sr-only"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) onAttach(f);
-              e.target.value = '';
-            }}
+          <FilterToolbar
+            original={original}
+            form={form}
+            onOpenSettings={() => setOpenSection('settings')}
+            onReplace={handleAttach}
+            onReset={handleReset}
+            locked={aiBusy}
           />
+
+          <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
+            <div className="flex min-h-[55vh] lg:min-h-0 flex-1 min-w-0">
+              <CanvasStage
+                versions={versions}
+                active={active}
+                onSelectVersion={handleSelectVersion}
+                elements={elements}
+                instructedIds={instructedIds}
+                editingElementId={editing?.snapshot.targetElementId ?? null}
+                onPickElement={openNewEditor}
+                locked={sending}
+                statusText={statusText}
+                onZoom={() => setZoomOpen(true)}
+                onDownload={() => triggerDownload(active.file, active.filename)}
+              />
+            </div>
+
+            <InstructionPanel
+              instructions={instructions}
+              elements={elements}
+              onAddInstruction={() => openNewEditor(null)}
+              onEditInstruction={openEditor}
+              onDeleteInstruction={handleDeleteInstruction}
+              onToggleInstruction={handleToggleInstruction}
+              openSection={openSection}
+              onOpenSection={setOpenSection}
+              analyzing={analyzing}
+              onAnalyze={handleAnalyze}
+              onPickElement={openNewEditor}
+              backgroundStyles={backgroundStyles}
+              bgLoading={bgLoading}
+              onSuggestBackgrounds={handleBackgrounds}
+              form={form}
+              originalDimensions={active.dimensions}
+              onWidthChange={onWidthChange}
+              onHeightChange={onHeightChange}
+              onToggleAspectRatio={() =>
+                setForm((prev) => ({ ...prev, keepAspectRatio: !prev.keepAspectRatio }))
+              }
+              onFormatChange={(outputFormat) => setForm((prev) => ({ ...prev, outputFormat }))}
+              sending={sending}
+              onSend={handleSend}
+              onCancel={handleCancel}
+              aiBusy={aiBusy}
+              lastError={lastError}
+              onDismissError={() => setLastError(null)}
+            />
+          </div>
         </>
+      ) : (
+        <EmptyCanvas
+          onAttach={handleAttach}
+          seed={seed}
+          onSeed={setSeed}
+          restorable={restorable}
+          onRestore={handleRestore}
+          onDiscardRestore={handleDiscardRestore}
+          error={lastError}
+        />
       )}
 
-      <div className="w-full max-w-lg space-y-2">
-        <p className="text-[10px] font-semibold text-fg-subtle uppercase tracking-wider">
-          이런 것도 할 수 있어요
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {EXAMPLE_PROMPTS.map((ex) => (
-            <button
-              key={ex.text}
-              type="button"
-              onClick={() => onExample(ex.text)}
-              disabled={disabled}
-              className="flex items-center gap-3 rounded-xl border border-border bg-surface hover:border-indigo-200 dark:hover:border-indigo-700 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/30 px-4 py-3 text-left transition-colors disabled:opacity-50"
-            >
-              <i className={`bx ${ex.icon} text-lg text-indigo-400 shrink-0`} />
-              <span className="text-xs sm:text-sm text-fg-muted leading-snug">{ex.text}</span>
-            </button>
-          ))}
-        </div>
-      </div>
+      {editing && active && (
+        <InstructionEditorModal
+          key={editing.snapshot.id}
+          instruction={editing.snapshot}
+          isNew={editing.isNew}
+          elements={elements}
+          previewUrl={active.url}
+          onSave={handleSaveInstruction}
+          onRevert={handleRevertInstruction}
+          onDelete={handleDeleteEditing}
+        />
+      )}
+
+      {zoomOpen && active && (
+        <ImageLightbox
+          version={active}
+          onClose={() => setZoomOpen(false)}
+          onDownload={() => triggerDownload(active.file, active.filename)}
+        />
+      )}
     </div>
   );
 }
+
