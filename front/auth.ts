@@ -142,7 +142,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       session.accessToken = token.accessToken;
       session.error = token.error;
       session.user.id = token.id ?? '';
-      session.user.role = token.role ?? 'user';
+      // 토큰에 role 이 없을 일은 없지만, 폴백은 가장 낮은 권한으로 둔다.
+      session.user.role = token.role ?? 'member';
       return session;
     },
   },

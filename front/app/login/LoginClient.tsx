@@ -55,7 +55,8 @@ export default function LoginClient() {
       }
 
       const session = await getSession();
-      router.push(session?.user.role === 'admin' ? '/admin/settings' : '/dashboard');
+      const role = session?.user.role;
+      router.push(role === 'dev' ? '/dev/companies' : role === 'admin' ? '/admin/users' : '/dashboard');
       router.refresh();
     } finally {
       setPending(false);

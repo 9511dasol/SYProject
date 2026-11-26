@@ -15,13 +15,17 @@ import { useToast } from '@/components/providers/ToastProvider';
 import type { PasswordChangePayload, ProfileUpdatePayload, UserProfile, UserRole } from '@/types/auth';
 
 const ROLE_LABELS: Record<UserRole, string> = {
-  user: '일반 사용자',
+  dev: '개발자',
   admin: '관리자',
+  member: '사원',
+  trial: '체험',
 };
 
 const ROLE_BADGE_STYLES: Record<UserRole, string> = {
-  user: 'bg-surface-2 text-fg-muted',
+  dev: 'bg-primary-soft text-primary',
   admin: 'bg-primary-soft text-primary',
+  member: 'bg-surface-2 text-fg-muted',
+  trial: 'bg-surface-2 text-fg-muted',
 };
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

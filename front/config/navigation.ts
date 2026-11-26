@@ -73,23 +73,54 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     ],
   },
   {
+    id: 'dev',
+    groupLabel: '플랫폼 운영 (dev)',
+    devOnly: true,
+    items: [
+      {
+        id: 'dev-companies',
+        label: '기업 · 체험 관리',
+        icon: 'bx-buildings',
+        href: '/dev/companies',
+        badge: 'NEW',
+        description: '기업 생성·정지, admin 발급, 토큰 예산, 체험 계정 발급·연장',
+      },
+      {
+        id: 'dev-users',
+        label: '전체 계정 관리',
+        icon: 'bx-group',
+        href: '/dev/users',
+        badge: 'NEW',
+        description: '전 기업 계정 조회·생성·수정·삭제·잠금 해제',
+      },
+      {
+        id: 'dev-audit-logs',
+        label: '감사 로그',
+        icon: 'bx-shield-quarter',
+        href: '/dev/audit-logs',
+        badge: 'NEW',
+        description: '운영 행위 전수 기록 — 누가 언제 무엇을 했는지',
+      },
+      {
+        id: 'dev-settings',
+        label: '기능 플래그 관리',
+        icon: 'bx-toggle-left',
+        href: '/dev/settings',
+        description: '전 기업에 적용되는 기능 on/off 와 AI 프로바이더 현황',
+      },
+    ],
+  },
+  {
     id: 'admin',
     groupLabel: '관리자',
     adminOnly: true,
     items: [
       {
-        id: 'admin-settings',
-        label: '기능 플래그 관리',
-        icon: 'bx-toggle-left',
-        href: '/admin/settings',
-        description: '서비스 기능을 켜고 끌 수 있는 관리자 설정',
-      },
-      {
         id: 'admin-users',
         label: '사용자 관리',
         icon: 'bx-group',
         href: '/admin/users',
-        description: '계정 목록 조회, 권한 · 활성 상태 관리, 운영 계정 생성',
+        description: '우리 기업 계정 조회 · 활성 상태 관리, 사원 계정 생성',
       },
       {
         id: 'admin-ai-usage-logs',

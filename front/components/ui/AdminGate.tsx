@@ -25,7 +25,8 @@ export default function AdminGate({ children }: { children: ReactNode }) {
     );
   }
 
-  if (session?.user.role !== 'admin') {
+  // dev(플랫폼 운영자)는 admin 의 상위 권한 — 기업 admin 화면에도 들어갈 수 있다.
+  if (session?.user.role !== 'admin' && session?.user.role !== 'dev') {
     return (
       <div className="flex flex-col items-center justify-center gap-2 min-h-[60vh] px-6 text-center">
         <i className="bx bx-lock-alt text-3xl text-fg-subtle" />

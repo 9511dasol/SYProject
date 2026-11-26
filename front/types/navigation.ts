@@ -23,7 +23,9 @@ export interface NavItem {
 export interface NavGroup {
   readonly id: string;
   readonly groupLabel?: string;
-  /** true이면 role이 'admin'인 사용자에게만 노출된다. */
+  /** true이면 role이 'admin'(또는 그 상위인 'dev')인 사용자에게만 노출된다. */
   readonly adminOnly?: boolean;
+  /** true이면 role이 'dev'인 사용자에게만 노출된다. */
+  readonly devOnly?: boolean;
   readonly items: readonly NavItem[];
 }

@@ -401,6 +401,289 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dev/audit-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Audit Logs */
+        get: operations["list_audit_logs_api_dev_audit_logs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/companies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Companies
+         * @description 기업 목록 + 기업별 현황(계정 수·admin·이번 달 토큰 사용량·예산)을 한 번에.
+         */
+        get: operations["list_companies_api_dev_companies_get"];
+        put?: never;
+        /** Create Company */
+        post: operations["create_company_api_dev_companies_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/companies/{company_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Company
+         * @description 체험 기업 물리 삭제. 실기업은 정지(soft)만 가능하다 — 400.
+         */
+        delete: operations["delete_company_api_dev_companies__company_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/companies/{company_id}/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Company Active
+         * @description 기업 정지/재개 — 정지하면 소속 계정 전원이 즉시(매 요청 검사) 차단된다.
+         */
+        patch: operations["update_company_active_api_dev_companies__company_id__active_patch"];
+        trace?: never;
+    };
+    "/api/dev/companies/{company_id}/admin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue Company Admin
+         * @description 기업의 admin 계정 발급 — 기업당 1개는 DB(partial unique)가 강제한다.
+         */
+        post: operations["issue_company_admin_api_dev_companies__company_id__admin_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/companies/{company_id}/budget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Company Budget */
+        patch: operations["update_company_budget_api_dev_companies__company_id__budget_patch"];
+        trace?: never;
+    };
+    "/api/dev/trials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Trial
+         * @description 체험 샌드박스 발급 — 기업+계정+샘플 데이터+소액 예산이 한 번에 만들어진다.
+         *
+         *     응답의 password 는 이 자리에서만 노출된다(서버에는 해시만 남는다).
+         */
+        post: operations["create_trial_api_dev_trials_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/trials/{company_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Extend Trial
+         * @description 체험 기간 연장 — 지금부터 days 일 뒤로 만료를 다시 잡는다.
+         */
+        patch: operations["extend_trial_api_dev_trials__company_id__patch"];
+        trace?: never;
+    };
+    "/api/dev/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Users */
+        get: operations["list_users_api_dev_users_get"];
+        put?: never;
+        /** Create User */
+        post: operations["create_user_api_dev_users_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete User
+         * @description 계정 영구 삭제. 데이터 이력(사용량 로그 등)은 남는다 — 지우는 건 계정뿐이다.
+         */
+        delete: operations["delete_user_api_dev_users__user_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/users/{user_id}/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update User Active */
+        patch: operations["update_user_active_api_dev_users__user_id__active_patch"];
+        trace?: never;
+    };
+    "/api/dev/users/{user_id}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update User Profile */
+        patch: operations["update_user_profile_api_dev_users__user_id__profile_patch"];
+        trace?: never;
+    };
+    "/api/dev/users/{user_id}/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset User Password */
+        post: operations["reset_user_password_api_dev_users__user_id__reset_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/users/{user_id}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update User Role */
+        patch: operations["update_user_role_api_dev_users__user_id__role_patch"];
+        trace?: never;
+    };
+    "/api/dev/users/{user_id}/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Unlock User
+         * @description 로그인 연속 실패 잠금 해제.
+         */
+        patch: operations["unlock_user_api_dev_users__user_id__unlock_patch"];
+        trace?: never;
+    };
     "/api/heading/history": {
         parameters: {
             query?: never;
@@ -886,7 +1169,7 @@ export interface paths {
         post: operations["upsert_row_api_marketing_rows_post"];
         /**
          * Delete Row
-         * @description 단일 행 삭제 — (report_date, campaign_type) 기준
+         * @description 단일 행 삭제 — (report_date, campaign_type) 기준, 자기 기업 행만
          */
         delete: operations["delete_row_api_marketing_rows_delete"];
         options?: never;
@@ -1007,7 +1290,7 @@ export interface paths {
         put?: never;
         /**
          * Undo Upload
-         * @description CSV 업로드 되돌리기 — 이전 DB 상태로 복원
+         * @description CSV 업로드 되돌리기 — 이전 DB 상태로 복원 (자기 기업 스냅샷만)
          */
         post: operations["undo_upload_api_marketing_undo__undo_id__post"];
         delete?: never;
@@ -1454,6 +1737,21 @@ export interface components {
              */
             token_type: string;
         };
+        /** AdminIssueRequest */
+        AdminIssueRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /** Password */
+            password: string;
+        };
         /** AlertLogListResponse */
         AlertLogListResponse: {
             /** Items */
@@ -1524,6 +1822,41 @@ export interface components {
             sent: boolean;
             /** Skipped Reason */
             skipped_reason?: string | null;
+        };
+        /** AuditLogListResponse */
+        AuditLogListResponse: {
+            /** Items */
+            items: components["schemas"]["AuditLogOut"][];
+            /** Total */
+            total: number;
+        };
+        /** AuditLogOut */
+        AuditLogOut: {
+            /** Action */
+            action: string;
+            /** Actor Email */
+            actor_email: string;
+            /** Actor Role */
+            actor_role: string;
+            /** Actor User Id */
+            actor_user_id: number;
+            /** Company Id */
+            company_id: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Detail */
+            detail: {
+                [key: string]: unknown;
+            };
+            /** Id */
+            id: number;
+            /** Target Id */
+            target_id: string;
+            /** Target Type */
+            target_type: string;
         };
         /**
          * BackgroundStyle
@@ -1828,6 +2161,63 @@ export interface components {
             /** Message */
             message: string;
         };
+        /** CompanyActiveUpdate */
+        CompanyActiveUpdate: {
+            /** Is Active */
+            is_active: boolean;
+        };
+        /** CompanyBudgetUpdate */
+        CompanyBudgetUpdate: {
+            /** Monthly Token Budget */
+            monthly_token_budget: number;
+        };
+        /** CompanyCreate */
+        CompanyCreate: {
+            /** Name */
+            name: string;
+        };
+        /** CompanyListResponse */
+        CompanyListResponse: {
+            /** Items */
+            items: components["schemas"]["CompanyOut"][];
+            /** Total */
+            total: number;
+        };
+        /** CompanyOut */
+        CompanyOut: {
+            /** Admin Email */
+            admin_email?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expires At */
+            expires_at: string | null;
+            /** Id */
+            id: number;
+            /** Is Active */
+            is_active: boolean;
+            /** Is Trial */
+            is_trial: boolean;
+            /**
+             * Month Tokens Used
+             * @default 0
+             */
+            month_tokens_used: number;
+            /**
+             * Monthly Token Budget
+             * @default 0
+             */
+            monthly_token_budget: number;
+            /** Name */
+            name: string;
+            /**
+             * User Count
+             * @default 0
+             */
+            user_count: number;
+        };
         /**
          * ComparePeriod
          * @description 기간 비교(MoM·YoY)용 다른 달의 전체 합계. 그 달 데이터가 없으면 응답에서 None.
@@ -1939,6 +2329,82 @@ export interface components {
              * @default 0
              */
             total_conv: number;
+        };
+        /** DevUserActiveUpdate */
+        DevUserActiveUpdate: {
+            /** Is Active */
+            is_active: boolean;
+        };
+        /** DevUserCreate */
+        DevUserCreate: {
+            /** Company Id */
+            company_id: number;
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /** Password */
+            password: string;
+            /**
+             * Role
+             * @default member
+             * @enum {string}
+             */
+            role: "member" | "admin" | "trial";
+        };
+        /** DevUserOut */
+        DevUserOut: {
+            /** Company Id */
+            company_id: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Id */
+            id: number;
+            /** Is Active */
+            is_active: boolean;
+            /** Locked Until */
+            locked_until?: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "dev" | "admin" | "member" | "trial";
+        };
+        /** DevUserPasswordReset */
+        DevUserPasswordReset: {
+            /** New Password */
+            new_password: string;
+        };
+        /** DevUserProfileUpdate */
+        DevUserProfileUpdate: {
+            /** Email */
+            email?: string | null;
+            /** Name */
+            name?: string | null;
+        };
+        /** DevUserRoleUpdate */
+        DevUserRoleUpdate: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "member" | "admin" | "trial";
         };
         /** ElementAnalysis */
         ElementAnalysis: {
@@ -2735,6 +3201,44 @@ export interface components {
             token_type: string;
             user: components["schemas"]["UserOut"];
         };
+        /** TrialCreate */
+        TrialCreate: {
+            /** Company Name */
+            company_name?: string | null;
+            /**
+             * Days
+             * @description 만료까지 일수 (미지정 시 서버 기본값)
+             */
+            days?: number | null;
+            /** Email */
+            email?: string | null;
+            /** Password */
+            password?: string | null;
+        };
+        /** TrialExtend */
+        TrialExtend: {
+            /**
+             * Days
+             * @description 지금부터 며칠 더 열어둘지
+             */
+            days: number;
+        };
+        /** TrialOut */
+        TrialOut: {
+            /** Company Id */
+            company_id: number;
+            /** Company Name */
+            company_name: string;
+            /** Email */
+            email: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Password */
+            password: string;
+        };
         /** UploadTaskResponse */
         UploadTaskResponse: {
             /** Message */
@@ -2764,10 +3268,10 @@ export interface components {
             password: string;
             /**
              * Role
-             * @default user
+             * @default member
              * @enum {string}
              */
-            role: "user" | "admin";
+            role: "dev" | "admin" | "member" | "trial";
         };
         /** UserAdminOut */
         UserAdminOut: {
@@ -2791,7 +3295,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "user" | "admin";
+            role: "dev" | "admin" | "member" | "trial";
         };
         /** UserCreate */
         UserCreate: {
@@ -2838,7 +3342,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "user" | "admin";
+            role: "dev" | "admin" | "member" | "trial";
         };
         /** UserPasswordReset */
         UserPasswordReset: {
@@ -2858,7 +3362,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "user" | "admin";
+            role: "dev" | "admin" | "member" | "trial";
         };
         /** ValidationError */
         ValidationError: {
@@ -3097,7 +3601,9 @@ export interface operations {
                 limit?: number;
                 offset?: number;
             };
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3126,7 +3632,9 @@ export interface operations {
     update_usage_budget_api_admin_ai_usage_logs_budget_patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3159,7 +3667,9 @@ export interface operations {
     get_usage_summary_api_admin_ai_usage_logs_summary_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3174,12 +3684,23 @@ export interface operations {
                     "application/json": components["schemas"]["AIUsageSummaryResponse"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     list_periods_api_admin_periods_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3194,12 +3715,23 @@ export interface operations {
                     "application/json": components["schemas"]["PeriodOverviewResponse"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     delete_period_api_admin_periods__year___month__delete: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 year: number;
                 month: number;
@@ -3231,7 +3763,9 @@ export interface operations {
     get_media_budgets_api_admin_periods__year___month__budgets_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 year: number;
                 month: number;
@@ -3263,7 +3797,9 @@ export interface operations {
     update_media_budgets_api_admin_periods__year___month__budgets_put: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 year: number;
                 month: number;
@@ -3304,7 +3840,9 @@ export interface operations {
                 limit?: number;
                 offset?: number;
             };
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3333,7 +3871,9 @@ export interface operations {
     resend_report_api_admin_report_logs__log_id__resend_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 log_id: number;
             };
@@ -3419,7 +3959,9 @@ export interface operations {
     list_users_api_admin_users_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3434,12 +3976,23 @@ export interface operations {
                     "application/json": components["schemas"]["UserAdminOut"][];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     create_user_api_admin_users_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3472,7 +4025,9 @@ export interface operations {
     update_active_api_admin_users__user_id__active_patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 user_id: number;
             };
@@ -3507,7 +4062,9 @@ export interface operations {
     update_profile_api_admin_users__user_id__profile_patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 user_id: number;
             };
@@ -3542,7 +4099,9 @@ export interface operations {
     reset_password_api_admin_users__user_id__reset_password_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 user_id: number;
             };
@@ -3575,7 +4134,9 @@ export interface operations {
     update_role_api_admin_users__user_id__role_patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 user_id: number;
             };
@@ -3790,6 +4351,568 @@ export interface operations {
             };
         };
     };
+    list_audit_logs_api_dev_audit_logs_get: {
+        parameters: {
+            query?: {
+                /** @description 대상 기업으로 거르기 */
+                company_id?: number | null;
+                /** @description 행위 종류로 거르기 (예: user.create) */
+                action?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditLogListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_companies_api_dev_companies_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyListResponse"];
+                };
+            };
+        };
+    };
+    create_company_api_dev_companies_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompanyCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_company_api_dev_companies__company_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                company_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_company_active_api_dev_companies__company_id__active_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                company_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompanyActiveUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    issue_company_admin_api_dev_companies__company_id__admin_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                company_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminIssueRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevUserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_company_budget_api_dev_companies__company_id__budget_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                company_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompanyBudgetUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_trial_api_dev_trials_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrialCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrialOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    extend_trial_api_dev_trials__company_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                company_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrialExtend"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_users_api_dev_users_get: {
+        parameters: {
+            query?: {
+                /** @description 지정하면 그 기업 소속만 */
+                company_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevUserOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_user_api_dev_users_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevUserCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevUserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_user_api_dev_users__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_user_active_api_dev_users__user_id__active_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevUserActiveUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevUserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_user_profile_api_dev_users__user_id__profile_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevUserProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevUserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_user_password_api_dev_users__user_id__reset_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevUserPasswordReset"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_user_role_api_dev_users__user_id__role_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevUserRoleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevUserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unlock_user_api_dev_users__user_id__unlock_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevUserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     heading_history_api_heading_history_get: {
         parameters: {
             query?: {
@@ -3887,7 +5010,9 @@ export interface operations {
     suggest_headings_api_heading_suggest_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3920,7 +5045,9 @@ export interface operations {
     analyze_endpoint_api_image_filter_analyze_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3953,7 +5080,9 @@ export interface operations {
     background_styles_endpoint_api_image_filter_background_styles_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3968,12 +5097,23 @@ export interface operations {
                     "application/json": components["schemas"]["BackgroundStyle"][];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     backgrounds_endpoint_api_image_filter_backgrounds_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4006,7 +5146,9 @@ export interface operations {
     edit_endpoint_api_image_filter_edit_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4163,7 +5305,9 @@ export interface operations {
                 /** @description 데이터가 그대로여도 새로 생성한다 */
                 force?: boolean;
             };
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4227,7 +5371,9 @@ export interface operations {
     export_excel_api_marketing_export_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4263,7 +5409,9 @@ export interface operations {
                 year: number;
                 month: number;
             };
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4292,7 +5440,9 @@ export interface operations {
     get_export_task_result_api_marketing_export_db_result__task_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 task_id: string;
             };
@@ -4329,7 +5479,9 @@ export interface operations {
                 /** @description 받는 사람 이메일. 반복 지정하거나 쉼표로 묶을 수 있고, 생략 시 로그인 계정 */
                 recipient?: string[] | null;
             };
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4360,7 +5512,9 @@ export interface operations {
     get_export_task_status_api_marketing_export_db_task__task_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 task_id: string;
             };
@@ -4393,7 +5547,9 @@ export interface operations {
     cancel_export_task_api_marketing_export_db_task__task_id__delete: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 task_id: string;
             };
@@ -4462,7 +5618,9 @@ export interface operations {
     get_periods_api_marketing_periods_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4479,12 +5637,23 @@ export interface operations {
                     }[];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     preview_report_api_marketing_preview_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4517,7 +5686,9 @@ export interface operations {
     upsert_row_api_marketing_rows_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4555,7 +5726,9 @@ export interface operations {
                 report_date: string;
                 campaign_type: string;
             };
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4592,7 +5765,9 @@ export interface operations {
                 /** @description 파일에 담긴 기간 코멘트도 함께 저장 */
                 save_comment?: boolean;
             };
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4633,7 +5808,9 @@ export interface operations {
                 /** @description 파일에 담긴 기간 코멘트도 함께 저장 */
                 save_comment?: boolean;
             };
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4668,7 +5845,9 @@ export interface operations {
     get_save_excel_task_status_api_marketing_save_excel_task__task_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 task_id: string;
             };
@@ -4701,7 +5880,9 @@ export interface operations {
     get_task_status_api_marketing_status__task_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 task_id: string;
             };
@@ -4735,7 +5916,9 @@ export interface operations {
                 year: number;
                 month: number;
             };
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4764,7 +5947,9 @@ export interface operations {
     undo_upload_api_marketing_undo__undo_id__post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 undo_id: string;
             };
@@ -4797,7 +5982,9 @@ export interface operations {
     upload_files_api_marketing_upload_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4835,7 +6022,9 @@ export interface operations {
                 limit?: number;
                 offset?: number;
             };
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4864,7 +6053,9 @@ export interface operations {
     run_alerts_now_api_rank_monitor_alerts_run_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4879,6 +6070,15 @@ export interface operations {
                     "application/json": components["schemas"]["AlertSummary"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     run_collect_now_api_rank_monitor_collect_run_post: {
@@ -4889,7 +6089,9 @@ export interface operations {
                 /** @description 키워드 ID를 다시 찾는다 */
                 force_resolve?: boolean;
             };
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4938,7 +6140,9 @@ export interface operations {
     upload_snapshot_report_api_rank_monitor_snapshots_upload_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4971,7 +6175,9 @@ export interface operations {
     list_watches_api_rank_monitor_watches_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4986,12 +6192,23 @@ export interface operations {
                     "application/json": components["schemas"]["WatchListResponse"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     create_watches_api_rank_monitor_watches_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5024,7 +6241,9 @@ export interface operations {
     delete_watch_api_rank_monitor_watches__watch_id__delete: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 watch_id: number;
             };
@@ -5055,7 +6274,9 @@ export interface operations {
     update_watch_api_rank_monitor_watches__watch_id__patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 watch_id: number;
             };
@@ -5092,7 +6313,9 @@ export interface operations {
             query?: {
                 max_position?: number;
             };
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 watch_id: number;
             };
@@ -5125,7 +6348,9 @@ export interface operations {
             query?: {
                 limit?: number;
             };
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 watch_id: number;
             };
@@ -5156,7 +6381,9 @@ export interface operations {
     watch_insight_api_rank_monitor_watches__watch_id__insight_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path: {
                 watch_id: number;
             };
@@ -5190,7 +6417,9 @@ export interface operations {
                 limit?: number;
                 offset?: number;
             };
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5219,7 +6448,9 @@ export interface operations {
     preview_report_api_report_mail_preview_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5252,7 +6483,9 @@ export interface operations {
     send_report_api_report_mail_send_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5285,7 +6518,9 @@ export interface operations {
     send_report_sync_api_report_mail_send_sync_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };

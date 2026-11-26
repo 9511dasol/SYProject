@@ -94,7 +94,11 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const role = session?.user.role;
-  const visibleGroups = NAV_GROUPS.filter((group) => !group.adminOnly || role === 'admin');
+  const visibleGroups = NAV_GROUPS.filter((group) => {
+    if (group.devOnly) return role === 'dev';
+    if (group.adminOnly) return role === 'admin' || role === 'dev';
+    return true;
+  });
 
   return (
     <>

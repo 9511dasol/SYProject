@@ -11,7 +11,7 @@ import { useToast } from '@/components/providers/ToastProvider';
 import type { AIStatus } from '@/types/aiStatus';
 import type { FeatureFlagItem } from '@/types/featureFlags';
 
-export default function AdminSettingsClient() {
+export default function DevSettingsClient() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -68,7 +68,7 @@ export default function AdminSettingsClient() {
       <div>
         <h1 className="text-xl font-bold text-fg">기능 플래그 관리</h1>
         <p className="mt-1 text-sm text-fg-subtle">
-          AI 프로바이더 현황을 확인하고, 기능을 켜고 끌 수 있습니다.
+          전 기업에 적용되는 전역 설정입니다. AI 프로바이더 현황을 확인하고, 기능을 켜고 끌 수 있습니다.
         </p>
       </div>
 
@@ -124,7 +124,7 @@ export default function AdminSettingsClient() {
       <div>
         <h2 className="text-sm font-semibold text-fg">기능 플래그</h2>
         <p className="mt-1 text-xs text-fg-subtle">
-          기능을 끄면 사용자에게 해당 페이지 대신 점검 안내가 표시됩니다.
+          기능을 끄면 모든 기업의 사용자에게 해당 페이지 대신 점검 안내가 표시됩니다.
         </p>
       </div>
 
@@ -175,7 +175,7 @@ export default function AdminSettingsClient() {
         icon="bx-power-off"
         confirmLabel="끄기"
         message={pendingOff && <>{pendingOff.description} 기능을 끕니다.</>}
-        detail="모든 사용자에게 즉시 적용되어, 해당 페이지 대신 점검 안내가 표시됩니다. 다시 켜면 바로 복구됩니다."
+        detail="모든 기업의 사용자에게 즉시 적용되어, 해당 페이지 대신 점검 안내가 표시됩니다. 다시 켜면 바로 복구됩니다."
       />
     </div>
   );

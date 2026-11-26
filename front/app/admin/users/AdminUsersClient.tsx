@@ -10,7 +10,7 @@ import Alert from '@/components/ui/Alert';
 import Button from '@/components/ui/Button';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import DataTable, { type Column } from '@/components/ui/DataTable';
-import { Input, Select, controlClassName } from '@/components/ui/Field';
+import { Input, controlClassName } from '@/components/ui/Field';
 import Modal from '@/components/ui/Modal';
 import { useToast } from '@/components/providers/ToastProvider';
 import type {
@@ -22,11 +22,13 @@ import type {
 import type { UserRole } from '@/types/auth';
 
 const ROLE_LABELS: Record<UserRole, string> = {
-  user: '일반',
+  dev: '개발자',
   admin: '관리자',
+  member: '사원',
+  trial: '체험',
 };
 
-const EMPTY_FORM: AdminUserCreatePayload = { email: '', password: '', name: '', role: 'user' };
+const EMPTY_FORM: AdminUserCreatePayload = { email: '', password: '', name: '', role: 'member' };
 
 /**
  * 확인을 기다리는 위험 액션.
@@ -245,7 +247,7 @@ export default function AdminUsersClient() {
           onChange={(e) => handleRoleChange(user, e.target.value as UserRole)}
           className={`${controlClassName} w-auto px-2.5 py-1.5`}
         >
-          <option value="user">{ROLE_LABELS.user}</option>
+          <option value="member">{ROLE_LABELS.member}</option>
           <option value="admin">{ROLE_LABELS.admin}</option>
         </select>
       ),
@@ -300,7 +302,7 @@ export default function AdminUsersClient() {
         <div>
           <h1 className="text-xl font-bold text-fg">사용자 관리</h1>
           <p className="mt-1 text-sm text-fg-subtle">
-            계정 목록을 조회하고 권한 · 활성 상태를 관리합니다.
+            우리 기업 소속 계정만 보입니다. 사원 계정을 만들고 권한 · 활성 상태를 관리합니다.
           </p>
         </div>
         <Button
@@ -349,7 +351,7 @@ export default function AdminUsersClient() {
             ? null
             : pending.kind === 'role'
               ? pending.role === 'admin'
-                ? '관리자는 모든 계정과 기능 설정을 변경할 수 있습니다.'
+                ? '관리자는 기업의 모든 계정과 데이터를 관리할 수 있습니다. 기업당 관리자는 1명이라 이미 있으면 거절됩니다.'
                 : '관리자 화면에 더 이상 접근할 수 없게 됩니다.'
               : '이 계정은 즉시 로그인할 수 없게 됩니다. 스위치를 다시 켜면 복구됩니다.'
         }
@@ -382,14 +384,10 @@ export default function AdminUsersClient() {
             placeholder="8자 이상"
             autoComplete="new-password"
           />
-          <Select
-            label="권한"
-            value={form.role}
-            onChange={(e) => setForm((prev) => ({ ...prev, role: e.target.value as UserRole }))}
-          >
-            <option value="user">{ROLE_LABELS.user}</option>
-            <option value="admin">{ROLE_LABELS.admin}</option>
-          </Select>
+          <p className="text-xs text-fg-subtle">
+            사원({ROLE_LABELS.member}) 계정으로 생성됩니다 — 관리자 계정 발급은 플랫폼
+            운영자(dev)가 합니다.
+          </p>
 
           {createError && <Alert>{createError}</Alert>}
 

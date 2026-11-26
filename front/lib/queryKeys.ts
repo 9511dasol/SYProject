@@ -36,6 +36,14 @@ export const queryKeys = {
    */
   adminRecentSendFailures: () => ['admin', 'alerts', 'sendFailures'] as const,
 
+  // ── dev(플랫폼 운영) 화면 ──────────────────────────────────────────────────
+  devCompanies: () => ['dev', 'companies'] as const,
+  devUsers: (companyId: number | null) => ['dev', 'users', companyId] as const,
+  /** 기업 필터가 다른 목록까지 한 번에 무효화하는 접두 키 */
+  allDevUsers: () => ['dev', 'users'] as const,
+  devAuditLogs: (companyId: number | null, action: string, offset: number) =>
+    ['dev', 'auditLogs', companyId, action, offset] as const,
+
   /** 프로필 (내 정보) */
   me: () => ['me'] as const,
 

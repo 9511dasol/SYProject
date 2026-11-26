@@ -18,7 +18,9 @@ function isPublicPath(pathname: string) {
 // 실제 데이터 접근 권한 체크는 각 Route Handler/서버 컴포넌트에서 auth()로 다시 검증한다.
 export const proxy = auth((req) => {
   const isLoggedIn = !!req.auth;
-  const isAdmin = req.auth?.user?.role === 'admin';
+  const isDev = req.auth?.user?.role === 'dev';
+  // dev(플랫폼 운영자)는 admin의 상위 권한 — 기업 admin 경로에도 들어갈 수 있다.
+  const isAdmin = req.auth?.user?.role === 'admin' || isDev;
   const { pathname } = req.nextUrl;
 
   // 세션이 없으면 로그인 폼이 아니라 소개 페이지로 보낸다 —
@@ -28,12 +30,17 @@ export const proxy = auth((req) => {
   }
 
   if (isLoggedIn && pathname === '/login') {
-    const homeUrl = new URL(isAdmin ? '/admin/settings' : '/dashboard', req.nextUrl.origin);
-    return NextResponse.redirect(homeUrl);
+    const home = isDev ? '/dev/companies' : isAdmin ? '/admin/users' : '/dashboard';
+    return NextResponse.redirect(new URL(home, req.nextUrl.origin));
   }
 
   // 관리자 전용 경로 — admin이 아니면 접근 차단
   if (isLoggedIn && !isAdmin && pathname.startsWith('/admin')) {
+    return NextResponse.redirect(new URL('/dashboard', req.nextUrl.origin));
+  }
+
+  // dev 전용 경로 — dev가 아니면 접근 차단
+  if (isLoggedIn && !isDev && pathname.startsWith('/dev')) {
     return NextResponse.redirect(new URL('/dashboard', req.nextUrl.origin));
   }
 });
