@@ -17,17 +17,23 @@ export async function fetchBackgroundStyles(): Promise<BackgroundStyle[]> {
 
 /**
  * 피사체는 유지하고 배경만 바꾼 시안을 생성한다 (이미지 생성 모델 — 수십 초 소요).
- * 스타일 하나당 생성 1회라 고른 수가 그대로 비용이다.
+ * 프리셋이든 직접 입력이든 한 건당 생성 1회라, 보낸 수가 그대로 비용이다.
+ *
+ * 구분자가 다른 이유 — 프리셋은 서버가 정한 키라 쉼표로 안전하게 나눌 수 있지만,
+ * 직접 입력한 문장에는 쉼표가 들어갈 수 있어("흰 배경, 부드러운 그림자") 줄바꿈으로
+ * 나눈다. 입력 단계에서 줄바꿈을 공백으로 접어 두므로 한 건이 두 줄이 될 일은 없다.
  */
 export async function suggestBackgrounds(
   file: File,
   styles: string[],
+  customs: string[],
   signal?: AbortSignal,
 ): Promise<BackgroundVariant[]> {
   const compressed = await compressImageIfNeeded(file);
   const form = new FormData();
   form.append('file', compressed);
   form.append('styles', styles.join(','));
+  form.append('custom', customs.join('\n'));
 
   const res = await authFetch('/api/image-filter/backgrounds', {
     method: 'POST',

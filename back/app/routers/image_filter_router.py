@@ -84,9 +84,15 @@ async def backgrounds_endpoint(
     request: Request,
     file: UploadFile = File(..., description="배경 시안을 만들 이미지"),
     styles: str = Form("", description="생성할 스타일 키 (쉼표 구분, 비우면 전체)"),
+    custom: str = Form("", description="직접 입력한 배경 묘사 (줄바꿈 구분)"),
     current_user: User = Depends(get_current_user),
 ) -> BackgroundSuggestion:
-    """피사체는 유지하고 배경만 바꾼 시안을 고른 스타일 수만큼 생성해 돌려준다."""
+    """피사체는 유지하고 배경만 바꾼 시안을 고른 스타일 수만큼 생성해 돌려준다.
+
+    직접 입력한 배경은 줄바꿈으로 나눈다 — 쉼표로 나누는 프리셋 키와 달리 사람이
+    쓴 문장에는 쉼표가 들어갈 수 있어서("흰 배경, 부드러운 그림자") 같은 구분자를
+    쓰면 한 건이 두 건으로 쪼개진다.
+    """
     validate_content_length(request)
     file_bytes, filename = await read_and_check_file(file)
 
@@ -94,6 +100,7 @@ async def backgrounds_endpoint(
         suggestion, usage = await suggest_backgrounds(
             file_bytes,
             styles=[s for s in styles.split(",") if s.strip()],
+            customs=[line for line in custom.splitlines() if line.strip()],
         )
     except ImageBackgroundError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

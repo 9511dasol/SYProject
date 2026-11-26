@@ -6,6 +6,11 @@ import InstructionCard from '@/components/image-filter/InstructionCard';
 import DimensionInputs from '@/components/image-resize/DimensionInputs';
 import FormatSelector from '@/components/image-resize/FormatSelector';
 import Button from '@/components/ui/Button';
+import { controlClassName } from '@/components/ui/Field';
+import {
+  MAX_CUSTOM_BACKGROUNDS,
+  MAX_CUSTOM_BACKGROUND_LENGTH,
+} from '@/types/imageFilter';
 import type {
   BackgroundStyle,
   FilterFormState,
@@ -37,7 +42,8 @@ interface InstructionPanelProps {
 
   backgroundStyles: BackgroundStyle[];
   bgLoading: boolean;
-  onSuggestBackgrounds: (styles: string[]) => void;
+  /** 프리셋 키와 직접 입력한 배경 묘사를 따로 넘긴다 — 서버가 구분자를 달리 쓴다 */
+  onSuggestBackgrounds: (styles: string[], customs: string[]) => void;
 
   form: FilterFormState;
   originalDimensions: ImageDimensions | null;
@@ -96,9 +102,46 @@ export default function InstructionPanel({
 }: InstructionPanelProps) {
   // 생성할 배경 스타일 — 스타일 하나가 이미지 생성 1회라 기본값은 첫 한 종만 켠다
   const [pickedStyles, setPickedStyles] = useState<string[]>([]);
+  /** 프리셋에 없는 배경을 직접 적어 둔 목록 — 적은 문장이 그대로 시안 이름이 된다 */
+  const [customStyles, setCustomStyles] = useState<string[]>([]);
+  const [customDraft, setCustomDraft] = useState('');
+  /** 중복·개수 초과를 알리는 한 줄 — 입력칸 아래에만 뜬다 */
+  const [customNotice, setCustomNotice] = useState<string | null>(null);
+
+  // 아무것도 고르지 않았을 때 첫 프리셋을 켜 두는 건 "생성 버튼이 늘 눌린다"를 위한
+  // 것이다. 직접 입력한 배경이 있으면 그 암묵적 기본값을 뗀다 — 적어 둔 배경 하나를
+  // 만들려고 눌렀는데 요청한 적 없는 프리셋 1장이 함께 과금되면 안 된다.
   const effectiveStyles = pickedStyles.length
     ? pickedStyles
-    : backgroundStyles.slice(0, 1).map((s) => s.key);
+    : customStyles.length
+      ? []
+      : backgroundStyles.slice(0, 1).map((s) => s.key);
+  const totalStyles = effectiveStyles.length + customStyles.length;
+
+  /**
+   * 입력칸의 내용을 목록에 넣는다 (엔터 · 추가 버튼 공통).
+   *
+   * 공백·줄바꿈을 한 칸으로 접는 이유 — 서버로는 줄바꿈으로 나눠 보내므로, 붙여넣기로
+   * 들어온 줄바꿈을 그대로 두면 한 건이 여러 건으로 쪼개져 호출 수가 늘어난다.
+   */
+  const commitCustom = () => {
+    const text = customDraft.trim().replace(/\s+/g, ' ').slice(0, MAX_CUSTOM_BACKGROUND_LENGTH);
+    if (!text) return;
+
+    if (customStyles.includes(text)) {
+      setCustomDraft('');
+      setCustomNotice('이미 추가한 배경이에요.');
+      return;
+    }
+    if (customStyles.length >= MAX_CUSTOM_BACKGROUNDS) {
+      setCustomNotice(`직접 입력은 ${MAX_CUSTOM_BACKGROUNDS}개까지 추가할 수 있어요.`);
+      return;
+    }
+
+    setCustomStyles((prev) => [...prev, text]);
+    setCustomDraft('');
+    setCustomNotice(null);
+  };
 
   const hasElement = (id: number) => !!elements?.some((el) => el.id === id);
   // needsTarget: 저장소에서 복구된 지시 — 요소 id 를 믿을 수 없어 대상을 다시 골라야 한다
@@ -258,7 +301,7 @@ export default function InstructionPanel({
           icon="bx-landscape"
           title="배경 시안"
           badge="Gemini"
-          summary={`${effectiveStyles.length}종 선택`}
+          summary={`${totalStyles}종 선택`}
           open={openSection === 'backgrounds'}
           onToggle={() => onOpenSection(openSection === 'backgrounds' ? null : 'backgrounds')}
         >
@@ -307,19 +350,94 @@ export default function InstructionPanel({
               })}
             </div>
 
+            {/* 직접 입력 — 프리셋 네 가지로는 "우리 제품에 어울리는 배경"을 못 적는다 */}
+            <div className="space-y-1.5 rounded-xl border border-border-soft bg-surface-2/50 p-2.5">
+              <label
+                htmlFor="custom-bg-input"
+                className="block text-[11px] font-semibold text-fg-muted"
+              >
+                배경 직접 입력{' '}
+                <span className="font-normal text-fg-subtle">
+                  — 엔터를 누르면 추가됩니다 (최대 {MAX_CUSTOM_BACKGROUNDS}개)
+                </span>
+              </label>
+
+              <div className="flex items-center gap-1.5">
+                <input
+                  id="custom-bg-input"
+                  type="text"
+                  value={customDraft}
+                  maxLength={MAX_CUSTOM_BACKGROUND_LENGTH}
+                  placeholder="예: 벚꽃이 흩날리는 봄 공원"
+                  disabled={aiBusy}
+                  onChange={(event) => {
+                    setCustomDraft(event.target.value);
+                    setCustomNotice(null);
+                  }}
+                  // 한글 입력 중의 엔터는 조합을 확정하는 키다 — isComposing 을 보지
+                  // 않으면 마지막 글자를 확정하는 순간 그대로 추가돼 버린다.
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                    event.preventDefault();
+                    commitCustom();
+                  }}
+                  className={`${controlClassName} min-w-0 flex-1 px-3 py-2 text-xs`}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={commitCustom}
+                  disabled={aiBusy || !customDraft.trim()}
+                  aria-label="직접 입력한 배경 추가"
+                  className="shrink-0"
+                >
+                  <i className="bx bx-plus text-base" />
+                </Button>
+              </div>
+
+              {customNotice && <p className="text-[11px] text-amber-600 dark:text-amber-400">{customNotice}</p>}
+
+              {customStyles.length > 0 && (
+                <ul className="flex flex-wrap gap-1.5 pt-0.5">
+                  {customStyles.map((text) => (
+                    <li key={text}>
+                      {/* 직접 적은 건 켜고 끄는 대상이 아니다 — 지우는 것으로 충분하다 */}
+                      <span className="inline-flex max-w-full items-center gap-1 rounded-lg border border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/50 pl-2.5 pr-1 py-1 text-xs text-indigo-600 dark:text-indigo-400 font-medium">
+                        <span className="truncate" title={text}>
+                          {text}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={aiBusy}
+                          onClick={() => {
+                            setCustomStyles((prev) => prev.filter((item) => item !== text));
+                            setCustomNotice(null);
+                          }}
+                          aria-label={`"${text}" 배경 지우기`}
+                          className="shrink-0 rounded p-0.5 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+                        >
+                          <i className="bx bx-x text-sm block" />
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
             <div className="flex items-center gap-2 flex-wrap">
               <Button
                 tone="indigo"
                 size="sm"
-                onClick={() => onSuggestBackgrounds(effectiveStyles)}
+                onClick={() => onSuggestBackgrounds(effectiveStyles, customStyles)}
                 isLoading={bgLoading}
-                disabled={aiBusy || !effectiveStyles.length}
+                disabled={aiBusy || !totalStyles}
               >
                 <i className="bx bx-images text-base" />
-                {effectiveStyles.length}종 생성
+                {totalStyles}종 생성
               </Button>
               <span className="text-[11px] text-fg-subtle">
-                AI 호출 {effectiveStyles.length}회 · 수십 초 소요
+                AI 호출 {totalStyles}회 · 수십 초 소요
               </span>
             </div>
           </div>

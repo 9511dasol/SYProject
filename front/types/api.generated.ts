@@ -819,6 +819,10 @@ export interface paths {
         /**
          * Backgrounds Endpoint
          * @description 피사체는 유지하고 배경만 바꾼 시안을 고른 스타일 수만큼 생성해 돌려준다.
+         *
+         *     직접 입력한 배경은 줄바꿈으로 나눈다 — 쉼표로 나누는 프리셋 키와 달리 사람이
+         *     쓴 문장에는 쉼표가 들어갈 수 있어서("흰 배경, 부드러운 그림자") 같은 구분자를
+         *     쓰면 한 건이 두 건으로 쪼개진다.
          */
         post: operations["backgrounds_endpoint_api_image_filter_backgrounds_post"];
         delete?: never;
@@ -1919,6 +1923,12 @@ export interface components {
         };
         /** Body_backgrounds_endpoint_api_image_filter_backgrounds_post */
         Body_backgrounds_endpoint_api_image_filter_backgrounds_post: {
+            /**
+             * Custom
+             * @description 직접 입력한 배경 묘사 (줄바꿈 구분)
+             * @default
+             */
+            custom: string;
             /**
              * File
              * @description 배경 시안을 만들 이미지

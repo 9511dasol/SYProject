@@ -410,8 +410,8 @@ export default function ImageFilterClient() {
 
   /* ── 배경 시안 생성 ─────────────────────────────────────────── */
   const handleBackgrounds = useCallback(
-    async (styles: string[]) => {
-      if (!active || aiBusy || !styles.length) return;
+    async (styles: string[], customs: string[]) => {
+      if (!active || aiBusy || !(styles.length + customs.length)) return;
       const versionId = active.id;
       const baseName = active.file.name.replace(/\.[^.]+$/, '');
 
@@ -421,7 +421,12 @@ export default function ImageFilterClient() {
       abortRef.current = controller;
 
       try {
-        const variants = await suggestBackgrounds(active.file, styles, controller.signal);
+        const variants = await suggestBackgrounds(
+          active.file,
+          styles,
+          customs,
+          controller.signal,
+        );
         // base64 를 상태에 두면 렌더마다 수 MB 문자열을 재조립한다 — File 로 바꿔 보관
         const files = await Promise.all(
           variants.map(async (variant) => {

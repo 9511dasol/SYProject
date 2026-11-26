@@ -111,6 +111,15 @@ export interface BackgroundStyle {
   label: string;
 }
 
+/**
+ * 직접 입력 배경의 상한 — 서버(`image_background_service`)와 같은 값이어야 한다.
+ *
+ * 서버도 같은 한도로 막는다. 여기 값은 "보내기 전에 알려 주기" 용도일 뿐이고,
+ * 실제 방어선은 서버다 (화면만 막으면 요청을 직접 만드는 경로가 열려 있다).
+ */
+export const MAX_CUSTOM_BACKGROUNDS = 3;
+export const MAX_CUSTOM_BACKGROUND_LENGTH = 80;
+
 /** 배경 시안 1종 — image_base64 는 data URL 본문 (프리픽스 없음) */
 export interface BackgroundVariant {
   style: string;
