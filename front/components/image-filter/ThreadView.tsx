@@ -24,8 +24,8 @@ interface ThreadViewProps {
 /**
  * 지난 작업 한 건을 DM 대화처럼 펼쳐 보여 준다.
  *
- * 전송 1회가 말풍선 한 쌍이다 — 오른쪽은 그때 보낸 지시, 그 아래는 보관된
- * **결과 이미지들**(②-B, 2026-11-28 사용자 결정으로 보관 시작). 이미지를
+ * 전송 1회가 말풍선 한 쌍이다 — 오른쪽은 그때 보낸 지시, 왼쪽은 AI 가 돌려준
+ * 보관된 **결과 이미지들**(②-B, 2026-11-28 사용자 결정으로 보관 시작). 이미지를
  * 누르면 그 이미지를 새 원본으로 이어서 작업한다. 보관 기간이 지난 기록은
  * 이미지 대신 만료 안내가 선다 — 지시는 남아 있으므로 대화는 계속 읽힌다.
  *
@@ -109,10 +109,10 @@ export default function ThreadView({
               </div>
             </div>
 
-            {/* 결과 시안 — 보관돼 있으면 썸네일, 만료됐으면 안내 */}
+            {/* 결과 시안 — AI 의 답이라 왼쪽에 선다. 보관돼 있으면 썸네일, 만료됐으면 안내 */}
             {entry.imagesAvailable ? (
-              <div className="flex justify-end">
-                <div className="flex flex-wrap justify-end gap-1.5 max-w-[75%]">
+              <div className="flex">
+                <div className="flex flex-wrap gap-1.5 max-w-[75%] rounded-2xl rounded-bl-md border border-border bg-surface p-1.5">
                   {Array.from({ length: entry.imageCount }, (_, i) => (
                     <button
                       key={i}
@@ -142,8 +142,8 @@ export default function ThreadView({
                 </div>
               </div>
             ) : (
-              <div className="flex justify-end">
-                <p className="max-w-[75%] rounded-xl border border-dashed border-border px-3 py-1.5 text-[11px] text-fg-subtle">
+              <div className="flex">
+                <p className="max-w-[75%] rounded-2xl rounded-bl-md border border-dashed border-border px-3 py-1.5 text-[11px] text-fg-subtle">
                   보관 기간({retentionDays}일)이 지나 시안 {entry.variantCount}장은
                   삭제됐어요 — 지시는 그대로 다시 쓸 수 있어요
                 </p>

@@ -38,6 +38,8 @@ function sinceText(iso: string): string {
 
 
 interface InstructionPanelProps {
+  /** 이 작업의 대화 스레드 — 스크롤 영역 맨 위에 선다 (보낸 지시 · 돌아온 시안) */
+  thread?: ReactNode;
   instructions: Instruction[];
   elements: ImageElement[] | null;
 
@@ -88,7 +90,10 @@ interface InstructionPanelProps {
 }
 
 /**
- * 지시 목록과 도구를 모아 둔 오른쪽 패널.
+ * 대화 스레드 · 보낼 지시 · 도구를 모아 둔 대화 열 (데스크톱에서는 캔버스 왼쪽).
+ *
+ * DM 의 대화창에 해당한다 — 위에서부터 지금까지의 대화, 아직 안 보낸 지시,
+ * 도구 섹션이 한 스크롤로 흐르고, 입력칸과 전송 버튼은 아래에 고정된다.
  *
  * 예전에는 요소 선택 · 출력 설정 · 배경 시안이 모두 화면 맨 아래 입력 독 안의
  * 320px 스크롤 박스(`ComposerPanel`)에 들어 있었다. 세 개가 한 자리를 돌려
@@ -105,6 +110,7 @@ interface InstructionPanelProps {
  * 남긴다 — 되돌리는 게 아니라 양쪽의 장점을 합치는 구성이다.
  */
 export default function InstructionPanel({
+  thread,
   instructions,
   elements,
   onAddInstruction,
@@ -231,16 +237,19 @@ export default function InstructionPanel({
 
   return (
     <aside
-      className="flex flex-col w-full lg:w-[420px] xl:w-[440px] shrink-0 min-h-0 border-t lg:border-t-0 lg:border-l border-border bg-surface"
+      className="flex flex-col w-full lg:w-[420px] xl:w-[440px] shrink-0 min-h-0 border-t lg:border-t-0 lg:border-r lg:order-first border-border bg-surface"
       aria-label="편집 지시"
     >
       {/* ── 스크롤 영역 ── */}
       <div className="flex-1 min-h-0 overflow-y-auto">
+        {/* 대화 — 지금까지 보낸 것과 받은 것. 아래 지시 목록은 "아직 안 보낸 것"이다 */}
+        {thread}
+
         {/* 지시 목록 */}
         <div className="p-3 space-y-2">
           <div className="flex items-center gap-2">
             <h2 className="text-xs font-semibold text-fg-muted uppercase tracking-wider">
-              편집 지시
+              보낼 지시
             </h2>
             {instructions.length > 0 && (
               <span className="text-[11px] text-fg-subtle">

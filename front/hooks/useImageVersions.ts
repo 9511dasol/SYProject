@@ -65,6 +65,8 @@ export function useImageVersions(
   // 편집 결과에 v1, v2… 를 매기기 위한 카운터. versions 를 세지 않는 이유는
   // 번호 매김이 업데이터 밖에서 일어나야 하기 때문이다(위 주석 참고).
   const editedCountRef = useRef(0);
+  // 요청 1회로 함께 만들어진 장들을 묶는 번호 — 대화 스레드가 답 하나로 묶어 그린다
+  const batchRef = useRef(0);
   // 해제해야 할 URL 전체. state 를 보면 정리 함수가 버전마다 다시 묶이므로 ref 로 든다.
   const urlsRef = useRef<string[]>([]);
   // 늦게 도착한 치수 측정 결과를 버리기 위한 세션 번호 — 세션을 비운 뒤 도착한
@@ -143,7 +145,9 @@ export function useImageVersions(
   const addMany = useCallback(
     (specs: AddVersionSpec[]) => {
       if (!specs.length) return [];
-      const created = specs.map(build);
+      batchRef.current += 1;
+      const batch = batchRef.current;
+      const created = specs.map((spec) => ({ ...build(spec), batch }));
       setVersions((prev) => [...prev, ...created]);
       setActive(created[0].id);
       created.forEach((v) => measure(v.id, v.url));
@@ -164,13 +168,16 @@ export function useImageVersions(
       if (!specs.length) return [];
       editedCountRef.current += 1;
       const step = editedCountRef.current;
-      const created = specs.map((spec, i) =>
-        build({
+      batchRef.current += 1;
+      const batch = batchRef.current;
+      const created = specs.map((spec, i) => ({
+        ...build({
           ...spec,
           kind: 'edited',
           label: specs.length > 1 ? `v${step}-${i + 1}` : `v${step}`,
         }),
-      );
+        batch,
+      }));
       setVersions((prev) => [...prev, ...created]);
       setActive(created[0].id);
       created.forEach((v) => measure(v.id, v.url));

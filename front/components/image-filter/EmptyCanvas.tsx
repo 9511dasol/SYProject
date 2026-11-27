@@ -19,8 +19,9 @@ interface EmptyCanvasProps {
   /** 서버에 남은 내 편집 기록 — null 이면 아직 불러오는 중 */
   history: EditPromptRecord[] | null;
   historyError: string | null;
-  /** 사이드바를 접으면 지난 작업이 왼쪽 레일로 옮겨간다 — 그때 이 블록은 숨긴다 */
-  showHistory: boolean;
+  /** 지난 작업은 왼쪽 레일이 맡는다 — 레일이 서는 폭부터 이 블록을 숨긴다.
+   *  사이드바가 접혀 있으면 lg, 펼쳐져 있으면 1400px 부터다 (HistoryRail 과 같은 기준) */
+  sidebarCollapsed: boolean;
   error: string | null;
 }
 
@@ -35,10 +36,11 @@ export default function EmptyCanvas({
   onDiscardRestore,
   history,
   historyError,
-  showHistory,
+  sidebarCollapsed,
   error,
 }: EmptyCanvasProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const hideWhenRail = sidebarCollapsed ? 'lg:hidden' : 'min-[1400px]:hidden';
   const historyGroups = useMemo(() => (history ? groupHistory(history) : null), [history]);
 
   return (
@@ -58,8 +60,8 @@ export default function EmptyCanvas({
           무엇을 어떻게 바꿔볼까요?
         </h2>
         <p className="text-sm text-fg-muted max-w-md mx-auto leading-relaxed">
-          이미지를 올리면 왼쪽 캔버스에서 수정할 부분을 고르고, 오른쪽에 지시를 적어 한 번에
-          적용합니다.
+          이미지를 올리고 대화하듯 지시를 적어 보내세요. 오른쪽 캔버스에서 수정할 부분만
+          골라 지시할 수도 있어요.
         </p>
       </div>
 
@@ -235,15 +237,15 @@ export default function EmptyCanvas({
       {/* ── 지난 작업 — 서버에 남은 내 편집 기록을 이미지별 "대화"로 보여 준다.
           이 화면은 새로고침하면 작업 내역이 사라지는 곳이라, 돌아온 사람이
           "지난번에 뭐라고 시켰더라"를 여기서 바로 찾아 이어 갈 수 있어야 한다. */}
-      {/* showHistory=false(레일이 맡음)는 lg 에서만 숨긴다 — 접힘은 데스크톱 개념이고
-          레일도 lg 전용이라, 모바일에서 둘 다 사라지면 기록을 볼 곳이 없어진다 */}
+      {/* 레일이 서는 폭에서만 숨긴다 — 그보다 좁은 화면에서 둘 다 사라지면
+          기록을 볼 곳이 없어진다 */}
       {historyError && (
-        <p className={`text-[11px] text-amber-600 dark:text-amber-400 ${showHistory ? '' : 'lg:hidden'}`}>
+        <p className={`text-[11px] text-amber-600 dark:text-amber-400 ${hideWhenRail}`}>
           {historyError}
         </p>
       )}
       {historyGroups !== null && historyGroups.length > 0 && (
-        <div className={`w-full max-w-2xl space-y-2 text-left ${showHistory ? '' : 'lg:hidden'}`}>
+        <div className={`w-full max-w-2xl space-y-2 text-left ${hideWhenRail}`}>
           <p className="flex items-center justify-center gap-1.5 text-[10px] font-semibold text-fg-subtle uppercase tracking-wider">
             <i className="bx bx-history text-sm" />
             지난 작업 — 지시를 누르면 첨부할 때 그대로 이어져요

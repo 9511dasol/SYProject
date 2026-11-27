@@ -9,7 +9,7 @@ interface FilterToolbarProps {
   /** 원본 버전 — 파일명·크기를 여기서 읽는다 */
   original: ImageVersion;
   form: FilterFormState;
-  /** 출력 요약 칩을 누르면 오른쪽 패널의 출력 설정이 열린다 */
+  /** 출력 요약 칩을 누르면 대화 열의 출력 설정이 열린다 */
   onOpenSettings: () => void;
   onReplace: (file: File) => void;
   onReset: () => void;
@@ -81,7 +81,7 @@ export default function FilterToolbar({
 
       <div className="flex-1" />
 
-      {/* 출력 요약 — 누르면 오른쪽 패널의 출력 설정이 열린다 */}
+      {/* 출력 요약 — 누르면 대화 열의 출력 설정이 열린다 */}
       <button
         type="button"
         onClick={onOpenSettings}

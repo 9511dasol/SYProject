@@ -91,6 +91,8 @@ export interface ImageVersion {
   filename: string;
   /** 이 버전을 만든 지시 요약 (사람이 읽는 문장) */
   note?: string;
+  /** 같은 요청 1회로 함께 만들어진 장들의 묶음 번호 — 대화에서 답 하나로 묶는다 */
+  batch?: number;
 }
 
 /** 클라이언트 처리 단계 */

@@ -2,6 +2,7 @@
 
 import { groupHistory, sinceText } from '@/lib/imageFilterHistory';
 import type { HistoryGroup } from '@/lib/imageFilterHistory';
+import { editHistoryImageUrl } from '@/lib/imageFilterClient';
 import type { EditPromptRecord } from '@/types/imageFilter';
 
 interface HistoryRailProps {
@@ -12,24 +13,27 @@ interface HistoryRailProps {
   onLoadGroup: (group: HistoryGroup) => void;
   /** 지금 스레드로 열려 있는 묶음 — 목록에서 눌린 것이 표시돼야 한다 */
   selectedFilename: string | null;
+  /** 앱 사이드바가 접혀 있는가 — 펼쳐져 있으면 자리가 좁아 더 넓은 화면에서만 선다 */
+  sidebarCollapsed: boolean;
   disabled: boolean;
 }
 
 /**
- * 지난 작업 레일 — 앱 사이드바를 접었을 때만 그 자리에 나타난다.
+ * 지난 작업 레일 — DM 의 "대화 목록" 자리다.
  *
- * 접으면 왼쪽 256px 이 비는데, 그 공간을 캔버스에만 돌려주는 대신 "대화 목록"
- * 자리로 쓴다. 첨부 전 화면 가운데에 있던 지난 작업과 같은 데이터지만, 레일은
- * 작업 중에도 옆에 떠 있어 언제든 과거 작업을 이어받을 수 있다.
+ * 첨부 전 화면 가운데에 있던 지난 작업과 같은 데이터지만, 레일은 작업 중에도
+ * 옆에 떠 있어 언제든 과거 작업을 이어받을 수 있다.
  *
- * 펼친 상태에서는 그리지 않는다(부모가 조건부 렌더) — 내비게이션과 작업 기록이
- * 양쪽에 동시에 서 있으면 왼쪽이 두 겹이 된다.
+ * 예전에는 앱 사이드바를 접었을 때만 나타났다. 지금은 늘 서 있되, 사이드바가
+ * 펼쳐져 있으면 256px 을 이미 내준 상태라 1400px 이상에서만 선다 — 그보다 좁은
+ * 화면에서 목록까지 세우면 캔버스가 400px 아래로 줄어든다.
  */
 export default function HistoryRail({
   history,
   historyError,
   onLoadGroup,
   selectedFilename,
+  sidebarCollapsed,
   disabled,
 }: HistoryRailProps) {
   const groups = history ? groupHistory(history) : null;
@@ -37,7 +41,9 @@ export default function HistoryRail({
   return (
     <aside
       aria-label="지난 작업"
-      className="hidden lg:flex w-60 shrink-0 flex-col border-r border-border bg-surface"
+      className={`hidden ${
+        sidebarCollapsed ? 'lg:flex' : 'min-[1400px]:flex'
+      } w-60 shrink-0 flex-col border-r border-border bg-surface`}
     >
       <p className="flex items-center gap-1.5 px-4 h-11 shrink-0 border-b border-border-soft text-[11px] font-semibold text-fg-muted uppercase tracking-wider">
         <i className="bx bx-history text-sm" />
@@ -62,6 +68,8 @@ export default function HistoryRail({
         ) : (
           groups.map((group) => {
             const selected = group.filename === selectedFilename;
+            // 프로필 사진 자리 — 가장 최근에 보관된 시안 첫 장. 전부 만료됐으면 아이콘.
+            const cover = group.items.find((item) => item.imagesAvailable && item.imageCount > 0);
             return (
               <button
                 key={group.filename}
@@ -70,25 +78,47 @@ export default function HistoryRail({
                 disabled={disabled}
                 title="누르면 그때의 대화 기록이 열립니다"
                 className={[
-                  'w-full rounded-xl px-2.5 py-2 text-left transition-colors',
+                  'flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors',
                   'disabled:opacity-50 disabled:pointer-events-none',
                   selected
                     ? 'bg-indigo-50 dark:bg-indigo-950/50 ring-1 ring-indigo-300 dark:ring-indigo-700'
                     : 'hover:bg-surface-2',
                 ].join(' ')}
               >
-                <span className="flex items-center gap-1.5 text-xs font-medium text-fg-body">
-                  <i className="bx bx-image-alt text-sm shrink-0 text-indigo-400" />
-                  <span className="truncate" title={group.filename}>
-                    {group.filename}
+                {cover ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={editHistoryImageUrl(cover.recordId, 0)}
+                    alt=""
+                    loading="lazy"
+                    className="h-10 w-10 shrink-0 rounded-full object-cover bg-surface-2 ring-1 ring-border"
+                  />
+                ) : (
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-2 ring-1 ring-border">
+                    <i className="bx bx-image-alt text-lg text-indigo-400" />
                   </span>
-                </span>
-                <span className="mt-0.5 block text-[11px] text-fg-subtle">
-                  {sinceText(group.latestAt)} · 지시 {group.items.length}건
-                </span>
-                {/* 첫 지시 한 줄 — 목록만 보고도 "그때 뭘 했는지"가 떠올라야 한다 */}
-                <span className="mt-0.5 block text-[11px] text-fg-muted line-clamp-1">
-                  {group.items[0].text}
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline gap-1.5">
+                    <span
+                      className="min-w-0 flex-1 truncate text-xs font-medium text-fg-body"
+                      title={group.filename}
+                    >
+                      {group.filename}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-fg-subtle">
+                      {sinceText(group.latestAt)}
+                    </span>
+                  </span>
+                  {/* 마지막 지시 한 줄 — 목록만 보고도 "그때 뭘 했는지"가 떠올라야 한다 */}
+                  <span className="mt-0.5 block text-[11px] text-fg-muted line-clamp-1">
+                    {group.items[0].text}
+                  </span>
+                  {group.items.length > 1 && (
+                    <span className="block text-[10px] text-fg-subtle">
+                      지시 {group.items.length}건
+                    </span>
+                  )}
                 </span>
               </button>
             );

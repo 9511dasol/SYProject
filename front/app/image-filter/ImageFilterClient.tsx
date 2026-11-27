@@ -10,6 +10,7 @@ import InstructionEditorModal from '@/components/image-filter/InstructionEditorM
 import type { InstructionPatch } from '@/components/image-filter/InstructionEditorModal';
 import InstructionPanel from '@/components/image-filter/InstructionPanel';
 import type { PanelSection } from '@/components/image-filter/InstructionPanel';
+import SessionThread from '@/components/image-filter/SessionThread';
 import ThreadView from '@/components/image-filter/ThreadView';
 import { useToast } from '@/components/providers/ToastProvider';
 import { useAspectRatioInputs } from '@/hooks/useAspectRatioInputs';
@@ -83,7 +84,9 @@ interface EditingState {
 /**
  * AI 이미지 정제 화면.
  *
- * 구조는 "왼쪽 캔버스 + 오른쪽 지시 패널" 2열이고, 높이는 뷰포트에 고정된다.
+ * 구조는 DM 을 닮은 3열이다 — 대화 목록(지난 작업) · 대화 열(스레드 + 보낼 지시) ·
+ * 캔버스. 높이는 뷰포트에 고정된다. 캔버스를 남긴 이유: 요소 지정과 큰 화면 확인은
+ * 말풍선 안에서 할 수 없다 (docs/이미지정제-DM형-UI-할일.md, 안 A).
  * 예전에는 하단에 입력 독이 붙은 세로 채팅형이었는데 세 가지가 겹쳐 답답했다 —
  * 공통 헤더 위에 페이지 헤더가 또 있었고, `min-h-screen` 이 뷰포트 높이를 한 번
  * 더 요구해 입력창을 보려면 스크롤부터 해야 했고, 요소 선택·출력 설정·배경 시안이
@@ -130,7 +133,7 @@ export default function ImageFilterClient() {
   // 돌고, 렌더 중에 읽으면 서버(null)와 클라이언트가 달라 hydration 이 깨진다.
   // useSyncExternalStore 는 서버 스냅샷을 따로 받아 두 문제를 모두 피한다.
   const storedSession = useSyncExternalStore(subscribeSession, peekSession, () => null);
-  /** 앱 사이드바 접힘 — 접혔을 때만 지난 작업 레일이 왼쪽에 선다 */
+  /** 앱 사이드바 접힘 — 지난 작업 레일이 서는 최소 폭이 이 값에 따라 달라진다 */
   const sidebarCollapsed = useSyncExternalStore(
     subscribeSidebarCollapsed,
     peekSidebarCollapsed,
@@ -197,19 +200,20 @@ export default function ImageFilterClient() {
   }, []);
 
   /* ── 지난 기록 ──────────────────────────────────────────────── */
-  // 불러오는 시점은 두 곳이다 — 첨부 전 첫 화면(지난 작업이 이 화면의 내용이다)과
-  // 패널의 기록 섹션을 열었을 때. 작업 중에는 섹션을 열기 전까지 요청이 나가지
-  // 않는다. 전송에 성공하면 목록이 낡으므로 비우고, 위 두 시점에 다시 불러온다.
+  // 대화 목록(레일)이 늘 화면에 서 있으므로 들고 있는 목록이 없으면 바로 불러온다.
+  // 전송에 성공하면 목록이 낡으므로 비우고, 그러면 이 effect 가 다시 불러온다.
   const [history, setHistory] = useState<EditPromptRecord[] | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   /** 레일에서 열어 둔 지난 작업 스레드 — 첨부 전에만 쓰는 열람 화면이다 */
   const [threadGroup, setThreadGroup] = useState<HistoryGroup | null>(null);
+  /** 지금 작업이 이어받은 지난 대화 — 스레드에서 이미지를 올려 시작했을 때만 남는다.
+   *  작업 화면의 대화 위쪽에 읽기 전용으로 이어 붙여, 첨부하는 순간 대화가 끊기지 않게 한다 */
+  const [pastThread, setPastThread] = useState<HistoryGroup | null>(null);
   /** 이미지 보관 일수 — 서버 설정이 단일 출처라 응답에서 받아 화면 고지에 쓴다 */
   const [retentionDays, setRetentionDays] = useState(14);
 
   useEffect(() => {
-    const wanted = openSection === 'history' || !active || sidebarCollapsed;
-    if (!wanted || history !== null) return;
+    if (history !== null) return;
     const controller = new AbortController();
     fetchEditHistory(20, controller.signal)
       .then((data) => {
@@ -222,7 +226,7 @@ export default function ImageFilterClient() {
         setHistory([]);
       });
     return () => controller.abort();
-  }, [openSection, history, active, sidebarCollapsed]);
+  }, [history]);
 
   /**
    * 지난 작업 묶음을 "그때 그 작업"으로 불러온다 (레일 클릭).
@@ -392,12 +396,15 @@ export default function ImageFilterClient() {
       setForm((prev) => ({ ...prev, targetWidth: '', targetHeight: '' }));
       setLastError(null);
       setEditing(null);
-      // 스레드 안에서 올렸든 어디서 올렸든, 첨부되면 열람은 끝나고 작업이 시작된다
+      // 스레드 안에서 올렸든 어디서 올렸든, 첨부되면 열람은 끝나고 작업이 시작된다.
+      // 스레드에서 시작한 작업이면 그 대화를 작업 화면으로 넘겨 이어서 보여 준다.
+      // 작업 중에 이미지를 바꾼 경우(activeId 있음)는 다른 대화라 넘기지 않는다.
+      setPastThread(activeId ? null : threadGroup);
       setThreadGroup(null);
       setOpenSection('elements');
       return true;
     },
-    [activeId, instructionsByVersion, start, toast],
+    [activeId, instructionsByVersion, start, threadGroup, toast],
   );
 
   // 매 렌더 최신 첨부 핸들러를 ref 에 반영 — handleContinueFrom 의 비동기 흐름이 쓴다
@@ -416,6 +423,7 @@ export default function ImageFilterClient() {
     setEditing(null);
     setZoomOpen(false);
     setSeed([]);
+    setPastThread(null);
     setOpenSection('elements');
     // 사용자가 직접 비운 것이므로 저장해 둔 초안도 같이 버린다 —
     // 안 그러면 방금 치운 지시가 복구 배너로 다시 올라온다
@@ -945,18 +953,17 @@ export default function ImageFilterClient() {
         </div>
       )}
 
-      {/* 사이드바를 접으면 빈 왼쪽 자리에 지난 작업 레일이 선다 — 펼친 상태에서는
-          내비게이션이 그 자리라 레일을 겹치지 않는다(첨부 전 화면 가운데 블록이 담당). */}
+      {/* 왼쪽은 대화 목록(지난 작업)이다. 폭이 모자라면 레일이 스스로 숨는다 —
+          그때는 첨부 전 화면 가운데 블록이 같은 기록을 보여 준다. */}
       <div className="flex-1 min-h-0 flex">
-        {sidebarCollapsed && (
-          <HistoryRail
-            history={history}
-            historyError={historyError}
-            onLoadGroup={handleLoadGroup}
-            selectedFilename={threadGroup?.filename ?? null}
-            disabled={aiBusy}
-          />
-        )}
+        <HistoryRail
+          history={history}
+          historyError={historyError}
+          onLoadGroup={handleLoadGroup}
+          selectedFilename={threadGroup?.filename ?? pastThread?.filename ?? null}
+          sidebarCollapsed={sidebarCollapsed}
+          disabled={aiBusy}
+        />
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
       {active && original ? (
@@ -988,6 +995,17 @@ export default function ImageFilterClient() {
             </div>
 
             <InstructionPanel
+              thread={
+                <SessionThread
+                  versions={versions}
+                  activeId={active.id}
+                  onSelectVersion={handleSelectVersion}
+                  past={pastThread}
+                  retentionDays={retentionDays}
+                  pendingText={sending || bgLoading ? statusText : null}
+                  disabled={sending}
+                />
+              }
               instructions={instructions}
               elements={elements}
               onAddInstruction={() => openNewEditor(null)}
@@ -1047,7 +1065,7 @@ export default function ImageFilterClient() {
           onDiscardRestore={handleDiscardRestore}
           history={history}
           historyError={historyError}
-          showHistory={!sidebarCollapsed}
+          sidebarCollapsed={sidebarCollapsed}
           error={lastError}
         />
       ))}
