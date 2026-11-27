@@ -145,6 +145,35 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
+# 메일 발송처럼 "기업 밖으로" 나가는 동작을 할 수 있는 역할. 차단 목록이 아니라
+# 허용 목록인 이유: 새 역할이 생겼을 때 조용히 발송 권한을 얻는 쪽(fail-open)이
+# 아니라, 여기 추가하지 않으면 막히는 쪽(fail-closed)으로 틀리게 한다.
+# 역할 전체 목록은 app/schemas/auth_schema.py 의 UserRole 이다.
+_OUTBOUND_ALLOWED_ROLES = ("dev", "admin", "member")
+
+
+def require_outbound_allowed(current_user: User = Depends(get_current_user)) -> User:
+    """외부로 나가는 동작(메일 발송 등) 전용 가드 — 현재는 체험 계정이 걸린다.
+
+    체험은 "유통기한 있는 샌드박스"라, 안에서 무엇을 하든 자기 기업 안에서 끝나야
+    한다. 그런데 메일 발송은 수신자를 요청 본문에 임의로 적을 수 있어 그 경계를
+    넘는 유일한 기능이다 — 예비 고객에게 그대로 넘기는 계정이므로, 발신 도메인이
+    스팸 통로가 되는 길을 여기서 끊는다 (기획 확정 7장 "남용 방지").
+
+    역할 기반으로 막는 이유: 테넌시 격리는 "누구 데이터를 보는가"를 다루지
+    "데이터가 어디로 나가는가"는 다루지 않아, 이 경계만은 격리로 대체할 수 없다.
+    """
+    if current_user.role not in _OUTBOUND_ALLOWED_ROLES:
+        # 체험은 실제로 사람이 보는 안내라 따로 적는다 — 예비 고객이 받는 문구다.
+        detail = (
+            "체험 계정은 메일 발송처럼 외부로 나가는 기능을 사용할 수 없습니다."
+            if current_user.role == "trial"
+            else "이 계정은 메일 발송처럼 외부로 나가는 기능을 사용할 수 없습니다."
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+    return current_user
+
+
 def require_dev(current_user: User = Depends(get_current_user)) -> User:
     """dev(플랫폼 운영자) 전용 — 기업·계정·예산 등 /api/dev/* 관리 경로의 가드."""
     if current_user.role != "dev":

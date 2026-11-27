@@ -81,6 +81,16 @@ export function stripResizeSuffix(filename: string): string {
   return `${cleaned || stem}${ext}`;
 }
 
+/**
+ * 사용량 로그에 남은 프롬프트를 읽기 좋게 다듬는다.
+ *
+ * 서버에 쌓이는 건 과금 원장이라 집계용 접두사(`[시안 3/4장]`)가 붙어 있다.
+ * 사용자가 쓴 글이 아니므로 화면에서는 걷어낸다 — 원문은 로그에 그대로 남는다.
+ */
+export function readableLogPrompt(prompt: string): string {
+  return prompt.replace(/^\[시안 \d+\/\d+장\]\s*/, '');
+}
+
 /* ── 예시 지시 ───────────────────────────────────────────────── */
 
 /** 이미지를 아직 올리지 않은 첫 화면에서 보여 주는 예시 */

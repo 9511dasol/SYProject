@@ -31,6 +31,7 @@ from app.services.rank_monitor_service import compute_streak
 _TABLES = [
     "companies", "users", "audit_logs", "ai_usage_budget", "ai_tool_usage_logs",
     "marketing_data", "marketing_period_meta", "report_log", "heading_suggestions",
+    "image_edit_records",
     "keyword_watch", "keyword_rank_snapshot", "rank_alert_log", "undo_snapshots",
     "background_tasks", "document_embedding",
 ]

@@ -28,6 +28,7 @@ from app.models.background_task_model import BackgroundTask
 from app.models.company_model import Company
 from app.models.embedding_model import DocumentEmbedding
 from app.models.heading_suggestion_model import HeadingSuggestion
+from app.models.image_edit_record_model import ImageEditRecord
 from app.models.keyword_watch_model import KeywordRankSnapshot, KeywordWatch
 from app.models.marketing_model import MarketingData, MarketingPeriodMeta
 from app.models.rank_alert_log_model import RankAlertLog
@@ -48,6 +49,7 @@ _TENANT_MODELS = (
     AIUsageBudget,
     ReportLog,
     HeadingSuggestion,
+    ImageEditRecord,
     KeywordRankSnapshot,
     KeywordWatch,
     RankAlertLog,
@@ -283,6 +285,18 @@ def delete_company_cascade(db: Session, company_id: int) -> None:
     체험 정리 전용이다 — 실기업은 soft delete(is_active=False)가 기본이고,
     물리 삭제 허용 여부는 호출부(라우터·크론)가 is_trial 로 판단한다.
     """
+    # 이미지 편집 결과는 스토리지에 객체가 따로 산다 — DB 행만 지우면 객체가
+    # 고아로 쌓인다. 실패해도 삭제 자체는 진행한다(과금되는 건 저장 공간뿐이고,
+    # 일일 보관 기간 정리가 만료분을 계속 줄여 준다).
+    from app.repositories.image_edit_record_repo import ImageEditRecordRepository
+    from app.services import storage_service
+
+    for path in ImageEditRecordRepository(db).list_paths_for_company(company_id):
+        try:
+            storage_service.delete_object(path)
+        except Exception:
+            logger.exception("기업 삭제 중 이미지 객체 삭제 실패 (path=%s)", path)
+
     for model in _TENANT_MODELS:
         db.query(model).filter(model.company_id == company_id).delete(
             synchronize_session=False

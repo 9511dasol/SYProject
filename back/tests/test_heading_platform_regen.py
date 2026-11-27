@@ -33,7 +33,7 @@ from app.services.token_usage import TokenUsage
 
 
 def _item(platform: str, text: str, id: int = 1) -> dict:
-    return {"id": id, "platform": platform, "text": text, "desc": "추천 이유 설명"}
+    return {"id": id, "platform": platform, "text": text, "body": "게시물에 올릴 본문 카피입니다."}
 
 
 # ── 1. 프롬프트가 스펙에서 파생되는가 ────────────────────────────────────────

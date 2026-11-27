@@ -58,7 +58,11 @@ from app.services.report_factory import build_orchestrator
 configure_logging(settings.LOG_LEVEL)  # 아래 기동 로그가 실제로 남으려면 먼저 호출돼야 한다
 
 logger = logging.getLogger(__name__)
-scheduler = AsyncIOScheduler()
+
+# 시간대를 명시한다 — 생략하면 APScheduler 가 프로세스 로컬 시간대를 쓴다. 운영
+# 컨테이너는 python:3.14-slim 기본값인 UTC 라(호스트 VM 은 KST 인데도) 아래 크론들이
+# 9시간씩 밀려 돌았다: "아침 알림"(hour=9)이 한국시간 18시, "새벽 정리"(hour=4)가 13시.
+scheduler = AsyncIOScheduler(timezone=settings.SCHEDULER_TIMEZONE)
 
 # 관리자 페이지 "기능 플래그" 기본값 — key: (기본값, 설명)
 _DEFAULT_FEATURE_FLAGS: dict[str, tuple[str, str]] = {
@@ -187,6 +191,42 @@ def _purge_expired_trials() -> None:
         db.close()
 
 
+def _purge_expired_edit_images() -> None:
+    """보관 기간이 지난 이미지 편집 결과의 **이미지만** 지운다 (2026-11-27 확정 정책).
+
+    레코드(프롬프트)는 남긴다 — 화면이 "만료됨"으로 표시하고 지시 재사용을
+    제공하기 위해서다. 스토리지 객체 삭제가 일부 실패해도 레코드를 만료 처리하지
+    않고 다음 날 다시 시도한다 — 경로를 비워 버리면 그 객체는 영영 고아가 된다.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.repositories.image_edit_record_repo import ImageEditRecordRepository
+    from app.services import storage_service
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=settings.IMAGE_EDIT_RETENTION_DAYS)
+    db = SessionLocal()
+    try:
+        repo = ImageEditRecordRepository(db)
+        cleared = 0
+        for record in repo.list_expired(cutoff):
+            try:
+                for path in record.image_paths:
+                    storage_service.delete_object(path)
+            except Exception:
+                logger.exception("만료 이미지 삭제 실패 — 다음 정리에서 재시도 (record=%s)", record.id)
+                continue
+            repo.clear_images(record)
+            cleared += 1
+        if cleared:
+            logger.info("만료 이미지 정리 — 레코드 %d건의 이미지 삭제 (보관 %d일)",
+                        cleared, settings.IMAGE_EDIT_RETENTION_DAYS)
+    except Exception:
+        db.rollback()
+        logger.exception("만료 이미지 정리 실패")
+    finally:
+        db.close()
+
+
 def _collect_ranks() -> None:
     """APScheduler 가 호출하는 일일 순위 자동 수집 (M2).
 
@@ -298,6 +338,16 @@ async def lifespan(_: FastAPI):
         trigger="cron",
         hour=int(settings.TRIAL_PURGE_CRON_HOUR),
         id="trial_purge",
+        replace_existing=True,
+    )
+
+    # 보관 기간(기본 14일)이 지난 이미지 편집 결과 정리 — 체험 정리와 같은 시각.
+    # 기획(4-8장 ②-B)대로 새 스케줄러를 만들지 않고 기존 일일 크론 시각에 붙인다.
+    scheduler.add_job(
+        _purge_expired_edit_images,
+        trigger="cron",
+        hour=int(settings.TRIAL_PURGE_CRON_HOUR),
+        id="image_edit_purge",
         replace_existing=True,
     )
 

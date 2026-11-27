@@ -97,7 +97,10 @@ export function useImageVersions(
     const url = URL.createObjectURL(spec.file);
     urlsRef.current.push(url);
 
-    if (spec.kind === 'edited') editedCountRef.current += 1;
+    // 번호는 라벨을 직접 주지 않은 경우에만 매긴다. 편집 1회가 시안 N장을 만들 때
+    // 호출부(addVariants)가 번호를 한 번만 올리고 라벨을 직접 넘긴다 — 그러지 않으면
+    // "v3 시안 4장"이 v3·v4·v5·v6 이 되어 편집을 네 번 한 것처럼 보인다.
+    if (spec.kind === 'edited' && spec.label === undefined) editedCountRef.current += 1;
 
     const label =
       spec.label ??
@@ -136,23 +139,38 @@ export function useImageVersions(
     [build, measure, revokeAll, setActive],
   );
 
-  /** 버전 한 장 추가 후 활성화 */
-  const add = useCallback(
-    (spec: AddVersionSpec) => {
-      const created = build(spec);
-      setVersions((prev) => [...prev, created]);
-      setActive(created.id);
-      measure(created.id, created.url);
-      return created;
-    },
-    [build, measure, setActive],
-  );
-
   /** 여러 장을 한꺼번에 추가하고 첫 장을 활성화 (배경 시안 N종) */
   const addMany = useCallback(
     (specs: AddVersionSpec[]) => {
       if (!specs.length) return [];
       const created = specs.map(build);
+      setVersions((prev) => [...prev, ...created]);
+      setActive(created[0].id);
+      created.forEach((v) => measure(v.id, v.url));
+      return created;
+    },
+    [build, measure, setActive],
+  );
+
+  /**
+   * 편집 1회가 만든 시안 N장을 한꺼번에 추가하고 첫 장을 활성화한다.
+   *
+   * `addMany`(배경 시안)와 나누는 이유는 번호다. 배경 시안은 서로 다른 스타일이라
+   * 각자 이름이 있지만, 편집 시안은 **같은 지시의 결과 N장**이라 한 단계로 묶여야
+   * 한다 — v3-1 … v3-4. 사용자가 그중 하나를 고르면 다음 편집은 거기서 이어진다.
+   */
+  const addVariants = useCallback(
+    (specs: Omit<AddVersionSpec, 'kind' | 'label'>[]) => {
+      if (!specs.length) return [];
+      editedCountRef.current += 1;
+      const step = editedCountRef.current;
+      const created = specs.map((spec, i) =>
+        build({
+          ...spec,
+          kind: 'edited',
+          label: specs.length > 1 ? `v${step}-${i + 1}` : `v${step}`,
+        }),
+      );
       setVersions((prev) => [...prev, ...created]);
       setActive(created[0].id);
       created.forEach((v) => measure(v.id, v.url));
@@ -183,5 +201,5 @@ export function useImageVersions(
     [versions, activeId],
   );
 
-  return { versions, activeId, active, start, add, addMany, select, reset };
+  return { versions, activeId, active, start, addMany, addVariants, select, reset };
 }

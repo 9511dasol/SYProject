@@ -4,11 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import CanvasStage from '@/components/image-filter/CanvasStage';
 import EmptyCanvas from '@/components/image-filter/EmptyCanvas';
 import FilterToolbar from '@/components/image-filter/FilterToolbar';
+import HistoryRail from '@/components/image-filter/HistoryRail';
 import ImageLightbox from '@/components/image-filter/ImageLightbox';
 import InstructionEditorModal from '@/components/image-filter/InstructionEditorModal';
 import type { InstructionPatch } from '@/components/image-filter/InstructionEditorModal';
 import InstructionPanel from '@/components/image-filter/InstructionPanel';
 import type { PanelSection } from '@/components/image-filter/InstructionPanel';
+import ThreadView from '@/components/image-filter/ThreadView';
 import { useToast } from '@/components/providers/ToastProvider';
 import { useAspectRatioInputs } from '@/hooks/useAspectRatioInputs';
 import { useFileDrop } from '@/hooks/useFileDrop';
@@ -18,8 +20,11 @@ import { triggerDownload } from '@/lib/api/download';
 import { validateImageFile } from '@/lib/imageFile';
 import {
   analyzeElements,
+  deleteEditRecord,
   editAndResize,
   fetchBackgroundStyles,
+  fetchEditHistory,
+  fetchEditResultImage,
   suggestBackgrounds,
 } from '@/lib/imageFilterClient';
 import {
@@ -28,6 +33,7 @@ import {
   stripResizeSuffix,
   type ResolvedInstruction,
 } from '@/lib/imageFilterPrompt';
+import type { HistoryEntry, HistoryGroup } from '@/lib/imageFilterHistory';
 import {
   clearSession,
   peekSession,
@@ -36,9 +42,15 @@ import {
   type StoredDraft,
   type StoredInstruction,
 } from '@/lib/imageFilterStorage';
-import { makeInstruction } from '@/types/imageFilter';
+import { peekSidebarCollapsed, subscribeSidebarCollapsed } from '@/lib/sidebarStore';
+import {
+  DEFAULT_EDIT_VARIANTS,
+  makeInstruction,
+  MAX_INSTRUCTION_LENGTH,
+} from '@/types/imageFilter';
 import type {
   BackgroundStyle,
+  EditPromptRecord,
   FilterFormState,
   FilterProcessingState,
   ImageDimensions,
@@ -52,6 +64,7 @@ const INITIAL_FORM: FilterFormState = {
   keepAspectRatio: true,
   outputFormat: 'jpeg',
   useAiUpscale: false,
+  variantCount: DEFAULT_EDIT_VARIANTS,
 };
 
 /** 지시가 없는 버전이 돌려줄 고정 배열 — 매 렌더 새 [] 를 만들지 않기 위한 것 */
@@ -104,12 +117,25 @@ export default function ImageFilterClient() {
    * 예시를 고른 경우와 저장소에서 복구한 경우가 모두 여기로 들어온다.
    */
   const [seed, setSeed] = useState<StoredInstruction[]>([]);
+  // 첨부 핸들러가 읽는 건 이 ref 다. state 만 쓰면 "시드 비우기 → 곧바로 첨부"가
+  // 한 틱 안에 일어날 때(보관 시안으로 이어가기) 아직 갱신 전 시드를 캡처한
+  // 핸들러가 돌아, 이미 적용된 지시가 그 결과물에 또 걸린다 — 검증에서 실제로 잡았다.
+  const seedRef = useRef<StoredInstruction[]>(seed);
+  useEffect(() => {
+    seedRef.current = seed;
+  }, [seed]);
 
   /* ── 저장소 복구 ────────────────────────────────────────────── */
   // localStorage 는 서버에 없다. effect 로 읽어 setState 하면 렌더가 한 번 더
   // 돌고, 렌더 중에 읽으면 서버(null)와 클라이언트가 달라 hydration 이 깨진다.
   // useSyncExternalStore 는 서버 스냅샷을 따로 받아 두 문제를 모두 피한다.
   const storedSession = useSyncExternalStore(subscribeSession, peekSession, () => null);
+  /** 앱 사이드바 접힘 — 접혔을 때만 지난 작업 레일이 왼쪽에 선다 */
+  const sidebarCollapsed = useSyncExternalStore(
+    subscribeSidebarCollapsed,
+    peekSidebarCollapsed,
+    () => false,
+  );
   const [restoreHandled, setRestoreHandled] = useState(false);
   const restorable = restoreHandled ? null : storedSession;
 
@@ -121,7 +147,7 @@ export default function ImageFilterClient() {
   // 치수는 비동기로 도착한다. 측정이 끝나면 출력 크기를 그 이미지 크기로 맞추는데,
   // 이걸 effect 로 state 를 따라가게 만들면 렌더가 한 번 더 도는 데다 사용자가
   // 입력 중인 값을 덮을 위험도 있다 — "측정 완료"라는 사건에만 반응하게 둔다.
-  const { versions, active, start, add, addMany, select, reset } = useImageVersions(
+  const { versions, active, start, addMany, addVariants, select, reset } = useImageVersions(
     useCallback((dimensions: ImageDimensions) => {
       setForm((prev) => ({
         ...prev,
@@ -169,6 +195,136 @@ export default function ImageFilterClient() {
       alive = false;
     };
   }, []);
+
+  /* ── 지난 기록 ──────────────────────────────────────────────── */
+  // 불러오는 시점은 두 곳이다 — 첨부 전 첫 화면(지난 작업이 이 화면의 내용이다)과
+  // 패널의 기록 섹션을 열었을 때. 작업 중에는 섹션을 열기 전까지 요청이 나가지
+  // 않는다. 전송에 성공하면 목록이 낡으므로 비우고, 위 두 시점에 다시 불러온다.
+  const [history, setHistory] = useState<EditPromptRecord[] | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  /** 레일에서 열어 둔 지난 작업 스레드 — 첨부 전에만 쓰는 열람 화면이다 */
+  const [threadGroup, setThreadGroup] = useState<HistoryGroup | null>(null);
+  /** 이미지 보관 일수 — 서버 설정이 단일 출처라 응답에서 받아 화면 고지에 쓴다 */
+  const [retentionDays, setRetentionDays] = useState(14);
+
+  useEffect(() => {
+    const wanted = openSection === 'history' || !active || sidebarCollapsed;
+    if (!wanted || history !== null) return;
+    const controller = new AbortController();
+    fetchEditHistory(20, controller.signal)
+      .then((data) => {
+        setHistory(data.items);
+        if (data.retention_days > 0) setRetentionDays(data.retention_days);
+      })
+      .catch((err) => {
+        if (isUserCancel(err)) return;
+        setHistoryError(err instanceof Error ? err.message : '기록을 불러오지 못했습니다.');
+        setHistory([]);
+      });
+    return () => controller.abort();
+  }, [openSection, history, active, sidebarCollapsed]);
+
+  /**
+   * 지난 작업 묶음을 "그때 그 작업"으로 불러온다 (레일 클릭).
+   *
+   * 기록은 최신순으로 쌓여 있지만 대화로 불러올 때는 시간순이 맞다 — 그때
+   * 보낸 순서대로 다시 서야 "이어서 한다"가 성립한다.
+   *
+   * 첨부 전이면 **대화 스레드를 연다** — 말풍선으로 기록을 읽고, 그 안에서
+   * 이미지를 올리면 이어진다. 시드는 여는 순간 미리 걸어 둔다: 첨부 핸들러가
+   * 시드 상태를 읽으므로, 올리는 그 틱에 걸면 한 박자 늦어 비어 있다.
+   *
+   * 작업 중이면 열람 대신 현재 이미지의 지시 목록에 바로 등록한다 — 지금
+   * 작업을 덮는 화면 전환보다 이어 붙이는 쪽이 의도에 가깝다.
+   */
+  const handleLoadGroup = useCallback(
+    (group: HistoryGroup) => {
+      const prompts = [...group.items]
+        .reverse()
+        .map(({ text }) => text.slice(0, MAX_INSTRUCTION_LENGTH));
+
+      if (!activeId) {
+        setSeed(prompts.map((text) => ({ text })));
+        setThreadGroup(group);
+        return;
+      }
+
+      const created = prompts.map((text) => {
+        insSeqRef.current += 1;
+        return makeInstruction(insSeqRef.current, null, text);
+      });
+      const createdIds = new Set(created.map((ins) => ins.id));
+      const versionId = activeId;
+      updateInstructions(versionId, (prev) => [...prev, ...created]);
+      toast('success', `지난 작업 ${created.length}건을 지시로 불러왔어요`, {
+        label: '실행취소',
+        onClick: () =>
+          updateInstructions(versionId, (prev) => prev.filter((ins) => !createdIds.has(ins.id))),
+      });
+    },
+    [activeId, toast, updateInstructions],
+  );
+
+  /** 스레드 닫기 — 걸어 둔 시드도 함께 거둔다 (닫고 새로 첨부했는데 옛 지시가
+   *  따라붙으면 놀란다) */
+  const handleCloseThread = useCallback(() => {
+    setThreadGroup(null);
+    setSeed([]);
+  }, []);
+
+  // 비동기 이어가기(이미지 내려받은 뒤 첨부)가 "그 시점의 최신" 첨부 핸들러를
+  // 쓰도록 ref 로 넘긴다 — await 사이에 seed 를 비웠는데 낡은 클로저가 옛 seed 를
+  // 읽으면, 이미 적용된 지시가 그 결과물에 또 걸린다. ref 동기화는 handleAttach
+  // 선언 뒤의 effect 가 맡는다 (선언 전 참조는 컴파일러 최적화를 깬다).
+  const attachRef = useRef<(file: File) => boolean>(() => false);
+
+  /**
+   * 보관된 시안 하나로 이어서 작업한다 (스레드의 썸네일 클릭).
+   *
+   * 시드를 걸지 않는 것이 핵심이다 — 그 시안에는 이 대화의 지시가 **이미 적용돼
+   * 있다.** 같은 지시를 또 걸면 "배경을 하얗게"가 두 번 적용된 결과를 만들게 된다.
+   */
+  const handleContinueFrom = useCallback(
+    async (entry: HistoryEntry, index: number) => {
+      try {
+        const file = await fetchEditResultImage(
+          entry.recordId,
+          index,
+          threadGroup?.filename ?? 'edited.jpg',
+        );
+        // ref 를 직접 비워야 바로 다음 줄의 첨부가 빈 시드를 본다 — setSeed 만으로는
+        // 이 틱의 핸들러가 여전히 옛 시드를 읽는다 (이중 적용 사고의 지점).
+        seedRef.current = [];
+        setSeed([]);
+        attachRef.current(file);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : '시안을 불러오지 못했습니다.';
+        toast('error', message);
+      }
+    },
+    [threadGroup, toast],
+  );
+
+  /** 기록 한 건 삭제 — 스레드와 목록 양쪽에서 바로 사라져야 한다 */
+  const handleDeleteRecord = useCallback(
+    async (entry: HistoryEntry) => {
+      try {
+        await deleteEditRecord(entry.recordId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : '삭제에 실패했습니다.';
+        toast('error', message);
+        return;
+      }
+      setHistory((prev) => (prev ? prev.filter((r) => r.id !== entry.recordId) : prev));
+      setThreadGroup((prev) => {
+        if (!prev) return prev;
+        const items = prev.items.filter((item) => item.recordId !== entry.recordId);
+        return items.length ? { ...prev, items } : null;
+      });
+      toast('success', '기록을 삭제했어요 — 보관된 시안도 함께 지웠습니다');
+    },
+    [toast],
+  );
 
   /* ── 버전 전환 ──────────────────────────────────────────────── */
   // 레일로 다른 버전을 고르면 출력 크기도 그 이미지 기준으로 되돌린다.
@@ -218,7 +374,7 @@ export default function ImageFilterClient() {
       // 미리 정해 둔 지시(예시 선택 · 저장소 복구)를 첫 지시로 등록한다.
       // 복구된 지시 중 원래 특정 요소를 가리키던 건 needsTarget 을 달아 전송에서
       // 빼 둔다 — 대상 없이 보내면 "로고를 지워줘"가 이미지 전체 지시가 된다.
-      seed.forEach((item) => {
+      seedRef.current.forEach((item) => {
         insSeqRef.current += 1;
         const created = makeInstruction(insSeqRef.current, null, item.text);
         carried.push(
@@ -227,17 +383,27 @@ export default function ImageFilterClient() {
             : created,
         );
       });
-      if (seed.length) setSeed([]);
+      if (seedRef.current.length) {
+        seedRef.current = [];
+        setSeed([]);
+      }
 
       setInstructionsByVersion(carried.length ? { [original.id]: carried } : {});
       setForm((prev) => ({ ...prev, targetWidth: '', targetHeight: '' }));
       setLastError(null);
       setEditing(null);
+      // 스레드 안에서 올렸든 어디서 올렸든, 첨부되면 열람은 끝나고 작업이 시작된다
+      setThreadGroup(null);
       setOpenSection('elements');
       return true;
     },
-    [activeId, instructionsByVersion, seed, start, toast],
+    [activeId, instructionsByVersion, start, toast],
   );
+
+  // 매 렌더 최신 첨부 핸들러를 ref 에 반영 — handleContinueFrom 의 비동기 흐름이 쓴다
+  useEffect(() => {
+    attachRef.current = handleAttach;
+  }, [handleAttach]);
 
   /* ── 새 작업 ────────────────────────────────────────────────── */
   const handleReset = useCallback(() => {
@@ -353,33 +519,57 @@ export default function ImageFilterClient() {
     abortRef.current = controller;
 
     try {
-      const { provider, blob, filename } = await editAndResize(
+      const { provider, failed, variants } = await editAndResize(
         active.file,
         composeEditPrompt(parts),
         width,
         height,
         form.outputFormat,
+        form.variantCount,
         () => setProcessing('compressing'),
         () => setProcessing('editing'),
         controller.signal,
       );
 
-      // 결과를 File 로 바꿔 새 버전으로 올린다 — 그대로 다음 편집·분석의 입력이 된다.
-      // 서버가 덧붙이는 _resized_WxH 를 걷어내지 않으면 이어 갈 때마다 이름이 길어진다.
-      add({
-        file: new File([blob], stripResizeSuffix(filename), {
-          type: blob.type || 'image/png',
+      // base64 를 상태에 두면 렌더마다 수 MB 문자열을 재조립한다 — File 로 바꿔 보관
+      // (배경 시안과 같은 처리). 서버가 덧붙이는 _resized_WxH 를 걷어내지 않으면
+      // 이 결과를 이어서 편집할 때마다 이름이 길어진다.
+      const specs = await Promise.all(
+        variants.map(async (variant) => {
+          const blob = await (
+            await fetch(`data:${variant.mime};base64,${variant.image_base64}`)
+          ).blob();
+          return {
+            file: new File([blob], stripResizeSuffix(variant.filename), {
+              type: variant.mime || 'image/png',
+            }),
+            parentId: versionId,
+            provider,
+            filename: variant.filename,
+            note,
+          };
         }),
-        kind: 'edited',
-        parentId: versionId,
-        provider,
-        filename,
-        note,
-      });
+      );
+      // 시안 N장을 한 단계로 묶어 올리고 첫 장을 활성화한다. 사용자가 레일에서
+      // 다른 장을 고르면 다음 편집은 그 장에서 이어진다 — 고른 1장만 승격되는 셈이다.
+      addVariants(specs);
 
       // 보낸 지시는 원래 버전의 목록에서 빠진다 — 기록은 새 버전의 note 로 남는다
       updateInstructions(versionId, (prev) => prev.filter((ins) => !sentIds.has(ins.id)));
-      toast('success', `편집을 마쳤어요 — 지시 ${parts.length}건 적용`);
+      // 방금 보낸 지시가 서버 기록에 더해졌다 — 들고 있던 목록은 낡았으므로 비운다.
+      // 여기서 직접 다시 부르지 않고 비우기만 하는 이유: 불러오기 조건을 한 군데
+      // (아래 effect)에 두기 위해서다. 기록 섹션이 열려 있으면 effect 가 곧바로
+      // 다시 불러오고, 닫혀 있으면 다음에 열 때 불러온다 — 기록을 보지 않는
+      // 사람에게 요청이 나가지 않는다.
+      setHistory(null);
+      // 일부만 성공한 경우를 숨기지 않는다 — 4장을 요청했는데 3장만 오면
+      // 사용자는 이유를 알 수 없고, 빠진 장수만큼 다시 눌러 볼 근거도 없다.
+      toast(
+        failed > 0 ? 'info' : 'success',
+        failed > 0
+          ? `시안 ${specs.length}장을 만들었어요 — ${failed}장은 실패했습니다`
+          : `시안 ${specs.length}장을 만들었어요 — 지시 ${parts.length}건 적용`,
+      );
     } catch (err) {
       // 사용자가 직접 끊은 건 실패가 아니다. 그 외에는 지시를 목록에 그대로 남겨
       // 두고 실패 표시만 붙인다 — 예전처럼 비웠다 되살리는 복구 과정이 필요 없다.
@@ -398,11 +588,12 @@ export default function ImageFilterClient() {
   }, [
     active,
     aiBusy,
-    add,
+    addVariants,
     elementsByVersion,
     form.outputFormat,
     form.targetHeight,
     form.targetWidth,
+    form.variantCount,
     instructionsByVersion,
     toast,
     updateInstructions,
@@ -519,6 +710,30 @@ export default function ImageFilterClient() {
       setEditing({ versionId: activeId, snapshot: created, isNew: true });
     },
     [activeId, instructionsByVersion, updateInstructions],
+  );
+
+  /**
+   * 패널 입력칸에서 지시를 바로 추가한다 — 모달을 거치지 않는다.
+   *
+   * 모달은 긴 글을 쓰거나 대상 요소를 지정할 때만 쓴다. 한 줄 지시가 대부분인데
+   * 그때마다 모달이 열리면 캔버스가 덮이고 타이핑 전에 클릭이 한 번 더 든다.
+   * 대상은 항상 "이미지 전체"다 — 요소 지정은 캔버스나 요소 칩에서 들어온다.
+   */
+  const handleQuickAddInstruction = useCallback(
+    (text: string) => {
+      if (!activeId) return;
+      const trimmed = text.trim().slice(0, MAX_INSTRUCTION_LENGTH);
+      if (!trimmed) return;
+
+      insSeqRef.current += 1;
+      const created = makeInstruction(insSeqRef.current, null, trimmed);
+      updateInstructions(activeId, (prev) => [...prev, created]);
+      toast('success', '지시를 추가했어요', {
+        label: '실행취소',
+        onClick: () => restoreInstruction(activeId, created, true),
+      });
+    },
+    [activeId, restoreInstruction, toast, updateInstructions],
   );
 
   /**
@@ -730,6 +945,20 @@ export default function ImageFilterClient() {
         </div>
       )}
 
+      {/* 사이드바를 접으면 빈 왼쪽 자리에 지난 작업 레일이 선다 — 펼친 상태에서는
+          내비게이션이 그 자리라 레일을 겹치지 않는다(첨부 전 화면 가운데 블록이 담당). */}
+      <div className="flex-1 min-h-0 flex">
+        {sidebarCollapsed && (
+          <HistoryRail
+            history={history}
+            historyError={historyError}
+            onLoadGroup={handleLoadGroup}
+            selectedFilename={threadGroup?.filename ?? null}
+            disabled={aiBusy}
+          />
+        )}
+
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
       {active && original ? (
         <>
           <FilterToolbar
@@ -762,11 +991,14 @@ export default function ImageFilterClient() {
               instructions={instructions}
               elements={elements}
               onAddInstruction={() => openNewEditor(null)}
+              onQuickAddInstruction={handleQuickAddInstruction}
               onEditInstruction={openEditor}
               onDeleteInstruction={handleDeleteInstruction}
               onToggleInstruction={handleToggleInstruction}
               openSection={openSection}
               onOpenSection={setOpenSection}
+              history={history}
+              historyError={historyError}
               analyzing={analyzing}
               onAnalyze={handleAnalyze}
               onPickElement={openNewEditor}
@@ -781,6 +1013,10 @@ export default function ImageFilterClient() {
                 setForm((prev) => ({ ...prev, keepAspectRatio: !prev.keepAspectRatio }))
               }
               onFormatChange={(outputFormat) => setForm((prev) => ({ ...prev, outputFormat }))}
+              onVariantCountChange={(variantCount) =>
+                setForm((prev) => ({ ...prev, variantCount }))
+              }
+              retentionDays={retentionDays}
               sending={sending}
               onSend={handleSend}
               onCancel={handleCancel}
@@ -791,6 +1027,17 @@ export default function ImageFilterClient() {
           </div>
         </>
       ) : (
+        threadGroup ? (
+        <ThreadView
+          group={threadGroup}
+          retentionDays={retentionDays}
+          onAttach={handleAttach}
+          onContinueFrom={handleContinueFrom}
+          onDeleteRecord={handleDeleteRecord}
+          onClose={handleCloseThread}
+          disabled={aiBusy}
+        />
+      ) : (
         <EmptyCanvas
           onAttach={handleAttach}
           seed={seed}
@@ -798,9 +1045,14 @@ export default function ImageFilterClient() {
           restorable={restorable}
           onRestore={handleRestore}
           onDiscardRestore={handleDiscardRestore}
+          history={history}
+          historyError={historyError}
+          showHistory={!sidebarCollapsed}
           error={lastError}
         />
-      )}
+      ))}
+        </div>
+      </div>
 
       {editing && active && (
         <InstructionEditorModal

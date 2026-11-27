@@ -55,6 +55,7 @@ class AIToolUsageLogRepository:
             query = query.filter(AIToolUsageLog.tool == tool)
         return query.offset(offset).limit(limit).all()
 
+
     def count(self, *, company_id: int, tool: str | None = None) -> int:
         query = self._scoped(company_id)
         if tool:

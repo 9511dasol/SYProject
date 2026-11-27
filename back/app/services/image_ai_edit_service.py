@@ -71,7 +71,20 @@ def generate_image(image_bytes: bytes, prompt: str, mime_type: str = "image/png"
         )
         return None
 
-    for part in candidates[0].content.parts or []:
+    # 안전 정책으로 거부되면 후보는 있는데 content 가 None 으로 온다 (예:
+    # finish_reason=IMAGE_SAFETY — 저작권 캐릭터 이미지에서 실제로 겪음).
+    # 이 줄이 try 밖이라 예전에는 AttributeError 가 그대로 올라가 라우터의
+    # 일반 422("이미지 처리 중 오류")로 둔갑했다 — 거부는 실패의 한 형태일
+    # 뿐이므로 다른 실패와 같은 None 계약을 따른다.
+    candidate = candidates[0]
+    if candidate.content is None:
+        logger.warning(
+            "Gemini 이미지 생성 거부됨 (finish_reason=%s, model=%s, prompt=%.80s)",
+            getattr(candidate, "finish_reason", None), settings.GEMINI_IMAGE_MODEL, prompt,
+        )
+        return None
+
+    for part in candidate.content.parts or []:
         inline = getattr(part, "inline_data", None)
         if inline and inline.data:
             return ImageGenResult(image_bytes=inline.data, usage=TokenUsage.from_gemini_response(resp))

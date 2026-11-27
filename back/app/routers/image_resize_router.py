@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.ai_budget import check_ai_budget
 from app.core.feature_flags import require_feature_flag
 from app.core.security import get_current_user, get_db
+from app.core.tenant import TenantContext, get_tenant_context
 from app.models.user_model import User
 from app.schemas.image_resize_schema import (
     ResizeInput,
@@ -88,11 +89,13 @@ async def batch_endpoint(
 async def resize_endpoint(
     inp: ResizeInput = Depends(get_resize_input),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
 ) -> StreamingResponse:
     # 순수 Pillow 리사이즈는 과금이 없으므로, AI 업스케일을 요청한 경우에만 예산을 확인한다.
+    # 예산·사용량은 모두 기업 범위다 — 멀티테넌시 전환 때 이 호출부만 company_id 를
+    # 넘기지 않아, 업스케일 요청이 예산 검사 대신 TypeError(500)로 죽고 있었다.
     if inp.use_ai_upscale:
-        check_ai_budget(db)
+        check_ai_budget(db, ctx.company_id)
 
     try:
         # PIL 리샘플링은 CPU 바운드이고, AI 업스케일을 켜면 동기 Gemini 호출까지 붙는다.
@@ -118,7 +121,8 @@ async def resize_endpoint(
         # 사용량 기록도 커밋을 동반하는 DB 쓰기라 이벤트 루프 밖에서 처리한다.
         await run_in_threadpool(
             log_ai_usage,
-            user=current_user,
+            user=ctx.user,
+            company_id=ctx.company_id,
             tool="image_resize",
             label=inp.filename,
             prompt=_UPSCALE_PROMPT,

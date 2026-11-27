@@ -37,18 +37,34 @@ const RECOMMENDED_MAX: Record<HeadingItem['platform'], number> = {
   YouTube:   40,
 };
 
+type CopyKind = 'title' | 'full';
+
+const copyButtonClass = (active: boolean) =>
+  [
+    'inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border transition-colors',
+    active
+      ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400'
+      : 'bg-surface-3 border-border text-fg-muted hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:border-amber-200 dark:hover:border-amber-800 hover:text-amber-600 dark:hover:text-amber-400',
+  ].join(' ');
+
 export default function HeadingCard({ item }: HeadingCardProps) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<CopyKind | null>(null);
   const style = PLATFORM_STYLES[item.platform];
   const recommendedMax = RECOMMENDED_MAX[item.platform];
   const charCount = [...item.text].length;
   const overLimit = charCount > recommendedMax;
 
-  async function handleCopy() {
+  // 2026-11-27 이전 기록에는 본문 대신 "추천 이유"(desc)가 들어 있다. 같은 자리에
+  // 같은 모양으로 보여 주면 화면이 거짓을 말하게 되므로 레이블로 구분한다.
+  const body = item.body?.trim() || null;
+  const legacyDesc = !body ? item.desc?.trim() || null : null;
+
+  async function handleCopy(kind: CopyKind) {
+    const payload = kind === 'full' && body ? `${item.text}\n\n${body}` : item.text;
     try {
-      await navigator.clipboard.writeText(item.text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(payload);
+      setCopied(kind);
+      setTimeout(() => setCopied(null), 2000);
     } catch {
       /* clipboard 접근 불가 환경 무시 */
     }
@@ -76,10 +92,20 @@ export default function HeadingCard({ item }: HeadingCardProps) {
         {item.text}
       </p>
 
-      {/* 추천 이유 */}
-      <p className="text-xs text-fg-muted mt-2 leading-relaxed">
-        {item.desc}
-      </p>
+      {/* 본문 카피 — 게시물에 그대로 올리는 글이라 줄바꿈(해시태그 줄)을 살린다 */}
+      {body && (
+        <p className="text-xs text-fg-muted mt-2 leading-relaxed whitespace-pre-line wrap-break-word">
+          {body}
+        </p>
+      )}
+
+      {/* 옛 기록 — 본문이 아니라 추천 이유다. 레이블 없이 두면 본문으로 읽힌다 */}
+      {legacyDesc && (
+        <div className="mt-2">
+          <span className="text-[10px] font-semibold text-fg-subtle">추천 이유 (이전 형식)</span>
+          <p className="text-xs text-fg-muted leading-relaxed">{legacyDesc}</p>
+        </div>
+      )}
 
       {/* 글자수 + 복사 — 핵심 액션이라 호버 없이 항상 보여야 한다(터치 기기 포함) */}
       <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-border/60">
@@ -95,18 +121,28 @@ export default function HeadingCard({ item }: HeadingCardProps) {
             title={overLimit ? '노출 영역에서 잘릴 수 있어요' : '권장 길이 이내'}
           />
         </span>
-        <button
-          onClick={handleCopy}
-          className={[
-            'inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border transition-colors shrink-0',
-            copied
-              ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400'
-              : 'bg-surface-3 border-border text-fg-muted hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:border-amber-200 dark:hover:border-amber-800 hover:text-amber-600 dark:hover:text-amber-400',
-          ].join(' ')}
-        >
-          <i className={`bx ${copied ? 'bx-check' : 'bx-copy'} text-sm`} />
-          {copied ? '복사됨' : '복사'}
-        </button>
+        {/* 복사는 두 갈래다 — 제목만 쓰는 경우(이미지 위 카피)와 본문까지 그대로
+            올리는 경우가 모두 흔하다. 본문이 없는 옛 기록에는 제목 버튼만 둔다. */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={() => handleCopy('title')}
+            className={copyButtonClass(copied === 'title')}
+            title="제목만 복사"
+          >
+            <i className={`bx ${copied === 'title' ? 'bx-check' : 'bx-copy'} text-sm`} />
+            {copied === 'title' ? '복사됨' : '제목'}
+          </button>
+          {body && (
+            <button
+              onClick={() => handleCopy('full')}
+              className={copyButtonClass(copied === 'full')}
+              title="제목과 본문을 함께 복사"
+            >
+              <i className={`bx ${copied === 'full' ? 'bx-check' : 'bx-copy-alt'} text-sm`} />
+              {copied === 'full' ? '복사됨' : '제목+본문'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
