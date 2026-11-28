@@ -125,9 +125,15 @@ export default function HeadingHistoryClient() {
 
   /* ── 복사 ─────────────────────────────────────────────────────────────── */
   const handleCopyAll = async (record: HeadingSuggestionRecord) => {
+    // 본문까지 붙여 넣으면 바로 게시물이 된다. 본문이 없는 옛 기록(추천 이유만
+    // 있던 2026-11-27 이전)은 제목 줄만 나간다 — 추천 이유는 게시물에 올릴 글이
+    // 아니므로 복사본에 섞지 않는다.
     const text = record.headings
-      .map((h) => `[${h.platform}] ${h.text}`)
-      .join('\n');
+      .map((h) => {
+        const body = h.body?.trim();
+        return body ? `[${h.platform}] ${h.text}\n${body}` : `[${h.platform}] ${h.text}`;
+      })
+      .join('\n\n');
     try {
       await navigator.clipboard.writeText(text);
       pushToast('success', `문구 ${record.headings.length}개를 복사했습니다.`);

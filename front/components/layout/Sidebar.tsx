@@ -10,8 +10,12 @@ import SidebarProfile from '@/components/layout/SidebarProfile';
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
+  /** 모바일 서랍 열림 */
   open: boolean;
   onClose: () => void;
+  /** 데스크톱 접힘 — 캔버스가 넓어야 하는 화면에서 공간을 돌려준다 */
+  collapsed: boolean;
+  onCollapse: () => void;
 }
 
 // ── 배지 스타일 맵 ────────────────────────────────────────────────────────────
@@ -90,7 +94,7 @@ function NavItemRow({
 
 // ── 사이드바 ──────────────────────────────────────────────────────────────────
 
-export default function Sidebar({ open, onClose }: SidebarProps) {
+export default function Sidebar({ open, onClose, collapsed, onCollapse }: SidebarProps) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const role = session?.user.role;
@@ -110,12 +114,14 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           ${open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
       />
 
-      {/* 사이드바 본체 */}
+      {/* 사이드바 본체 — 데스크톱에서 접으면 화면 밖으로 밀려나고, 본문 여백은
+          AppShell 이 함께 줄인다 (헤더의 햄버거 버튼으로 다시 편다) */}
       <aside
         className={`fixed top-0 left-0 z-[var(--z-drawer)] h-full w-64
           bg-surface border-r border-border
           flex flex-col transition-transform duration-300 ease-in-out
-          ${open ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}
+          ${open ? 'translate-x-0' : '-translate-x-full'}
+          ${collapsed ? 'lg:-translate-x-full' : 'lg:translate-x-0'}`}
       >
         {/* 로고 영역 — 로고 클릭 시 소개 페이지(홈)로 나간다 */}
         <div className="h-14 px-5 flex items-center gap-3 border-b border-border-soft shrink-0">
@@ -148,6 +154,17 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               text-fg-subtle hover:text-fg hover:bg-surface-2 transition-colors lg:hidden"
           >
             <i className="bx bx-x text-lg" />
+          </button>
+
+          {/* 데스크톱 접기 버튼 — 다시 펴는 길은 헤더의 햄버거 버튼이다 */}
+          <button
+            onClick={onCollapse}
+            aria-label="사이드바 접기"
+            title="사이드바 접기"
+            className="ml-auto hidden lg:flex items-center justify-center w-7 h-7 rounded-lg
+              text-fg-subtle hover:text-fg hover:bg-surface-2 transition-colors"
+          >
+            <i className="bx bx-chevrons-left text-lg" />
           </button>
         </div>
 

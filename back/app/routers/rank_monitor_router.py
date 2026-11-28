@@ -13,11 +13,10 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.core.feature_flags import require_feature_flag
-from app.core.security import get_current_user, get_db
+from app.core.security import get_db
 from app.core.tenant import TenantContext, get_tenant_context
 from app.core.uploads import check_content_length, read_data_upload
 from app.models.keyword_watch_model import KeywordRankSnapshot, KeywordWatch
-from app.models.user_model import User
 from app.repositories.keyword_watch_repo import KeywordWatchRepository
 from app.schemas.rank_monitor_schema import (
     AlertLogListResponse,
@@ -45,6 +44,7 @@ from app.services.rank.alert_factory import run_rank_alerts
 from app.services.rank.base import RankProviderError
 from app.services.rank.bid_estimate import MAX_POSITION, BidEstimateService
 from app.services.rank.collector import collect_ranks
+from app.services.rank.credentials import NO_ACCESS_MESSAGE, has_naver_access
 from app.services.rank.keyword_insight import KeywordInsightService
 from app.services.rank.naver_client import ERR_NOT_CONFIGURED, error_message
 from app.services.rank.report_parser import (
@@ -382,8 +382,14 @@ async def watch_bid_estimate(
         target_rank=watch.target_rank,
         rows=[],
     )
+    # 두 조건은 독립이다. 하나로 묶으면 "서비스는 미설정인데 접근권한은 있는"
+    # 경우가 분기를 그냥 빠져나가 미설정 서비스를 호출한다.
     if not service.is_configured:
         base.skipped_reason = error_message(ERR_NOT_CONFIGURED)
+        return base
+    # 서버 키는 특정 기업의 광고 계정이다 — 소유 기업 외에는 조회를 막는다.
+    if not has_naver_access(ctx.company_id):
+        base.skipped_reason = NO_ACCESS_MESSAGE
         return base
 
     def _estimate() -> BidEstimateResponse:
@@ -419,6 +425,8 @@ async def watch_insight(
         return KeywordInsightResponse(
             keyword=watch.keyword, skipped_reason=error_message(ERR_NOT_CONFIGURED)
         )
+    if not has_naver_access(ctx.company_id):
+        return KeywordInsightResponse(keyword=watch.keyword, skipped_reason=NO_ACCESS_MESSAGE)
 
     def _fetch() -> KeywordInsightResponse:
         try:
@@ -447,16 +455,20 @@ async def watch_insight(
 
 
 @router.get("/collect/status", response_model=CollectStatus)
-def collect_status(_user: User = Depends(get_current_user)) -> CollectStatus:
-    """자동 수집을 쓸 수 있는 상태인지 — 화면이 안내 문구를 고르는 데 쓴다."""
-    configured = settings.is_naver_searchad_configured
+def collect_status(ctx: TenantContext = Depends(get_tenant_context)) -> CollectStatus:
+    """자동 수집을 쓸 수 있는 상태인지 — 화면이 안내 문구를 고르는 데 쓴다.
+
+    "서버에 키가 있는가"가 아니라 **"이 기업이 그 키를 쓸 수 있는가"**를 답한다.
+    전자만 보면 키를 소유하지 않은 기업에도 "연결됨"이라고 표시돼, 눌렀을 때
+    남의 계정이 조회되거나(예전) 이유 없이 실패하는(지금) 화면이 된다.
+    """
+    if not settings.is_naver_searchad_configured:
+        return CollectStatus(configured=False, message=error_message(ERR_NOT_CONFIGURED))
+    if not has_naver_access(ctx.company_id):
+        return CollectStatus(configured=False, message=NO_ACCESS_MESSAGE)
     return CollectStatus(
-        configured=configured,
-        message=(
-            "네이버 광고 API가 연결되어 자동으로 순위를 받아옵니다."
-            if configured
-            else error_message(ERR_NOT_CONFIGURED)
-        ),
+        configured=True,
+        message="네이버 광고 API가 연결되어 자동으로 순위를 받아옵니다.",
     )
 
 

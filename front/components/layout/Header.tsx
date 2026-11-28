@@ -45,12 +45,14 @@ export default function Header({ onMenuClick }: HeaderProps) {
         border-b border-border
         flex items-center px-4 sm:px-6 gap-3"
     >
-      {/* 햄버거 버튼 (모바일 전용) */}
+      {/* 햄버거 버튼 — 모바일에선 서랍을 열고, 데스크톱에선 고정 사이드바를
+          접고 편다. 접힌 상태에서 다시 펴는 유일한 길이므로 항상 보여야 한다. */}
       <button
         onClick={onMenuClick}
-        aria-label="사이드바 열기"
+        aria-label="사이드바 열기/접기"
+        title="사이드바 열기/접기"
         className="flex items-center justify-center w-8 h-8 rounded-lg
-          text-fg-muted hover:text-fg hover:bg-surface-2 transition-colors lg:hidden shrink-0"
+          text-fg-muted hover:text-fg hover:bg-surface-2 transition-colors shrink-0"
       >
         <i className="bx bx-menu text-xl" />
       </button>

@@ -94,6 +94,12 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = ""
 
+    # 모든 크론(hour=...)이 기준으로 삼는 시간대. 아래 CRON_HOUR 들은 전부 이 시간대의
+    # 시각이다. 비워 두면 APScheduler 가 프로세스 로컬 시간대를 쓰는데, 운영 컨테이너는
+    # python:3.14-slim 기본값인 UTC 라(호스트 VM 은 KST 인데도) 크론이 9시간씩 밀렸다.
+    # 발송·수집 시각은 제품이 정하는 값이므로 컨테이너 환경에 맡기지 않는다.
+    SCHEDULER_TIMEZONE: str = "Asia/Seoul"
+
     # Report auto-send schedule (APScheduler cron syntax fields)
     REPORT_CRON_HOUR: str = "9"
     REPORT_CRON_DAY: str = "1"   # 매월 1일
@@ -108,6 +114,11 @@ class Settings(BaseSettings):
     NAVER_SEARCHAD_API_KEY: str = ""
     NAVER_SEARCHAD_SECRET_KEY: str = ""
     NAVER_SEARCHAD_CUSTOMER_ID: str = ""
+    # 위 키가 **어느 기업의 광고 계정인지**. 키가 전역 1벌인 동안, 이 기업 외에는
+    # 외부 API 경로를 막는다(app/services/rank/credentials.py) — 막지 않으면 다른
+    # 기업·체험 계정이 이 계정의 순위·입찰가를 들여다보게 된다.
+    # 기업별 자격증명 저장소가 생기면 이 설정은 사라진다.
+    NAVER_CREDENTIAL_COMPANY_ID: int = 1
     NAVER_SEARCHAD_BASE_URL: str = "https://api.searchad.naver.com"
     # 매일 이 시각에 전일 확정치를 수집한다. 알림 평가는 수집 직후 이어서 돈다.
     RANK_COLLECT_CRON_HOUR: str = "8"
@@ -139,6 +150,15 @@ class Settings(BaseSettings):
     # 만료된 체험 기업을 물리 삭제하는 시각. 즉시 차단은 인증 경로가 하므로
     # 이 잡은 2차 정리이며, 하루 1회로 충분하다.
     TRIAL_PURGE_CRON_HOUR: str = "4"
+
+    # ── 이미지 편집 결과 보관 (2026-11-27 확정 정책) ─────────────────────────
+    # 생성 결과 이미지를 스토리지에 며칠 보관할지. 경과하면 **이미지만** 지우고
+    # 프롬프트 레코드는 남긴다 — 잘 나온 지시를 다시 꺼내 쓰는 쪽이 이미지보다
+    # 오래 쓸모 있기 때문이다. 설정으로 둔 이유: 보관 정책은 저장 비용·영업
+    # 정책에 따라 바뀌는 값이라 배포 없이 조정할 수 있어야 한다.
+    # 산정 근거: 장당 ~1.5MB × 4장 × 일 5회 × 14일 ≈ 고객사 1곳당 420MB
+    # (30일로 잡으면 1곳만으로 무료 구간 1GB 에 닿는다).
+    IMAGE_EDIT_RETENTION_DAYS: int = 14
 
     @property
     def is_naver_searchad_configured(self) -> bool:

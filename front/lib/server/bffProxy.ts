@@ -84,6 +84,14 @@ export async function proxyToBackend(
     return new NextResponse(response.body, { status: response.status, headers });
   }
 
+  // 204·205·304 는 규격상 본문을 가질 수 없다. NextResponse.json 은 "null" 이라는
+  // 본문을 항상 실으므로 Response 생성자가 TypeError 를 던지고, 이 핸들러 전체가
+  // 500 이 된다 — 백엔드는 이미 일을 끝낸 뒤라 "삭제는 됐는데 실패했다는 알림"이
+  // 뜨는 원인이었다 (문구 기록 삭제 204 에서 실제로 겪음, 2026-11-28).
+  if (response.status === 204 || response.status === 205 || response.status === 304) {
+    return new NextResponse(null, { status: response.status });
+  }
+
   const text = await response.text();
   if (!text) return NextResponse.json(null, { status: response.status });
 

@@ -840,8 +840,85 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Edit Endpoint */
+        /**
+         * Edit Endpoint
+         * @description 같은 지시로 시안 `count` 장을 만들어 돌려준다 (기본 4장, 상한 6장).
+         *
+         *     응답이 단일 바이너리에서 JSON(base64) 로 바뀐 이유는 단순하다 — 한 번에 여러
+         *     장을 담아야 한다. 전송량이 늘어나는 단점은 배경 시안도 같이 안고 있고, 백로그의
+         *     "base64 → 바이너리 전송" 항목에서 두 경로를 함께 고치는 쪽이 맞다.
+         *
+         *     **`count` 를 보내지 않으면 옛 응답(이미지 1장 바이너리)으로 답한다.** 프런트와
+         *     백엔드는 따로 배포되고, 이미 열려 있는 탭은 옛 JS 를 그대로 쥐고 있다. 그 구간에
+         *     JSON 을 돌려주면 옛 클라이언트가 `res.blob()` 로 받아 **JSON 을 이미지라고 믿는
+         *     깨진 버전**을 만든다 — 오류도 안 난다. 2026-11-26에 겪은 "DB 먼저, 코드 나중"
+         *     배포 공백과 같은 종류라, 이번에는 서버가 양쪽을 다 받는다.
+         *     프런트 배포가 끝나 옛 클라이언트가 사라지면 이 분기를 지운다.
+         */
         post: operations["edit_endpoint_api_image_filter_edit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/image-filter/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Edit History
+         * @description 로그인한 사용자의 편집 전송 기록(지시 + 결과 이미지 유무)을 최신순으로 돌려준다.
+         *
+         *     조회는 기업 + 본인 두 조건으로 끊는다. 기업 범위만으로 끊으면 같은 회사
+         *     동료의 작업물이 보이고, 기업 필터를 빠뜨리면 다른 고객사 기록까지 샌다.
+         */
+        get: operations["edit_history_api_image_filter_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/image-filter/history/{record_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Edit History
+         * @description 본인 소유 기록 한 건을 삭제한다 — 보관의 전제인 '언제든 직접 삭제' 수단이다.
+         */
+        delete: operations["delete_edit_history_api_image_filter_history__record_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/image-filter/history/{record_id}/images/{index}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Edit History Image
+         * @description 본인 소유 기록의 저장된 결과 이미지 한 장을 반환한다 (index 는 0부터).
+         */
+        get: operations["edit_history_image_api_image_filter_history__record_id__images__index__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1390,6 +1467,10 @@ export interface paths {
         /**
          * Collect Status
          * @description 자동 수집을 쓸 수 있는 상태인지 — 화면이 안내 문구를 고르는 데 쓴다.
+         *
+         *     "서버에 키가 있는가"가 아니라 **"이 기업이 그 키를 쓸 수 있는가"**를 답한다.
+         *     전자만 보면 키를 소유하지 않은 기업에도 "연결됨"이라고 표시돼, 눌렀을 때
+         *     남의 계정이 조회되거나(예전) 이유 없이 실패하는(지금) 화면이 된다.
          */
         get: operations["collect_status_api_rank_monitor_collect_status_get"];
         put?: never;
@@ -1963,6 +2044,11 @@ export interface components {
         /** Body_edit_endpoint_api_image_filter_edit_post */
         Body_edit_endpoint_api_image_filter_edit_post: {
             /**
+             * Count
+             * @description 생성할 시안 수 (1~6). 한 장이 이미지 생성 1회다. 생략하면 구버전 클라이언트로 보고 이미지 1장을 바이너리로 돌려준다
+             */
+            count?: number | null;
+            /**
              * File
              * @description 편집할 이미지
              */
@@ -2416,6 +2502,81 @@ export interface components {
              */
             role: "member" | "admin" | "trial";
         };
+        /** EditPromptHistory */
+        EditPromptHistory: {
+            /** Items */
+            items: components["schemas"]["EditPromptRecord"][];
+            /**
+             * Retention Days
+             * @default 0
+             */
+            retention_days: number;
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+        };
+        /**
+         * EditPromptRecord
+         * @description 내가 보낸 편집 전송 1회의 기록 (image_edit_records 에서 읽는다).
+         *
+         *     처음에는 사용량 로그에서 프롬프트만 읽었지만, 결과 이미지를 보관하기로
+         *     하면서(②-B, 2026-11-28 사용자 결정) 전용 테이블로 옮겼다 — 이미지 경로와
+         *     만료 상태는 과금 원장이 알 일이 아니다.
+         */
+        EditPromptRecord: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /**
+             * Image Count
+             * @default 0
+             */
+            image_count: number;
+            /** Image Filename */
+            image_filename: string;
+            /**
+             * Images Available
+             * @default false
+             */
+            images_available: boolean;
+            /** Prompt */
+            prompt: string;
+            /**
+             * Variant Count
+             * @default 0
+             */
+            variant_count: number;
+        };
+        /** EditResult */
+        EditResult: {
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+            /**
+             * Provider
+             * @default
+             */
+            provider: string;
+            /** Variants */
+            variants: components["schemas"]["EditVariant"][];
+        };
+        /** EditVariant */
+        EditVariant: {
+            /** Filename */
+            filename: string;
+            /** Image Base64 */
+            image_base64: string;
+            /** Mime */
+            mime: string;
+        };
         /** ElementAnalysis */
         ElementAnalysis: {
             /** Elements */
@@ -2523,10 +2684,23 @@ export interface components {
              */
             total: number;
         };
-        /** HeadingItem */
+        /**
+         * HeadingItem
+         * @description 문구 한 건 — 타이틀(text)과 그 타이틀에 딸린 본문 카피(body).
+         *
+         *     `desc` 는 2026-11-27 이전에 생성된 기록에만 들어 있는 옛 필드다. 당시 두 번째
+         *     필드는 본문이 아니라 "이 문구를 추천하는 이유"였다. 같은 필드에 다른 의미를
+         *     덮어쓰지 않고 `body` 를 새로 둔 이유가 여기 있다 — 덮어썼다면 이력 화면이
+         *     과거 기록의 추천 이유를 본문 카피라고 표시하게 된다.
+         *
+         *     그래서 둘 다 선택 필드다. 새 생성물은 body 만, 옛 기록은 desc 만 갖는다
+         *     (생성 경로에서 body 누락은 heading_service._parse_response 가 걸러 재시도한다).
+         */
         HeadingItem: {
+            /** Body */
+            body?: string | null;
             /** Desc */
-            desc: string;
+            desc?: string | null;
             /** Id */
             id: number;
             /**
@@ -5090,9 +5264,7 @@ export interface operations {
     background_styles_endpoint_api_image_filter_background_styles_get: {
         parameters: {
             query?: never;
-            header?: {
-                "X-Company-Id"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -5105,15 +5277,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BackgroundStyle"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -5167,6 +5330,99 @@ export interface operations {
                 "multipart/form-data": components["schemas"]["Body_edit_endpoint_api_image_filter_edit_post"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_history_api_image_filter_history_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditPromptHistory"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_edit_history_api_image_filter_history__record_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_history_image_api_image_filter_history__record_id__images__index__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: number;
+                index: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -5244,7 +5500,9 @@ export interface operations {
     resize_endpoint_api_image_resize_resize_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -6130,7 +6388,9 @@ export interface operations {
     collect_status_api_rank_monitor_collect_status_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Company-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -6143,6 +6403,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CollectStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

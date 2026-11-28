@@ -1,5 +1,11 @@
 import type { OutputFormat } from '@/types/imageResize';
-import type { BackgroundStyle, BackgroundVariant, ImageElement } from '@/types/imageFilter';
+import type {
+  BackgroundStyle,
+  BackgroundVariant,
+  EditPromptRecord,
+  EditVariant,
+  ImageElement,
+} from '@/types/imageFilter';
 import { authFetch, NO_TIMEOUT } from '@/lib/api/authFetch';
 import { filenameFromDisposition } from '@/lib/api/download';
 import { throwResponseError } from '@/lib/api/responseError';
@@ -7,6 +13,48 @@ import { compressImageIfNeeded, downscaleForAnalysis } from './imageResizeClient
 
 // AI 이미지 작업은 수십 초가 정상이라 공용 타임아웃(30초)을 적용하면 안 된다.
 // 대신 호출부가 넘긴 signal 로 사용자가 직접 끊을 수 있게 한다.
+
+/**
+ * 내가 과거에 보낸 편집 지시 기록 (최신순).
+ *
+ * 세션 안의 버전 레일은 새로고침하면 사라진다. 서버에는 프롬프트가 전부터
+ * 쌓이고 있었지만 관리자만 볼 수 있었는데, 이제 본인 것만 추려 돌려준다.
+ */
+export async function fetchEditHistory(
+  limit = 20,
+  signal?: AbortSignal,
+): Promise<{ items: EditPromptRecord[]; total: number; retention_days: number }> {
+  const res = await authFetch(`/api/image-filter/history?limit=${limit}`, { signal });
+  if (!res.ok) await throwResponseError(res);
+  return (await res.json()) as {
+    items: EditPromptRecord[];
+    total: number;
+    retention_days: number;
+  };
+}
+
+/** 보관된 결과 이미지 주소 — <img src> 와 blob 다운로드가 같은 경로를 쓴다 */
+export function editHistoryImageUrl(recordId: number, index: number): string {
+  return `/api/image-filter/history/${recordId}/images/${index}`;
+}
+
+/** 기록 한 건 삭제 (스토리지의 결과 이미지 포함) — 보관의 전제인 직접 삭제 수단 */
+export async function deleteEditRecord(recordId: number): Promise<void> {
+  const res = await authFetch(`/api/image-filter/history/${recordId}`, { method: 'DELETE' });
+  if (!res.ok) await throwResponseError(res);
+}
+
+/** 보관된 결과 이미지를 File 로 받아온다 — "이 이미지로 이어서 작업"의 입력이 된다 */
+export async function fetchEditResultImage(
+  recordId: number,
+  index: number,
+  filename: string,
+): Promise<File> {
+  const res = await authFetch(editHistoryImageUrl(recordId, index));
+  if (!res.ok) await throwResponseError(res);
+  const blob = await res.blob();
+  return new File([blob], filename, { type: blob.type || 'image/jpeg' });
+}
 
 /** 고를 수 있는 배경 스타일 목록 (서버가 단일 출처) */
 export async function fetchBackgroundStyles(): Promise<BackgroundStyle[]> {
@@ -74,9 +122,12 @@ export async function analyzeElements(
 }
 
 /**
- * 서버에 이미지 + 편집 프롬프트 + 크기를 전송하고,
- * AI가 프롬프트대로 수정한 이미지를 Blob으로 돌려받는다.
- * 미리보기·다운로드 시점은 호출부(대화형 UI)가 결정한다.
+ * 서버에 이미지 + 편집 프롬프트 + 크기 + 시안 장수를 전송하고, AI가 프롬프트대로
+ * 수정한 이미지 N장을 돌려받는다. 미리보기·다운로드 시점은 호출부가 결정한다.
+ *
+ * 응답은 base64 JSON 이다 — 한 번에 여러 장을 담아야 해서 단일 바이너리로는 안 된다
+ * (배경 시안과 같은 형태). 일부만 성공했을 수 있으므로 `failed` 를 함께 돌려준다:
+ * 4장을 요청했는데 3장만 오면 사용자는 이유를 알 수 없다.
  */
 export async function editAndResize(
   file: File,
@@ -84,10 +135,11 @@ export async function editAndResize(
   width: number,
   height: number,
   format: OutputFormat,
+  count: number,
   onCompress?: () => void,
   onEdit?: () => void,
   signal?: AbortSignal,
-): Promise<{ provider: string; blob: Blob; filename: string }> {
+): Promise<{ provider: string; failed: number; variants: EditVariant[] }> {
   // 1. 클라이언트 사전 압축 (10MB↑)
   onCompress?.();
   const compressed = await compressImageIfNeeded(file);
@@ -100,6 +152,7 @@ export async function editAndResize(
   form.append('width', width > 0 ? String(width) : '');
   form.append('height', height > 0 ? String(height) : '');
   form.append('format', format);
+  form.append('count', String(count));
 
   const res = await authFetch('/api/image-filter/edit', {
     method: 'POST',
@@ -111,10 +164,35 @@ export async function editAndResize(
   // 3. 실패 응답 처리
   if (!res.ok) await throwResponseError(res);
 
-  // 4. 성공: Blob 반환 (파일명은 응답 헤더 우선)
-  const aiProvider = res.headers.get('X-AI-Provider') ?? '';
-  const blob = await res.blob();
-  const filename = filenameFromDisposition(res, `edited_${file.name}`);
+  // 4. 성공
+  //
+  // 아직 다건을 모르는 옛 백엔드가 이미지 1장을 바이너리로 돌려줄 수 있다. 프런트와
+  // 백엔드는 따로 배포되므로 "새 프런트 + 옛 백엔드" 구간이 반드시 생기는데, 그때
+  // 무조건 json() 을 부르면 편집이 통째로 실패한다. 응답 형태를 보고 받아 준다 —
+  // 백엔드 배포가 끝나면 이 분기를 지운다.
+  if (!res.headers.get('content-type')?.includes('application/json')) {
+    const blob = await res.blob();
+    const buffer = await blob.arrayBuffer();
+    const binary = Array.from(new Uint8Array(buffer), (b) => String.fromCharCode(b)).join('');
+    return {
+      provider: res.headers.get('X-AI-Provider') ?? '',
+      failed: 0,
+      variants: [{
+        image_base64: btoa(binary),
+        mime: blob.type || 'image/png',
+        filename: filenameFromDisposition(res, `edited_${file.name}`),
+      }],
+    };
+  }
 
-  return { provider: aiProvider, blob, filename };
+  const data = (await res.json()) as {
+    variants: EditVariant[];
+    failed?: number;
+    provider?: string;
+  };
+  return {
+    provider: data.provider ?? '',
+    failed: data.failed ?? 0,
+    variants: data.variants ?? [],
+  };
 }

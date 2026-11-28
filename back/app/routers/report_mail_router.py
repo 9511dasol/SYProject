@@ -9,7 +9,12 @@ from sqlalchemy.orm import Session
 from app.core.ai_budget import require_ai_budget
 from app.core.database import SessionLocal
 from app.core.feature_flags import require_feature_flag
-from app.core.security import get_current_user, get_db, require_admin
+from app.core.security import (
+    get_current_user,
+    get_db,
+    require_admin,
+    require_outbound_allowed,
+)
 from app.core.tenant import TenantContext, get_tenant_context
 from app.models.user_model import User
 from app.repositories.report_log_repo import ReportLogRepository
@@ -109,7 +114,7 @@ def preview_report(
 @router.post(
     "/send",
     summary="리포트 메일 발송 (백그라운드)",
-    dependencies=[Depends(require_ai_budget)],
+    dependencies=[Depends(require_outbound_allowed), Depends(require_ai_budget)],
 )
 def send_report(
     body: SendReportRequest,
@@ -154,7 +159,9 @@ def send_report(
 @router.post(
     "/send/sync",
     summary="리포트 메일 발송 (동기 — 관리자 점검용)",
-    dependencies=[Depends(require_ai_budget)],
+    # require_admin 이 이미 trial 을 걸러내지만, 발송 경로마다 "외부로 나간다"는
+    # 사실을 명시해 둔다 — 나중에 권한이 완화돼도 체험 차단은 남는다.
+    dependencies=[Depends(require_outbound_allowed), Depends(require_ai_budget)],
 )
 def send_report_sync(
     body: SendReportRequest,

@@ -233,7 +233,7 @@ export default function InstructionEditorModal({
             {!elements && (
               <p className="flex items-start gap-1.5 text-[11px] text-fg-subtle leading-relaxed">
                 <i className="bx bx-info-circle text-sm shrink-0 mt-px" />
-                아직 요소를 찾지 않았습니다. 오른쪽 패널의 <strong>요소 찾기</strong>를 쓰면
+                아직 요소를 찾지 않았습니다. 입력창 옆 <strong>+ 도구 › 요소 찾기</strong>를 쓰면
                 특정 부분만 골라 수정할 수 있어요.
               </p>
             )}

@@ -22,6 +22,7 @@ from app.core.settings import settings
 from app.models.keyword_watch_model import KeywordWatch
 from app.repositories.keyword_watch_repo import KeywordWatchRepository
 from app.services.rank.base import RankProviderError
+from app.services.rank.credentials import NO_ACCESS_MESSAGE, has_naver_access
 from app.services.rank.naver_client import (
     ERR_KEYWORD_NOT_FOUND,
     ERR_NOT_CONFIGURED,
@@ -85,11 +86,25 @@ def collect_ranks(
 ) -> CollectResult:
     """감시 키워드의 순위를 받아 적재한다. commit 은 호출부가 한다.
 
-    company_id 는 요청 경로(수동 수집)의 기업 범위다. 크론은 None(전체 감시).
+    company_id 는 외부 API 를 돌릴 기업이다. **반드시 지정해야 한다** — 예전에는
+    None 이 "전 기업 감시"를 뜻했는데, 키가 전역 1벌인 상태에서 그렇게 돌리면
+    남의 기업 키워드를 소유 기업 계정으로 조회하게 된다(테넌트 격리 위반).
+    크론은 naver_scope_company_id() 로 범위를 받아 명시적으로 넘긴다.
     """
     target_date = target_date or default_target_date()
-    provider = provider or NaverRankProvider()
     result = CollectResult(stat_date=target_date)
+
+    # 자격증명 소유 기업이 아니면 외부 호출 자체를 하지 않는다 — 공급자를
+    # 만들기 전에 막는다. (주입받은 공급자는 가짜이므로 유출이 없어 건너뛴다)
+    if provider is None:
+        if not settings.is_naver_searchad_configured:
+            result.skipped_reason = error_message(ERR_NOT_CONFIGURED)
+            return result
+        if not has_naver_access(company_id):
+            result.skipped_reason = NO_ACCESS_MESSAGE
+            return result
+
+    provider = provider or NaverRankProvider()
 
     if not provider.is_configured:
         result.skipped_reason = error_message(ERR_NOT_CONFIGURED)

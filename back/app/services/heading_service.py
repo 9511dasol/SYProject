@@ -8,6 +8,7 @@
 """
 
 import re
+from typing import NamedTuple
 
 from google import genai
 from google.genai import errors as genai_errors
@@ -44,41 +45,83 @@ _MAX_ATTEMPTS   = 2     # 목표 미달/파싱 실패 시 재시도 횟수
 # 예전에는 "EXACTLY 10"·"Instagram (4 headings)" 같은 숫자가 프롬프트 문자열과
 # _TARGET_COUNT 상수에 각자 하드코딩돼 있어, 개수를 바꾸면 한쪽을 빠뜨려 조용히
 # 어긋날 수 있었다. 이제 프롬프트·목표치·플랫폼 순서가 전부 여기서 파생된다.
-_PLATFORM_SPECS: dict[str, tuple[int, str]] = {
-    "Instagram": (4, "Ultra-short, punchy, include 1-2 relevant emoji, emotional & visual, under 20 Korean characters"),
-    "Blog":      (3, "SEO-friendly, keyword-rich, descriptive, informative tone, 20-40 Korean characters"),
-    "YouTube":   (3, "Curiosity-driven, use numbers/questions/surprises for high CTR, 20-35 Korean characters"),
+#
+# 2026-11-27: 두 번째 필드가 "추천 이유"에서 "본문 카피"로 바뀌었다. 담당자가
+# 실제로 필요한 건 게시물에 붙일 글인데, 이유는 한 번 읽으면 끝나는 정보라
+# 카드 면적만 차지하고 복사 대상도 아니었다. 본문은 매체마다 쓰임이 달라
+# (피드 캡션 / 검색 도입 문단 / 설명란 첫 줄) 길이·형식을 스펙에 함께 둔다.
+
+
+class PlatformSpec(NamedTuple):
+    count:       int
+    title_style: str
+    body_style:  str
+    #: 본문이 이 길이를 넘으면 문장 경계에서 되돌린다 (_fit_body)
+    body_max:    int
+
+
+_PLATFORM_SPECS: dict[str, PlatformSpec] = {
+    "Instagram": PlatformSpec(
+        4,
+        "Ultra-short, punchy, include 1-2 relevant emoji, emotional & visual, under 20 Korean characters",
+        "Feed caption: 2-3 sentences, 60-120 Korean characters, then 3-5 hashtags on the last line. "
+        "Only the first ~2 lines show before '...more', so put the hook in sentence 1. "
+        "Hashtags are for search reach and are not counted in the 60-120 range.",
+        150,
+    ),
+    "Blog": PlatformSpec(
+        3,
+        "SEO-friendly, keyword-rich, descriptive, informative tone, 20-40 Korean characters",
+        "Opening paragraph of the post: 2-3 sentences, 100-150 Korean characters, no hashtags. "
+        "This is the intro only, not the whole post. Search results truncate it, "
+        "so lead with the keyword.",
+        185,
+    ),
+    "YouTube": PlatformSpec(
+        3,
+        "Curiosity-driven, use numbers/questions/surprises for high CTR, 20-35 Korean characters",
+        "First 2 lines of the description box: 2 sentences, 60-100 Korean characters, no hashtags. "
+        "Only ~70 characters show before the fold, so the reason to click must land inside them.",
+        125,
+    ),
 }
 PLATFORM_ORDER: tuple[str, ...] = tuple(_PLATFORM_SPECS)
-_TARGET_COUNT = sum(count for count, _ in _PLATFORM_SPECS.values())
+_TARGET_COUNT = sum(spec.count for spec in _PLATFORM_SPECS.values())
 
 _PROMPT_BODY = """\
-The "desc" field is separate and must be substantially longer than the heading itself:
-- Write 2 natural sentences totalling about 85 Korean characters — usually 80-95.
-- That range is a guideline, not a hard limit. Landing a few characters outside it is
-  fine when it makes the sentence read better, and you should never pad with filler or
-  chop a sentence short just to hit a number. But do not habitually run past ~95
-  characters: two compact sentences, not two sprawling ones.
-- Sentence 1: what in the image the heading picks up on, and which audience it targets.
-  Sentence 2: why it works on that platform.
-- Never repeat the heading verbatim.
-- The same length applies to all three platforms — only the "text" field differs by platform.
+Each heading has two parts, and BOTH are copy the marketer will publish as-is:
+- "text" is the headline (length/style per platform above).
+- "body" is the copy that goes with it — the caption, intro paragraph, or description
+  that the headline sits on top of. Write it for the reader, not about the headline.
 
-Examples of well-sized desc values (83 characters each — aim for this scale, not this wording):
-- "이미지의 50% 할인 문구를 전면에 내세워 가격에 민감한 수험생을 겨냥했습니다. 짧고 강한 표현이라 피드를 빠르게 넘기다가도 시선을 멈추게 만듭니다."
-- "이미지 속 D-7 마감 압박을 그대로 살려 지금 결정해야 할 이유를 만들었습니다. 목표가 뚜렷한 수험생에게 잘 통하고 클릭까지 자연스럽게 이어집니다."
+Rules for "body":
+- Follow the per-platform body spec above for length and format.
+- Do NOT explain, justify, or describe the headline. Never write about "this heading"
+  or why it works — that is not what the field is for.
+- Do not repeat the headline verbatim; carry its promise forward instead.
+- The length ranges are guidelines, not hard limits. A few characters outside is fine
+  when it reads better, but never pad with filler to hit a number.
+
+Example of the relationship between the two fields (format and length still follow
+the platform spec above — this pair is only showing what "body" is for):
+- text: "마감 D-7, 50% 할인"
+- body: "수능까지 남은 시간, 교재값까지 고민할 여유는 없죠. 지금 등록하면 전 과목 패키지를 반값에 들을 수 있어요. 마감은 이번 주 일요일까지입니다."
+
+Note how the body speaks to the reader and carries the offer forward. It does not say
+anything like "이 문구는 긴급성을 강조합니다" — that would be describing the headline.
 """
 
 
 def _build_system_prompt(platform: str | None = None) -> str:
     """전체(기본) 또는 단일 플랫폼용 시스템 프롬프트를 스펙에서 조립한다."""
     specs = {platform: _PLATFORM_SPECS[platform]} if platform else _PLATFORM_SPECS
-    total = sum(count for count, _ in specs.values())
+    total = sum(spec.count for spec in specs.values())
     platform_phrase = f"{len(specs)} platform" + ("s" if len(specs) > 1 else "")
     breakdown = "\n".join(
-        f"- {name} ({count} headings): {style}" for name, (count, style) in specs.items()
+        f"- {name} ({spec.count} headings): {spec.title_style}" for name, spec in specs.items()
     )
-    order = ", ".join(f"{name} × {count}" for name, (count, _) in specs.items())
+    body_breakdown = "\n".join(f"- {name}: {spec.body_style}" for name, spec in specs.items())
+    order = ", ".join(f"{name} × {spec.count}" for name, spec in specs.items())
     first_platform = next(iter(specs))
 
     return f"""\
@@ -89,13 +132,17 @@ Analyze the provided image and generate EXACTLY {total} compelling Korean market
 Platform breakdown and style guide — these lengths apply to the "text" field only:
 {breakdown}
 
+Body copy spec per platform — these apply to the "body" field:
+{body_breakdown}
+
 {_PROMPT_BODY}
 STRICT OUTPUT RULES:
 1. Respond ONLY with valid JSON — no markdown, no code block, no extra text whatsoever.
-2. ALL text and desc fields must be in Korean.
+2. ALL text and body fields must be in Korean.
 3. Generate headings in this exact order: {order}.
-4. Use this EXACT JSON schema (id starts at 1, increments by 1):
-{{"headings": [{{"id": 1, "platform": "{first_platform}", "text": "...", "desc": "이 문구를 추천하는 이유를 85자 내외 두 문장으로"}}, ...]}}
+4. Every item MUST include a non-empty "body".
+5. Use this EXACT JSON schema (id starts at 1, increments by 1):
+{{"headings": [{{"id": 1, "platform": "{first_platform}", "text": "...", "body": "게시물에 그대로 올릴 본문 카피"}}, ...]}}
 """
 
 
@@ -105,42 +152,68 @@ def _make_thumbnail_bytes(file_bytes: bytes) -> bytes:
     return make_thumbnail_jpeg(file_bytes, _THUMBNAIL_BOX)
 
 
-# desc 길이 보정 — 프롬프트만으로는 한글 글자 수가 잡히지 않는다.
-# 같은 지시로 여러 번 돌려도 평균이 78~121자로 흔들려서(모델이 글자를 못 셈),
-# 눈에 띄게 긴 것만 문장 경계에서 되돌린다. 문장 중간을 자르는 일은 없다.
-_DESC_TARGET = 85
-_DESC_MAX = 110              # 이 이하는 "85자 내외"로 보고 그대로 둔다
-_DESC_MIN_AFTER_TRIM = 60    # 잘라낸 결과가 이보다 짧아지면 차라리 원문을 쓴다
+# 본문 길이 보정 — 프롬프트만으로는 한글 글자 수가 잡히지 않는다.
+# 같은 지시로 여러 번 돌려도 모델이 글자를 못 세서 분량이 흔들리므로, 눈에 띄게
+# 긴 것만 문장 경계에서 되돌린다. 문장 중간을 자르는 일은 없다.
+#
+# 한도는 매체마다 다르다(_PLATFORM_SPECS.body_max) — 유튜브 설명란 두 줄과
+# 블로그 도입 문단을 같은 자로 재면 한쪽이 반드시 어색해진다.
+_BODY_MIN_AFTER_TRIM = 60    # 잘라낸 결과가 이보다 짧아지면 차라리 원문을 쓴다
 
 _SENTENCE_END = re.compile(r'(?<=[.!?])\s+')
 
+# 인스타그램 본문의 마지막 줄에 붙는 해시태그. 프롬프트가 모델에게 "해시태그는
+# 60~120자 범위에 포함하지 않는다"고 지시하므로, 길이 한도도 같은 기준으로 재야
+# 한다. 포함해서 재면 여유가 30자(150-120)뿐이라 해시태그 5개(30자를 쉽게 넘는다)가
+# 통째로 잘려 나갔다 — 모델은 지시대로 답했는데 보정이 조용히 지우는 상태였다.
+_HASHTAG_LINE = re.compile(r'\n\s*(#[^\s#]+(?:\s+#[^\s#]+)*)\s*$')
 
-def _fit_desc(desc: str) -> str:
-    """지나치게 길게 나온 desc 를 문장 단위로만 줄여 목표(85자)에 가깝게 되돌린다.
 
-    _DESC_MAX 이하면 손대지 않는다 — 90자든 105자든 "85자 내외"의 범위이고,
-    자연스러운 문장을 건드릴 이유가 없다.
+def _split_hashtags(body: str) -> tuple[str, str]:
+    """본문을 (산문, 해시태그 줄)로 나눈다. 해시태그가 없으면 두 번째가 빈 문자열.
+
+    줄 전체가 해시태그로만 이뤄진 마지막 줄만 떼어 낸다. 문장 안에 섞인 해시태그는
+    본문의 일부이므로 건드리지 않는다.
+    """
+    match = _HASHTAG_LINE.search(body)
+    if match is None:
+        return body, ""
+    return body[: match.start()].rstrip(), match.group(1)
+
+
+def _fit_body(body: str, cap: int) -> str:
+    """지나치게 길게 나온 본문을 문장 단위로만 줄여 한도 안으로 되돌린다.
+
+    cap 이하면 손대지 않는다 — 권장 범위를 조금 넘은 정도는 자연스러운 문장이고,
+    건드릴 이유가 없다.
 
     줄일 때는 앞 문장부터 이어 붙이다가 한도를 넘기 직전까지만 남긴다. 한 문장짜리라
     자를 지점이 없거나 남는 게 너무 짧아지면 원문을 그대로 돌려준다 — 어색하게 잘린
     문장보다 조금 긴 문장이 낫다.
-    """
-    desc = desc.strip()
-    if len(desc) <= _DESC_MAX:
-        return desc
 
-    sentences = _SENTENCE_END.split(desc)
+    **해시태그 줄은 길이 계산에서 제외하고, 잘릴 때도 그대로 남긴다.** 해시태그는
+    분량이 아니라 검색 유입 장치이고, 프롬프트도 그렇게 지시한다. 산문만 줄인 뒤
+    해시태그를 다시 붙인다.
+    """
+    body = body.strip()
+    prose, hashtags = _split_hashtags(body)
+    if len(prose) <= cap:
+        return body  # 해시태그까지 원문 그대로
+
+    sentences = _SENTENCE_END.split(prose)
     if len(sentences) < 2:
-        return desc
+        return body
 
     kept = ""
     for sentence in sentences:
         candidate = f"{kept} {sentence}".strip() if kept else sentence
-        if kept and len(candidate) > _DESC_MAX:
+        if kept and len(candidate) > cap:
             break
         kept = candidate
 
-    return kept if len(kept) >= _DESC_MIN_AFTER_TRIM else desc
+    if len(kept) < _BODY_MIN_AFTER_TRIM:
+        return body
+    return f"{kept}\n{hashtags}" if hashtags else kept
 
 
 def _parse_response(
@@ -163,8 +236,14 @@ def _parse_response(
     headings = headings[:target]
     for i, item in enumerate(headings, start=1):
         item["id"] = i
-        if isinstance(item.get("desc"), str):
-            item["desc"] = _fit_desc(item["desc"])
+        spec = _PLATFORM_SPECS.get(item.get("platform")) if isinstance(item, dict) else None
+        body = item.get("body") if isinstance(item, dict) else None
+        # body 누락은 성공으로 넘기지 않는다 — 본문 없는 문구는 쓸 데가 없고,
+        # 호출부가 이 예외를 재시도로 받는다. desc 만 오던 옛 응답도 여기서 걸린다.
+        if not isinstance(body, str) or not body.strip():
+            raise RuntimeError(f"AI 응답에 body 가 없습니다: {str(item)[:200]!r}")
+        if spec is not None:
+            item["body"] = _fit_body(body, spec.body_max)
     data["headings"] = headings
 
     from pydantic import ValidationError
@@ -205,7 +284,7 @@ async def _call_gemini(
     thumbnail_bytes: bytes, platform: str | None = None
 ) -> tuple[str, TokenUsage | None]:
     """Gemini Vision 호출 → (원본 텍스트 응답, 토큰 사용량). API 오류는 RuntimeError로 변환."""
-    target = _PLATFORM_SPECS[platform][0] if platform else _TARGET_COUNT
+    target = _PLATFORM_SPECS[platform].count if platform else _TARGET_COUNT
     scope = f"{platform} 플랫폼용" if platform else "매체별"
     try:
         response = await _gemini().aio.models.generate_content(
@@ -260,7 +339,7 @@ async def generate_headings(
     if platform is not None and platform not in _PLATFORM_SPECS:
         raise ValueError(f"지원하지 않는 플랫폼: {platform!r}")
 
-    target = _PLATFORM_SPECS[platform][0] if platform else _TARGET_COUNT
+    target = _PLATFORM_SPECS[platform].count if platform else _TARGET_COUNT
     thumbnail_bytes = _make_thumbnail_bytes(file_bytes)
 
     best: HeadingResponse | None = None

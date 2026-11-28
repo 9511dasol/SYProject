@@ -5,7 +5,7 @@
 정리 잡이 기업째 지운다 — 그 전체 수명주기를 여기서 고정한다.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -20,14 +20,18 @@ from app.core.settings import settings
 from app.models.ai_usage_budget_model import AIUsageBudget
 from app.models.audit_log_model import AuditLog
 from app.models.company_model import Company
+from app.models.keyword_watch_model import KeywordRankSnapshot, KeywordWatch
 from app.models.marketing_model import MarketingData
+from app.models.rank_alert_log_model import RankAlertLog
 from app.models.user_model import User
 from app.routers import dev_router
 from app.services import trial_service
+from app.services.rank_monitor_service import compute_streak
 
 _TABLES = [
     "companies", "users", "audit_logs", "ai_usage_budget", "ai_tool_usage_logs",
     "marketing_data", "marketing_period_meta", "report_log", "heading_suggestions",
+    "image_edit_records",
     "keyword_watch", "keyword_rank_snapshot", "rank_alert_log", "undo_snapshots",
     "background_tasks", "document_embedding",
 ]
@@ -206,6 +210,91 @@ def test_trial_issue_creates_sandbox_with_seed_and_budget(client, session_factor
     db.close()
 
 
+def test_trial_sandbox_seeds_rank_watches_with_history(client, session_factory):
+    """순위 화면이 비어 있으면 체험 손님이 핵심 가치를 보기도 전에 외부 수집을 눌러본다."""
+    cid = client.post("/api/dev/trials", json={"days": 3}).json()["company_id"]
+
+    db = session_factory()
+    watches = db.query(KeywordWatch).filter_by(company_id=cid).all()
+    assert len(watches) == len(trial_service._SAMPLE_RANK_WATCHES)
+
+    snapshots = db.query(KeywordRankSnapshot).filter_by(company_id=cid).all()
+    assert len(snapshots) == sum(
+        len(ranks) for *_, ranks in trial_service._SAMPLE_RANK_WATCHES
+    )
+    # 스냅샷도 기업에 직접 귀속돼야 한다 — 격리·삭제가 전 테이블에서 같은 비교를 쓴다.
+    assert {s.company_id for s in snapshots} == {cid}
+    # 체험 기업에는 광고 계정이 없다 — 하지도 않은 자동 수집을 했다고 표시하면 안 된다.
+    assert {s.source for s in snapshots} == {"upload"}
+    # 전일까지만 — 실제 수집이 전일 확정치 기준이라, 오늘 자 행이 있으면 체험 화면만
+    # 운영과 다른 모습이 된다.
+    assert max(s.stat_date for s in snapshots) == date.today() - timedelta(days=1)
+    db.close()
+
+
+def test_trial_rank_sample_shows_one_detected_drop(client, session_factory):
+    """예시의 요점은 "하락을 잡아 준다"다 — 전부 정상이면 보여줄 것이 없다."""
+    cid = client.post("/api/dev/trials", json={"days": 3}).json()["company_id"]
+
+    db = session_factory()
+    watches = db.query(KeywordWatch).filter_by(company_id=cid).all()
+    dropped = [w for w in watches if w.breach_streak >= w.breaches_required]
+
+    assert len(dropped) == 1, "하락 예시가 정확히 하나여야 한다"
+    # 이미 알린 것으로 두지 않으면, 체험 손님이 보고서를 한 번 올리는 순간 예시
+    # 하락들이 한꺼번에 알림으로 나간다.
+    assert dropped[0].alerted is True
+    # 나머지는 깨끗해야 한다 — "전부 빨간 화면"은 제품이 고장난 것처럼 보이게 한다.
+    assert len([w for w in watches if w.breach_streak == 0]) == len(watches) - 1
+    db.close()
+
+
+def test_trial_rank_sample_seeds_matching_alert_history(client, session_factory):
+    """하락 표시만 있고 알림 이력이 비면 화면이 스스로 모순된다 — "연속 이탈 4회"와
+    "2회에 도달하면 알림이 나갑니다"가 나란히 뜬다."""
+    cid = client.post("/api/dev/trials", json={"days": 3}).json()["company_id"]
+
+    db = session_factory()
+    watches = {w.id: w for w in db.query(KeywordWatch).filter_by(company_id=cid).all()}
+    logs = db.query(RankAlertLog).filter_by(company_id=cid).all()
+    assert logs, "예시 하락에는 알림 기록이 따라와야 한다"
+    # 하락만 보여주면 "알려는 주는데 끝난 건 모르는" 제품으로 읽힌다 — 회복까지 보여준다.
+    assert {lg.alert_type for lg in logs} == {"drop", "recovered"}
+
+    # 기록을 지어내지 않는다 — 남은 알림은 그 시점에 실제로 기준을 넘긴 것뿐이다.
+    for log in logs:
+        watch = watches[log.watch_id]
+        assert log.target_rank == watch.target_rank
+        assert log.recipients, "수신자가 비면 '누구한테 간 메일이지?'가 된다"
+        if log.alert_type == "drop":
+            assert log.breach_streak >= watch.breaches_required
+
+    # 하락을 알린 뒤 회복하지 않은 감시만 alerted 로 남는다 — 이게 어긋나면 체험
+    # 손님이 보고서를 올리는 순간 예시 하락이 알림으로 쏟아지거나, 반대로 영영 안 나간다.
+    for watch in watches.values():
+        mine = sorted(
+            (lg for lg in logs if lg.watch_id == watch.id), key=lambda lg: lg.created_at
+        )
+        assert watch.alerted is (bool(mine) and mine[-1].alert_type == "drop"), watch.keyword
+    db.close()
+
+
+def test_trial_rank_streak_is_derived_from_history(client, session_factory):
+    """숫자를 박아 두면 목표·허용값을 손볼 때 이력과 표시가 어긋난다 — 화면에서만 드러난다."""
+    cid = client.post("/api/dev/trials", json={"days": 3}).json()["company_id"]
+
+    db = session_factory()
+    for watch in db.query(KeywordWatch).filter_by(company_id=cid).all():
+        history = (
+            db.query(KeywordRankSnapshot)
+            .filter_by(watch_id=watch.id)
+            .order_by(KeywordRankSnapshot.stat_date.desc())
+            .all()
+        )
+        assert watch.breach_streak == compute_streak(watch, history)
+    db.close()
+
+
 def test_expired_trial_is_blocked_then_purged(client, session_factory):
     cid = client.post("/api/dev/trials", json={"days": 1}).json()["company_id"]
 
@@ -226,6 +315,10 @@ def test_expired_trial_is_blocked_then_purged(client, session_factory):
     assert db.query(User).filter_by(company_id=cid).count() == 0
     assert db.query(MarketingData).filter_by(company_id=cid).count() == 0
     assert db.query(AIUsageBudget).filter_by(company_id=cid).count() == 0
+    # 순위 예시도 함께 사라져야 한다 — 기업이 지워졌는데 감시·이력만 남으면 고아다.
+    assert db.query(KeywordWatch).filter_by(company_id=cid).count() == 0
+    assert db.query(KeywordRankSnapshot).filter_by(company_id=cid).count() == 0
+    assert db.query(RankAlertLog).filter_by(company_id=cid).count() == 0
     db.close()
 
 

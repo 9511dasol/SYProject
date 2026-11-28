@@ -6,8 +6,15 @@ export type { ImageDimensions, OutputFormat };
  * 이미지 편집 폼 상태 (출력 설정).
  *
  * 지시문은 여기 두지 않는다 — 여러 건을 따로 켜고 끄고 지우므로 `Instruction[]` 로 분리했다.
+ *
+ * 리사이저와 공유하는 `ResizeFormState` 에 장수를 직접 넣지 않고 확장하는 이유 —
+ * 시안 장수는 AI 편집에만 있는 개념이다. 공유 타입에 넣으면 리사이저 폼이
+ * 쓰지도 않는 필드를 들고 다니게 된다.
  */
-export type FilterFormState = ResizeFormState;
+export interface FilterFormState extends ResizeFormState {
+  /** 한 번에 만들 편집 시안 장수 — 한 장이 이미지 생성 1회(=과금 1회)다 */
+  variantCount: number;
+}
 
 /** 지시문 한 건의 글자 수 상한 */
 export const MAX_INSTRUCTION_LENGTH = 500;
@@ -84,6 +91,8 @@ export interface ImageVersion {
   filename: string;
   /** 이 버전을 만든 지시 요약 (사람이 읽는 문장) */
   note?: string;
+  /** 같은 요청 1회로 함께 만들어진 장들의 묶음 번호 — 대화에서 답 하나로 묶는다 */
+  batch?: number;
 }
 
 /** 클라이언트 처리 단계 */
@@ -126,4 +135,35 @@ export interface BackgroundVariant {
   label: string;         // "스튜디오 화이트" 등
   image_base64: string;
   mime: string;
+}
+
+/**
+ * 편집 시안 장수 — 서버(`image_filter_service`)와 같은 값이어야 한다.
+ *
+ * 한 장이 이미지 생성 1회다. 즉 장수가 그대로 토큰 배수이므로, 올릴 때 비용이
+ * 함께 오른다는 사실을 화면에서 보여 준다. 서버도 같은 한도로 막는다 —
+ * 여기 값은 "보내기 전에 알려 주기" 용도이고 실제 방어선은 서버다.
+ */
+export const DEFAULT_EDIT_VARIANTS = 4;
+export const MAX_EDIT_VARIANTS = 6;
+
+/** 편집 시안 1장 — image_base64 는 data URL 본문 (프리픽스 없음) */
+export interface EditVariant {
+  image_base64: string;
+  mime: string;
+  filename: string;
+}
+
+/** 내가 과거에 보낸 편집 전송 1회의 기록 — 결과 이미지가 보관돼 있을 수 있다 */
+export interface EditPromptRecord {
+  id: number;
+  prompt: string;
+  image_filename: string;
+  created_at: string;
+  /** 생성 당시 시안 장수 — 만료돼도 "시안 4장 (만료)" 로 보여야 한다 */
+  variant_count: number;
+  /** false 면 보관 기간이 지나 이미지가 삭제된 것 — 프롬프트만 남는다 */
+  images_available: boolean;
+  /** 실제 보관된 장수 — 업로드 일부 실패 시 variant_count 보다 적을 수 있다 */
+  image_count: number;
 }

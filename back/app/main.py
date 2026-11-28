@@ -52,12 +52,17 @@ from app.routers import (
 from app.services import task_store, trial_service
 from app.services.rank.alert_factory import run_rank_alerts
 from app.services.rank.collector import collect_ranks
+from app.services.rank.credentials import naver_scope_company_id
 from app.services.report_factory import build_orchestrator
 
 configure_logging(settings.LOG_LEVEL)  # 아래 기동 로그가 실제로 남으려면 먼저 호출돼야 한다
 
 logger = logging.getLogger(__name__)
-scheduler = AsyncIOScheduler()
+
+# 시간대를 명시한다 — 생략하면 APScheduler 가 프로세스 로컬 시간대를 쓴다. 운영
+# 컨테이너는 python:3.14-slim 기본값인 UTC 라(호스트 VM 은 KST 인데도) 아래 크론들이
+# 9시간씩 밀려 돌았다: "아침 알림"(hour=9)이 한국시간 18시, "새벽 정리"(hour=4)가 13시.
+scheduler = AsyncIOScheduler(timezone=settings.SCHEDULER_TIMEZONE)
 
 # 관리자 페이지 "기능 플래그" 기본값 — key: (기본값, 설명)
 _DEFAULT_FEATURE_FLAGS: dict[str, tuple[str, str]] = {
@@ -186,15 +191,59 @@ def _purge_expired_trials() -> None:
         db.close()
 
 
+def _purge_expired_edit_images() -> None:
+    """보관 기간이 지난 이미지 편집 결과의 **이미지만** 지운다 (2026-11-27 확정 정책).
+
+    레코드(프롬프트)는 남긴다 — 화면이 "만료됨"으로 표시하고 지시 재사용을
+    제공하기 위해서다. 스토리지 객체 삭제가 일부 실패해도 레코드를 만료 처리하지
+    않고 다음 날 다시 시도한다 — 경로를 비워 버리면 그 객체는 영영 고아가 된다.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.repositories.image_edit_record_repo import ImageEditRecordRepository
+    from app.services import storage_service
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=settings.IMAGE_EDIT_RETENTION_DAYS)
+    db = SessionLocal()
+    try:
+        repo = ImageEditRecordRepository(db)
+        cleared = 0
+        for record in repo.list_expired(cutoff):
+            try:
+                for path in record.image_paths:
+                    storage_service.delete_object(path)
+            except Exception:
+                logger.exception("만료 이미지 삭제 실패 — 다음 정리에서 재시도 (record=%s)", record.id)
+                continue
+            repo.clear_images(record)
+            cleared += 1
+        if cleared:
+            logger.info("만료 이미지 정리 — 레코드 %d건의 이미지 삭제 (보관 %d일)",
+                        cleared, settings.IMAGE_EDIT_RETENTION_DAYS)
+    except Exception:
+        db.rollback()
+        logger.exception("만료 이미지 정리 실패")
+    finally:
+        db.close()
+
+
 def _collect_ranks() -> None:
     """APScheduler 가 호출하는 일일 순위 자동 수집 (M2).
 
     전일 확정치를 받아 적재하고, 이어서 바로 알림을 평가한다 — 받아온 그 순간이
     하락이 확정되는 시점이라 다음 크론까지 기다릴 이유가 없다.
     """
+    # 키가 전역 1벌이라 "전 기업"으로 돌리면 남의 기업 키워드를 소유 기업 계정으로
+    # 조회하게 된다. 범위를 소유 기업으로 못박는다 — 기업별 자격증명이 생기면
+    # 이 한 줄이 "자격증명을 가진 기업 목록 순회"로 바뀐다.
+    scope = naver_scope_company_id()
+    if scope is None:
+        logger.info("일일 순위 수집 건너뜀 — 네이버 검색광고 API 미설정")
+        return
+
     db = SessionLocal()
     try:
-        result = collect_ranks(db)
+        result = collect_ranks(db, company_id=scope)
         db.commit()
         if result.skipped_reason:
             logger.info("일일 순위 수집 건너뜀 — %s", result.skipped_reason)
@@ -203,7 +252,7 @@ def _collect_ranks() -> None:
             "일일 순위 수집 완료 — %s, 적재 %d건 (ID 해석 %d, 미발견 %d)",
             result.stat_date, result.collected, result.resolved, len(result.not_found),
         )
-        alerts = run_rank_alerts(db)
+        alerts = run_rank_alerts(db, scope)
         db.commit()
         if alerts.drops or alerts.recoveries:
             logger.info(
@@ -223,9 +272,15 @@ def _run_rank_alerts() -> None:
     업로드 직후에도 평가하지만, 그 경로만 두면 "하루 종일 아무도 올리지 않아
     하락을 아무도 모르는" 날이 생긴다. API 수집(M2)이 붙으면 이 경로가 주 경로가 된다.
     """
+    # 수집 크론과 같은 이유로 범위를 고정한다 — 전역 수신자에게 남의 기업
+    # 키워드가 담긴 메일이 나가지 않게.
+    scope = naver_scope_company_id()
+    if scope is None:
+        return
+
     db = SessionLocal()
     try:
-        result = run_rank_alerts(db)
+        result = run_rank_alerts(db, scope)
         db.commit()
         if result.drops or result.recoveries:
             logger.info(
@@ -283,6 +338,16 @@ async def lifespan(_: FastAPI):
         trigger="cron",
         hour=int(settings.TRIAL_PURGE_CRON_HOUR),
         id="trial_purge",
+        replace_existing=True,
+    )
+
+    # 보관 기간(기본 14일)이 지난 이미지 편집 결과 정리 — 체험 정리와 같은 시각.
+    # 기획(4-8장 ②-B)대로 새 스케줄러를 만들지 않고 기존 일일 크론 시각에 붙인다.
+    scheduler.add_job(
+        _purge_expired_edit_images,
+        trigger="cron",
+        hour=int(settings.TRIAL_PURGE_CRON_HOUR),
+        id="image_edit_purge",
         replace_existing=True,
     )
 

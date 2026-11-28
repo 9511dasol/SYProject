@@ -23,7 +23,7 @@ _PLATFORMS = ["Instagram"] * 4 + ["Blog"] * 3 + ["YouTube"] * 3
 
 def _response_json(count: int) -> str:
     headings = [
-        {"id": i + 1, "platform": _PLATFORMS[i], "text": f"제목 {i + 1}", "desc": "추천 이유 설명"}
+        {"id": i + 1, "platform": _PLATFORMS[i], "text": f"제목 {i + 1}", "body": "게시물에 올릴 본문 카피입니다."}
         for i in range(count)
     ]
     return json.dumps({"headings": headings}, ensure_ascii=False)

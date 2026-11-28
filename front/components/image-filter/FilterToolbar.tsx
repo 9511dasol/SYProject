@@ -1,15 +1,17 @@
 'use client';
 
 import { useRef } from 'react';
-import type { ChangeEvent } from 'react';
+import type { ChangeEvent, ReactNode } from 'react';
 import Button from '@/components/ui/Button';
 import type { FilterFormState, ImageVersion } from '@/types/imageFilter';
 
 interface FilterToolbarProps {
+  /** 맨 앞자리 — 좁은 화면에서 대화 목록을 여는 버튼이 들어온다 */
+  leading?: ReactNode;
   /** 원본 버전 — 파일명·크기를 여기서 읽는다 */
   original: ImageVersion;
   form: FilterFormState;
-  /** 출력 요약 칩을 누르면 오른쪽 패널의 출력 설정이 열린다 */
+  /** 출력 요약 칩을 누르면 대화 열의 출력 설정이 열린다 */
   onOpenSettings: () => void;
   onReplace: (file: File) => void;
   onReset: () => void;
@@ -26,6 +28,7 @@ interface FilterToolbarProps {
  * 실제로 필요한 정보(첨부 파일·출력 설정)로 바꿨다.
  */
 export default function FilterToolbar({
+  leading,
   original,
   form,
   onOpenSettings,
@@ -48,6 +51,7 @@ export default function FilterToolbar({
 
   return (
     <div className="flex items-center gap-2 px-3 sm:px-4 py-2 border-b border-border bg-surface shrink-0">
+      {leading}
       {/* 첨부 파일 */}
       <div className="flex items-center gap-2 min-w-0 rounded-xl bg-surface-2 border border-border pl-1.5 pr-2 py-1">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -81,7 +85,7 @@ export default function FilterToolbar({
 
       <div className="flex-1" />
 
-      {/* 출력 요약 — 누르면 오른쪽 패널의 출력 설정이 열린다 */}
+      {/* 출력 요약 — 누르면 대화 열의 출력 설정이 열린다 */}
       <button
         type="button"
         onClick={onOpenSettings}
