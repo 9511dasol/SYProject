@@ -288,7 +288,7 @@ export default function ImageFilterClient() {
   // 쓰도록 ref 로 넘긴다 — await 사이에 seed 를 비웠는데 낡은 클로저가 옛 seed 를
   // 읽으면, 이미 적용된 지시가 그 결과물에 또 걸린다. ref 동기화는 handleAttach
   // 선언 뒤의 effect 가 맡는다 (선언 전 참조는 컴파일러 최적화를 깬다).
-  const attachRef = useRef<(file: File) => boolean>(() => false);
+  const attachRef = useRef<(file: File, keepThread?: boolean) => boolean>(() => false);
 
   /**
    * 보관된 시안 하나로 이어서 작업한다 (스레드의 썸네일 클릭).
@@ -302,19 +302,20 @@ export default function ImageFilterClient() {
         const file = await fetchEditResultImage(
           entry.recordId,
           index,
-          threadGroup?.filename ?? 'edited.jpg',
+          threadGroup?.filename ?? pastThread?.filename ?? 'edited.jpg',
         );
         // ref 를 직접 비워야 바로 다음 줄의 첨부가 빈 시드를 본다 — setSeed 만으로는
         // 이 틱의 핸들러가 여전히 옛 시드를 읽는다 (이중 적용 사고의 지점).
         seedRef.current = [];
         setSeed([]);
-        attachRef.current(file);
+        // 작업 중에 지난 시안으로 돌아간 경우에도 그 대화는 위에 남긴다 (keepThread)
+        attachRef.current(file, true);
       } catch (err) {
         const message = err instanceof Error ? err.message : '시안을 불러오지 못했습니다.';
         toast('error', message);
       }
     },
-    [threadGroup, toast],
+    [pastThread, threadGroup, toast],
   );
 
   /** 기록 한 건 삭제 — 스레드와 목록 양쪽에서 바로 사라져야 한다 */
@@ -363,7 +364,7 @@ export default function ImageFilterClient() {
 
   /* ── 이미지 첨부 (버튼·드래그·붙여넣기 공통 진입점) ─────────── */
   const handleAttach = useCallback(
-    (file: File): boolean => {
+    (file: File, keepThread = false): boolean => {
       const problem = validateImageFile(file);
       if (problem) {
         setLastError(problem);
@@ -376,6 +377,13 @@ export default function ImageFilterClient() {
       // 같은 지시를 다른 이미지에 적용해 보는 건 흔한 작업이다.
       const carried: Instruction[] = (activeId ? (instructionsByVersion[activeId] ?? []) : [])
         .filter((ins) => ins.targetElementId === null && ins.text.trim())
+        // 지난 대화의 시안으로 되돌아간 경우(keepThread), 그 대화에서 넘어온 지시는
+        // 그 시안에 **이미 적용돼 있다** — 같이 옮기면 같은 지시가 두 번 걸린다.
+        // 사용자가 새로 쓴 지시는 그대로 옮긴다.
+        .filter(
+          (ins) =>
+            !keepThread || !pastThread?.items.some((item) => item.text === ins.text.trim()),
+        )
         .map((ins) => ({ ...ins, status: 'draft' }));
 
       abortRef.current?.abort();
@@ -407,13 +415,14 @@ export default function ImageFilterClient() {
       setMobileView('chat');
       // 스레드 안에서 올렸든 어디서 올렸든, 첨부되면 열람은 끝나고 작업이 시작된다.
       // 스레드에서 시작한 작업이면 그 대화를 작업 화면으로 넘겨 이어서 보여 준다.
-      // 작업 중에 이미지를 바꾼 경우(activeId 있음)는 다른 대화라 넘기지 않는다.
-      setPastThread(activeId ? null : threadGroup);
+      // 작업 중에 이미지를 바꾼 경우(activeId 있음)는 다른 대화라 넘기지 않는다 —
+      // 단, 이어받은 대화의 시안으로 되돌아간 것(keepThread)은 같은 대화다.
+      setPastThread(activeId ? (keepThread ? pastThread : null) : threadGroup);
       setThreadGroup(null);
       setOpenSection('elements');
       return true;
     },
-    [activeId, instructionsByVersion, start, threadGroup, toast],
+    [activeId, instructionsByVersion, pastThread, start, threadGroup, toast],
   );
 
   // 매 렌더 최신 첨부 핸들러를 ref 에 반영 — handleContinueFrom 의 비동기 흐름이 쓴다
@@ -1058,6 +1067,7 @@ export default function ImageFilterClient() {
                   }}
                   onDownload={(version) => triggerDownload(version.file, version.filename)}
                   past={pastThread}
+                  onContinuePast={handleContinueFrom}
                   retentionDays={retentionDays}
                   pendingText={sending || bgLoading ? statusText : null}
                   disabled={sending}
@@ -1092,6 +1102,8 @@ export default function ImageFilterClient() {
                 setForm((prev) => ({ ...prev, variantCount }))
               }
               retentionDays={retentionDays}
+              onAttachImage={handleAttach}
+              resultCount={versions.length - 1}
               toolsOpen={toolsOpen}
               onToggleTools={() => setToolsOpen((prev) => !prev)}
               sending={sending}

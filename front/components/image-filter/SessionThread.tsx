@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 import { editHistoryImageUrl } from '@/lib/imageFilterClient';
-import type { HistoryGroup } from '@/lib/imageFilterHistory';
+import type { HistoryEntry, HistoryGroup } from '@/lib/imageFilterHistory';
 import type { ImageVersion } from '@/types/imageFilter';
 
 interface SessionThreadProps {
@@ -15,6 +15,9 @@ interface SessionThreadProps {
   onDownload: (version: ImageVersion) => void;
   /** 이 작업이 이어받은 지난 대화 — 스레드에서 이미지를 올려 시작했을 때만 있다 */
   past: HistoryGroup | null;
+  /** 이어받은 지난 대화의 시안 하나로 돌아가 거기서 다시 이어 간다.
+   *  지금 작업의 이미지가 그 시안으로 바뀐다 — 지난 대화는 위에 그대로 남는다 */
+  onContinuePast: (entry: HistoryEntry, index: number) => void;
   retentionDays: number;
   /** AI 가 답을 만드는 중이면 그 안내 문구 — 왼쪽 "입력 중" 말풍선으로 선다 */
   pendingText: string | null;
@@ -77,7 +80,8 @@ function toTurns(versions: ImageVersion[]): Turn[] {
  * 맡고, 스레드는 "무엇을 시켜 무엇이 왔는지"의 흐름을 맡는다.
  *
  * 예전에는 이미지를 올리는 순간 지난 대화(ThreadView)가 닫히고 작업대로
- * 넘어가 대화가 끊겼다. 이어받은 지난 대화도 위쪽에 읽기 전용으로 남긴다.
+ * 넘어가 대화가 끊겼다. 이어받은 지난 대화도 위쪽에 남기고, 그 시안을 누르면
+ * 그 시점으로 돌아가 다시 이어 갈 수 있다.
  */
 export default function SessionThread({
   versions,
@@ -86,6 +90,7 @@ export default function SessionThread({
   onZoom,
   onDownload,
   past,
+  onContinuePast,
   retentionDays,
   pendingText,
   disabled,
@@ -119,14 +124,25 @@ export default function SessionThread({
                 {entry.imagesAvailable ? (
                   <div className="flex flex-wrap gap-1 max-w-[85%] rounded-2xl rounded-bl-md border border-border bg-surface-2 p-1.5">
                     {Array.from({ length: entry.imageCount }, (_, i) => (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
+                      <button
                         key={i}
-                        src={editHistoryImageUrl(entry.recordId, i)}
-                        alt={`지난 시안 ${i + 1}`}
-                        loading="lazy"
-                        className="block h-14 w-14 rounded-lg object-cover bg-surface-3"
-                      />
+                        type="button"
+                        onClick={() => onContinuePast(entry, i)}
+                        disabled={disabled}
+                        title="이 시안으로 돌아가 이어서 작업 — 지금 작업 이미지가 이 시안으로 바뀝니다"
+                        className="group/past relative overflow-hidden rounded-lg ring-1 ring-border hover:ring-indigo-300 transition-shadow disabled:pointer-events-none"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={editHistoryImageUrl(entry.recordId, i)}
+                          alt={`지난 시안 ${i + 1}`}
+                          loading="lazy"
+                          className="block h-14 w-14 object-cover bg-surface-3"
+                        />
+                        <span className="absolute inset-0 hidden group-hover/past:flex items-center justify-center bg-black/55 text-[10px] font-semibold text-white">
+                          이어서
+                        </span>
+                      </button>
                     ))}
                   </div>
                 ) : (

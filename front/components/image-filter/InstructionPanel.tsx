@@ -82,6 +82,11 @@ interface InstructionPanelProps {
   /** 이미지 보관 일수 — 서버 설정이 단일 출처, 고지 문구가 어긋나지 않게 받는다 */
   retentionDays: number;
 
+  /** 컴포저에서 다른 이미지를 올린다 — 그 이미지로 새 작업이 시작된다 */
+  onAttachImage: (file: File) => void;
+  /** 지금 작업에 쌓인 시안 장수 — 있으면 이미지를 바꾸기 전에 한 번 확인받는다 */
+  resultCount: number;
+
   /** 도구 묶음(요소 찾기 · 배경 시안 · 지난 기록 · 출력 설정)이 열려 있는가 —
    *  툴바의 출력 칩에서도 열어야 해서 상위가 들고 있다 */
   toolsOpen: boolean;
@@ -145,6 +150,8 @@ export default function InstructionPanel({
   onFormatChange,
   onVariantCountChange,
   retentionDays,
+  onAttachImage,
+  resultCount,
   toolsOpen,
   onToggleTools,
   sending,
@@ -157,6 +164,15 @@ export default function InstructionPanel({
   /** 푸터 입력칸 — 상설이라 지시가 쌓여도 스크롤 밖으로 밀리지 않는다 */
   const [draft, setDraft] = useState('');
   const draftRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  /**
+   * 이미지 교체 확인 — 시안이 쌓인 뒤에만 묻는다.
+   *
+   * DM 에서는 사진을 한 장 더 보내도 대화가 이어지지만, 여기서는 새 이미지가
+   * 곧 새 작업이라 지금까지의 시안이 화면에서 사라진다. 입력창 옆 버튼 한 번에
+   * 그렇게 되면 사고라, 잃을 것이 있을 때만 한 번 더 확인한다.
+   */
+  const [confirmAttach, setConfirmAttach] = useState(false);
 
   // 이미지를 붙인 직후 바로 타이핑할 수 있게 포커스를 둔다. 이 패널은 첨부 뒤에만
   // 마운트되므로 마운트 시점이 곧 "첨부 직후"다. 모달을 자동으로 띄우지는 않는다 —
@@ -689,7 +705,33 @@ export default function InstructionPanel({
           </div>
         )}
 
-        {/* 컴포저 — [도구] [입력칸] [전송]. 스크롤되지 않는 자리에 고정된다. */}
+        {confirmAttach && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
+            <span className="min-w-0 flex-1 leading-relaxed">
+              새 이미지를 올리면 새 작업으로 시작돼요 — 지금 시안 {resultCount}장은 화면에서
+              사라집니다(보관된 것은 지난 작업에 남아요).
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmAttach(false);
+                fileRef.current?.click();
+              }}
+              className="shrink-0 rounded-lg bg-amber-600 px-2.5 py-1 font-semibold text-white hover:bg-amber-700 transition-colors"
+            >
+              이미지 고르기
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmAttach(false)}
+              className="shrink-0 rounded-lg px-2 py-1 font-medium hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
+            >
+              취소
+            </button>
+          </div>
+        )}
+
+        {/* 컴포저 — [도구] [이미지] [입력칸] [전송]. 스크롤되지 않는 자리에 고정된다. */}
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5">
             <button
@@ -707,6 +749,29 @@ export default function InstructionPanel({
             >
               <i className={`bx ${toolsOpen ? 'bx-x' : 'bx-plus'} text-lg`} />
             </button>
+
+            <button
+              type="button"
+              onClick={() => (resultCount > 0 ? setConfirmAttach(true) : fileRef.current?.click())}
+              disabled={aiBusy}
+              aria-label="다른 이미지 올리기"
+              title="다른 이미지 올리기 — 그 이미지로 새 작업을 시작합니다"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-surface text-fg-muted hover:text-fg hover:border-indigo-300 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+            >
+              <i className="bx bx-image-add text-lg" />
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              tabIndex={-1}
+              onChange={(event) => {
+                const picked = event.target.files?.[0];
+                if (picked) onAttachImage(picked);
+                event.target.value = '';
+              }}
+            />
 
             <input
               ref={draftRef}
