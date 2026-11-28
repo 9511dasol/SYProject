@@ -88,6 +88,7 @@ def _persist_edit_record(db: Session, user: User, inp: EditInput, result: EditRe
             user=user,
             company_id=user.company_id,
             image_filename=inp.filename,
+            thread_id=inp.thread_id,
             prompt=inp.prompt,
             image_paths=paths,
             variant_count=len(result.variants),

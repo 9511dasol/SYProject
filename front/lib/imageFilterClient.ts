@@ -139,6 +139,8 @@ export async function editAndResize(
   onCompress?: () => void,
   onEdit?: () => void,
   signal?: AbortSignal,
+  /** 대화(스레드) id — 같은 작업의 전송들이 지난 작업에서 한 대화로 묶인다 */
+  threadId?: string,
 ): Promise<{ provider: string; failed: number; variants: EditVariant[] }> {
   // 1. 클라이언트 사전 압축 (10MB↑)
   onCompress?.();
@@ -153,6 +155,7 @@ export async function editAndResize(
   form.append('height', height > 0 ? String(height) : '');
   form.append('format', format);
   form.append('count', String(count));
+  if (threadId) form.append('thread_id', threadId);
 
   const res = await authFetch('/api/image-filter/edit', {
     method: 'POST',

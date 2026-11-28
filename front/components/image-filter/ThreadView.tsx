@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { sinceText } from '@/lib/imageFilterHistory';
 import type { HistoryEntry, HistoryGroup } from '@/lib/imageFilterHistory';
@@ -20,6 +20,8 @@ interface ThreadViewProps {
   onContinueFrom: (entry: HistoryEntry, index: number) => void;
   /** 기록 한 건 삭제 (결과 이미지 포함) */
   onDeleteRecord: (entry: HistoryEntry) => void;
+  /** 이 대화 전체 삭제 — 기록과 보관된 시안이 모두 지워진다. 끝나면 resolve 한다 */
+  onDeleteGroup: (group: HistoryGroup) => Promise<void>;
   onClose: () => void;
   disabled: boolean;
 }
@@ -41,10 +43,17 @@ export default function ThreadView({
   onAttach,
   onContinueFrom,
   onDeleteRecord,
+  onDeleteGroup,
   onClose,
   disabled,
 }: ThreadViewProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  /**
+   * 대화 삭제 확인 — 되돌릴 수 없는 삭제라 버튼 한 번에 지우지 않는다.
+   * 지금은 "대화"가 파일명 묶음이라, 묶음에 든 기록을 하나씩 지우는 것이 곧 대화 삭제다.
+   */
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   // 기록은 최신순으로 쌓이지만 대화는 시간순으로 읽는 것이다
   const timeline = [...group.items].reverse();
 
@@ -63,6 +72,18 @@ export default function ThreadView({
         <div className="flex-1" />
         <button
           type="button"
+          onClick={() => setConfirmDelete(true)}
+          disabled={disabled || deleting}
+          aria-label="대화 삭제"
+          title="대화 삭제 (기록과 보관된 시안 모두)"
+          className="flex items-center justify-center w-7 h-7 rounded-lg text-fg-subtle
+            hover:text-red-500 hover:bg-surface-2 transition-colors
+            disabled:opacity-50 disabled:pointer-events-none"
+        >
+          <i className="bx bx-trash text-base" />
+        </button>
+        <button
+          type="button"
           onClick={onClose}
           aria-label="대화 닫기"
           className="flex items-center justify-center w-7 h-7 rounded-lg text-fg-subtle
@@ -71,6 +92,43 @@ export default function ThreadView({
           <i className="bx bx-x text-lg" />
         </button>
       </div>
+
+      {confirmDelete && (
+        <div
+          role="alertdialog"
+          aria-label="대화 삭제 확인"
+          className="shrink-0 flex flex-wrap items-center gap-2 border-b border-badge-danger-bdr bg-badge-danger-bg px-4 py-2.5 text-xs text-badge-danger-fg"
+        >
+          <span className="min-w-0 flex-1 leading-relaxed">
+            이 대화의 기록 {group.items.length}건과 보관된 시안이 모두 지워져요. 되돌릴 수 없습니다.
+          </span>
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={async () => {
+              setDeleting(true);
+              try {
+                await onDeleteGroup(group);
+              } finally {
+                // 일부만 지워져 대화가 남은 경우에도 확인 띠는 걷는다 — 결과는 토스트가 알린다
+                setDeleting(false);
+                setConfirmDelete(false);
+              }
+            }}
+            className="shrink-0 rounded-lg bg-red-600 px-2.5 py-1 font-semibold text-white hover:bg-red-700 transition-colors disabled:opacity-60 disabled:pointer-events-none"
+          >
+            {deleting ? '삭제 중…' : '삭제'}
+          </button>
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={() => setConfirmDelete(false)}
+            className="shrink-0 rounded-lg px-2 py-1 font-medium hover:bg-black/5 dark:hover:bg-white/10 transition-colors disabled:opacity-60"
+          >
+            취소
+          </button>
+        </div>
+      )}
 
       {/* ── 말풍선 ── */}
       <div className="flex-1 min-h-0 overflow-y-auto px-4 py-5 space-y-4">

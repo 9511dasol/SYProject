@@ -26,6 +26,8 @@ class EditInput:
     output_format: str
     #: None = count 를 보내지 않은 구버전 클라이언트. 라우터가 옛 응답 형태로 답한다.
     count:         int | None
+    #: 대화(스레드) id — 화면이 작업 시작 때 만든 값. 보내지 않으면 None (구버전 클라이언트).
+    thread_id:     str | None = None
 
 
 # ── FastAPI Dependency ────────────────────────────────────────────────────────
@@ -51,6 +53,15 @@ async def get_edit_input(
             "생략하면 구버전 클라이언트로 보고 이미지 1장을 바이너리로 돌려준다"
         ),
     ),
+    # 묶음 표시에만 쓰는 값이라 형식만 좁게 받는다(영숫자·하이픈). 조회는 언제나
+    # 기업+본인 범위 안에서만 일어나므로, 남의 id 를 보내도 남의 대화에 섞이지 않는다.
+    thread_id: str | None = Form(
+        None,
+        min_length=8,
+        max_length=36,
+        pattern=r"^[A-Za-z0-9-]+$",
+        description="대화(스레드) id — 같은 작업의 전송들을 한 대화로 묶는다. 생략 가능",
+    ),
 ) -> EditInput:
     """이미지 + 편집 프롬프트 전체 검증 후 EditInput 반환."""
     validate_content_length(request)
@@ -64,4 +75,5 @@ async def get_edit_input(
         height=height,
         output_format=fmt,
         count=count,
+        thread_id=thread_id,
     )

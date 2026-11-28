@@ -37,6 +37,12 @@ class ImageEditRecord(Base):
     user_email: Mapped[str] = mapped_column(String(255), default="")
     # 그때 올린 원본의 파일명 — 참고용. 원본 바이트는 저장하지 않는다.
     image_filename: Mapped[str] = mapped_column(String(255), default="")
+    # 대화(스레드) 식별자 — 같은 작업에서 이어 보낸 전송들을 한 대화로 묶는다.
+    # 파일명으로 묶으면 이름이 같은 다른 이미지가 한 대화로 합쳐지고, 결과를 이어
+    # 편집해 이름이 달라지면 같은 작업이 여러 대화로 쪼개진다. 화면이 작업을 시작할
+    # 때 만들어 보내는 값이고, 이 컬럼이 생기기 전 기록과 구버전 클라이언트는 NULL
+    # 이다(화면이 파일명 묶음으로 폴백한다).
+    thread_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     prompt: Mapped[str] = mapped_column(Text, default="")
     # Supabase Storage object path 목록 (시안 순서대로). 만료되면 [] 가 된다.
     image_paths: Mapped[list[str]] = mapped_column(PORTABLE_JSON, default=list)

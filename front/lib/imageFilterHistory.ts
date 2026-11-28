@@ -14,8 +14,14 @@ export interface HistoryEntry {
   imageCount: number;
 }
 
-/** 지난 작업 묶음 하나 — 같은 이미지에 보낸 지시들을 한 "대화"로 본다 */
+/** 지난 작업 묶음 하나 — 한 작업에서 이어 보낸 지시들을 한 "대화"로 본다 */
 export interface HistoryGroup {
+  /** 목록·선택 표시에 쓰는 고유 키 — 대화 id 가 있으면 그것, 없으면 파일명 기반 */
+  key: string;
+  /** 서버가 아는 대화 id — 이어서 작업할 때 이 값을 다시 보내 같은 대화에 쌓는다.
+   *  null 이면 대화 id 가 생기기 전 기록(파일명 묶음)이다 */
+  threadId: string | null;
+  /** 대화 이름 — 가장 최근 전송의 파일명 */
   filename: string;
   latestAt: number;
   /** 최신순 — 화면 목록용. 대화(스레드)로 볼 때는 뒤집어 시간순으로 쓴다 */
@@ -23,17 +29,23 @@ export interface HistoryGroup {
 }
 
 /**
- * 기록을 이미지(파일명)별로 묶는다.
+ * 기록을 대화별로 묶는다.
  *
- * 한 이미지를 붙여 두고 지시를 거듭 보내는 것이 이 화면의 작업 단위라,
- * 파일명이 곧 "그때 그 작업"의 주제다. 결과를 이어서 편집한 경우 파일명이
- * `..._1` 처럼 갈라지는데, 억지로 합치지 않는다 — 어느 결과에서 이어 갔는지가
- * 오히려 정보다. 순서는 묶음·묶음 안 모두 최신이 먼저다(서버가 최신순을 준다).
+ * 대화 id(`thread_id`)가 있으면 그것으로 묶는다 — 화면이 작업을 시작할 때 만들어
+ * 전송마다 함께 보내는 값이다. 예전에는 파일명으로 묶었는데 두 가지가 어긋났다:
+ * 이름이 같은 다른 이미지가 한 대화로 합쳐졌고, 결과를 이어 편집해 파일명이
+ * 달라지면 같은 작업이 여러 대화로 쪼개졌다.
+ *
+ * 대화 id 가 없는 예전 기록은 그대로 파일명으로 묶는다 — 그때의 전송이 어느
+ * 작업에 속했는지는 복원할 수 없다. 두 종류의 키가 겹치지 않게 접두어를 단다.
+ * 순서는 묶음·묶음 안 모두 최신이 먼저다(서버가 최신순을 준다).
  */
 export function groupHistory(records: EditPromptRecord[]): HistoryGroup[] {
   const groups = new Map<string, HistoryGroup>();
   for (const record of records) {
-    const key = record.image_filename || '(이름 없는 이미지)';
+    const filename = record.image_filename || '(이름 없는 이미지)';
+    const threadId = record.thread_id || null;
+    const key = threadId ? `t:${threadId}` : `f:${filename}`;
     const entry: HistoryEntry = {
       recordId: record.id,
       text: readableLogPrompt(record.prompt),
@@ -44,7 +56,8 @@ export function groupHistory(records: EditPromptRecord[]): HistoryGroup[] {
     };
     const found = groups.get(key);
     if (found) found.items.push(entry);
-    else groups.set(key, { filename: key, latestAt: entry.at, items: [entry] });
+    // 최신순으로 들어오므로 처음 본 기록의 파일명이 곧 "가장 최근 파일명"이다
+    else groups.set(key, { key, threadId, filename, latestAt: entry.at, items: [entry] });
   }
   return [...groups.values()];
 }

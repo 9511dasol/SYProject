@@ -265,6 +265,31 @@ def test_a_successful_edit_is_persisted_with_tenant_scoped_paths(db_session, sto
     assert all(storage.objects[p] == _PNG for p in record.image_paths)
 
 
+def test_thread_id_is_stored_and_returned_in_history(db_session, storage, edit_client):
+    """같은 작업의 전송들이 한 대화로 묶이려면 id 가 저장되고 조회로 돌아와야 한다."""
+    thread = "0b8f6f0e-6c1d-4f0a-9d53-1f2a3b4c5d6e"
+    res = _post_edit(edit_client, {"prompt": "배경을 하얗게", "count": "1", "thread_id": thread})
+    assert res.status_code == 200
+
+    assert db_session.query(ImageEditRecord).one().thread_id == thread
+    items = edit_client.get("/api/image-filter/history").json()["items"]
+    assert [i["thread_id"] for i in items] == [thread]
+
+
+def test_edit_without_thread_id_still_works(db_session, storage, edit_client):
+    """구버전 화면은 id 를 보내지 않는다 — 편집은 그대로 되고 기록은 NULL 로 남는다."""
+    assert _post_edit(edit_client).status_code == 200
+
+    assert db_session.query(ImageEditRecord).one().thread_id is None
+    assert edit_client.get("/api/image-filter/history").json()["items"][0]["thread_id"] is None
+
+
+def test_malformed_thread_id_is_rejected(db_session, storage, edit_client):
+    res = _post_edit(edit_client, {"prompt": "x", "count": "1", "thread_id": "a b;drop"})
+    assert res.status_code == 422
+    assert db_session.query(ImageEditRecord).count() == 0
+
+
 def test_a_storage_failure_does_not_fail_the_edit_response(db_session, edit_client, monkeypatch):
     """사용자는 이미 토큰을 썼다 — 보관이 안 돼도 결과는 받아야 한다."""
     def broken_upload(*a, **k):

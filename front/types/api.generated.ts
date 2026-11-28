@@ -2070,6 +2070,11 @@ export interface components {
              */
             prompt: string;
             /**
+             * Thread Id
+             * @description 대화(스레드) id — 같은 작업의 전송들을 한 대화로 묶는다. 생략 가능
+             */
+            thread_id?: string | null;
+            /**
              * Width
              * @description 목표 가로 (px)
              */
@@ -2547,6 +2552,8 @@ export interface components {
             images_available: boolean;
             /** Prompt */
             prompt: string;
+            /** Thread Id */
+            thread_id?: string | null;
             /**
              * Variant Count
              * @default 0

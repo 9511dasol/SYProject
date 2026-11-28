@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     GEMINI_IMAGE_MODEL: str = "gemini-2.5-flash-image"
     # 게이트웨이(사내 라우터 등)를 거칠 때만 지정 — 비우면 공급자 기본 엔드포인트.
     GEMINI_BASE_URL: str = ""
+    # 이미지 호출만 다른 엔드포인트로 보낼 때 — 텍스트는 공급자 직통 키, 이미지는
+    # 게이트웨이 키를 쓰는 구성. 비우면 GEMINI_BASE_URL 을 따른다.
+    GEMINI_IMAGE_BASE_URL: str = ""
     ANTHROPIC_BASE_URL: str = ""
 
     # LLM 호출 상한 — 지정하지 않으면 SDK 기본값이 사실상 무한대라, 공급자가
@@ -223,6 +226,16 @@ class Settings(BaseSettings):
         한 곳에 모은다.
         """
         return self.GEMINI_IMAGE_API_KEY or self.GEMINI_API_KEY
+
+    @property
+    def GEMINI_IMAGE_ENDPOINT(self) -> str:
+        """이미지 모델 호출에 실제로 쓰는 base URL — 전용 값이 없으면 공용 값으로 폴백.
+
+        키와 주소는 한 쌍이다. 게이트웨이 키를 공급자 직통 주소로 보내면 "키가
+        유효하지 않다"로 거절되고, 반대로 직통 키를 게이트웨이로 보내면 그 키가
+        제3자에게 넘어간다. 그래서 키 해석(GEMINI_IMAGE_KEY)과 같은 자리에 둔다.
+        """
+        return self.GEMINI_IMAGE_BASE_URL or self.GEMINI_BASE_URL
 
     @property
     def is_production(self) -> bool:

@@ -159,6 +159,8 @@ export interface EditPromptRecord {
   id: number;
   prompt: string;
   image_filename: string;
+  /** 대화(스레드) id — 이 값이 생기기 전 기록은 null 이고, 그때는 파일명으로 묶는다 */
+  thread_id?: string | null;
   created_at: string;
   /** 생성 당시 시안 장수 — 만료돼도 "시안 4장 (만료)" 로 보여야 한다 */
   variant_count: number;

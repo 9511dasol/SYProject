@@ -25,11 +25,13 @@ def build_genai_client(api_key: str, *, image: bool = False) -> genai.Client:
     # 이미지 클라이언트의 키 해석은 settings.GEMINI_IMAGE_KEY 한 곳에 모여 있다
     if image:
         api_key = settings.GEMINI_IMAGE_KEY or api_key
+    # 주소도 키와 같은 규칙으로 고른다 — 이미지 전용 주소가 있으면 이미지 호출만 그리로 간다
+    base_url = settings.GEMINI_IMAGE_ENDPOINT if image else settings.GEMINI_BASE_URL
     return genai.Client(
         api_key=api_key,
         http_options=types.HttpOptions(
             # 게이트웨이(사내 라우터)를 거치면 base_url 만 바뀌고 REST 경로는 같다.
-            base_url=settings.GEMINI_BASE_URL or None,
+            base_url=base_url or None,
             timeout=int(seconds * 1000),
             # google-genai 의 attempts 는 첫 요청을 **포함한** 횟수다(1이면 재시도 없음).
             # anthropic/openai 의 max_retries 는 첫 요청을 뺀 재시도 횟수라, 같은 설정값을

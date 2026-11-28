@@ -64,6 +64,8 @@ class EditPromptRecord(BaseModel):
     id:             int
     prompt:         str
     image_filename: str
+    #: 대화(스레드) id — None 이면 이 값이 생기기 전 기록이다(화면이 파일명으로 묶는다)
+    thread_id:      str | None = None
     created_at:     datetime
     #: 생성 당시 시안 장수 — 만료돼도 "시안 4장 (만료)" 로 보여야 한다
     variant_count:  int = 0

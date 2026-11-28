@@ -68,6 +68,17 @@ const INITIAL_FORM: FilterFormState = {
   variantCount: DEFAULT_EDIT_VARIANTS,
 };
 
+/**
+ * 대화(스레드) id 를 만든다. randomUUID 는 보안 컨텍스트(https · localhost)에서만
+ * 있으므로, 없을 때는 같은 형식(영숫자 · 하이픈, 36자 이하)의 값으로 대신한다.
+ */
+function newThreadId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 /** 지시가 없는 버전이 돌려줄 고정 배열 — 매 렌더 새 [] 를 만들지 않기 위한 것 */
 const NO_INSTRUCTIONS: Instruction[] = [];
 
@@ -151,6 +162,11 @@ export default function ImageFilterClient() {
   const restorable = restoreHandled ? null : storedSession;
 
   // 진행 중인 AI 요청의 취소 핸들 — 이미지 생성은 수십 초라 끊을 수단이 필요하다
+  /**
+   * 지금 작업의 대화(스레드) id — 전송마다 함께 보내 지난 작업에서 한 대화로 묶인다.
+   * 화면에 그리는 값이 아니라 ref 로 든다. 이미지를 올릴 때 정해진다(handleAttach).
+   */
+  const threadIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const insSeqRef = useRef(0);
 
@@ -339,6 +355,40 @@ export default function ImageFilterClient() {
     [toast],
   );
 
+  /**
+   * 대화 전체 삭제 (T12).
+   *
+   * 대화는 아직 파일명 묶음이라 전용 API 가 없다 — 묶음의 기록을 하나씩 지운다.
+   * 일부가 실패할 수 있으므로 성공한 것만 화면에서 걷고, 남은 건수를 숨기지 않는다.
+   */
+  const handleDeleteGroup = useCallback(
+    async (group: HistoryGroup) => {
+      const results = await Promise.allSettled(
+        group.items.map((item) => deleteEditRecord(item.recordId)),
+      );
+      const deleted = new Set(
+        group.items.filter((_, i) => results[i].status === 'fulfilled').map((item) => item.recordId),
+      );
+      const failed = group.items.length - deleted.size;
+
+      setHistory((prev) => (prev ? prev.filter((r) => !deleted.has(r.id)) : prev));
+      setThreadGroup((prev) => {
+        if (!prev) return prev;
+        const items = prev.items.filter((item) => !deleted.has(item.recordId));
+        return items.length ? { ...prev, items } : null;
+      });
+      // 대화가 통째로 사라졌으면 걸어 둔 시드도 거둔다 (닫기와 같은 처리)
+      if (!failed) setSeed([]);
+
+      if (failed) {
+        toast('error', `기록 ${deleted.size}건을 지웠지만 ${failed}건은 지우지 못했어요 — 다시 시도해 주세요`);
+      } else {
+        toast('success', `대화를 삭제했어요 — 기록 ${deleted.size}건과 보관된 시안을 지웠습니다`);
+      }
+    },
+    [toast],
+  );
+
   /* ── 버전 전환 ──────────────────────────────────────────────── */
   // 레일로 다른 버전을 고르면 출력 크기도 그 이미지 기준으로 되돌린다.
   // (새로 만들어진 버전은 측정 콜백이 맡으므로 여기선 이미 측정된 것만 다룬다)
@@ -385,6 +435,13 @@ export default function ImageFilterClient() {
             !keepThread || !pastThread?.items.some((item) => item.text === ins.text.trim()),
         )
         .map((ins) => ({ ...ins, status: 'draft' }));
+
+      // 대화 id — 지난 대화에서 이어 가면 그 대화의 id 를 물려받고(같은 대화에 쌓인다),
+      // 새 이미지로 시작하면 새로 만든다. 지난 시안으로 되돌아간 경우(keepThread)는
+      // 같은 대화이므로 그대로 둔다. id 가 없던 예전 대화를 이어 가면 새 id 가 붙어
+      // 그때부터 새 대화로 쌓인다 — 예전 기록에 id 를 소급해 붙일 방법은 없다.
+      if (!activeId) threadIdRef.current = threadGroup?.threadId ?? newThreadId();
+      else if (!keepThread) threadIdRef.current = newThreadId();
 
       abortRef.current?.abort();
       const original = start(file);
@@ -568,6 +625,7 @@ export default function ImageFilterClient() {
         () => setProcessing('compressing'),
         () => setProcessing('editing'),
         controller.signal,
+        threadIdRef.current ?? undefined,
       );
 
       // base64 를 상태에 두면 렌더마다 수 MB 문자열을 재조립한다 — File 로 바꿔 보관
@@ -991,7 +1049,7 @@ export default function ImageFilterClient() {
           history={history}
           historyError={historyError}
           onLoadGroup={handleLoadGroup}
-          selectedFilename={threadGroup?.filename ?? pastThread?.filename ?? null}
+          selectedKey={threadGroup?.key ?? pastThread?.key ?? null}
           sidebarCollapsed={sidebarCollapsed}
           drawerOpen={railOpen}
           onCloseDrawer={closeRail}
@@ -1129,6 +1187,7 @@ export default function ImageFilterClient() {
           onAttach={handleAttach}
           onContinueFrom={handleContinueFrom}
           onDeleteRecord={handleDeleteRecord}
+          onDeleteGroup={handleDeleteGroup}
           onClose={handleCloseThread}
           disabled={aiBusy}
         />

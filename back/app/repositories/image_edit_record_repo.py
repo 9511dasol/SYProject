@@ -27,12 +27,14 @@ class ImageEditRecordRepository:
         image_paths: list[str],
         variant_count: int,
         mime: str,
+        thread_id: str | None = None,
     ) -> ImageEditRecord:
         record = ImageEditRecord(
             company_id=company_id,
             user_id=user.id,
             user_email=user.email,
             image_filename=image_filename,
+            thread_id=thread_id,
             prompt=prompt,
             image_paths=image_paths,
             variant_count=variant_count,

@@ -253,7 +253,7 @@ export default function EmptyCanvas({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {historyGroups.slice(0, 4).map((group) => (
               <div
-                key={group.filename}
+                key={group.key}
                 className="rounded-xl border border-border bg-surface px-3.5 py-3 space-y-1.5"
               >
                 <p className="flex items-center gap-1.5 text-[11px] text-fg-subtle">

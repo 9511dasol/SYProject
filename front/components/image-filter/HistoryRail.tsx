@@ -13,7 +13,7 @@ interface HistoryRailProps {
   /** 묶음 하나를 "그때 그 작업"으로 불러온다 — 지시 기록 전체가 넘어간다 */
   onLoadGroup: (group: HistoryGroup) => void;
   /** 지금 스레드로 열려 있는 묶음 — 목록에서 눌린 것이 표시돼야 한다 */
-  selectedFilename: string | null;
+  selectedKey: string | null;
   /** 앱 사이드바가 접혀 있는가 — 펼쳐져 있으면 자리가 좁아 더 넓은 화면에서만 선다 */
   sidebarCollapsed: boolean;
   /** 레일이 설 자리가 없는 폭에서 서랍으로 열려 있는가 */
@@ -83,7 +83,7 @@ export default function HistoryRail({
   history,
   historyError,
   onLoadGroup,
-  selectedFilename,
+  selectedKey,
   sidebarCollapsed,
   drawerOpen,
   onCloseDrawer,
@@ -151,12 +151,12 @@ export default function HistoryRail({
           </p>
         ) : (
           groups.map((group) => {
-            const selected = group.filename === selectedFilename;
+            const selected = group.key === selectedKey;
             // 프로필 사진 자리 — 가장 최근에 보관된 시안 첫 장. 전부 만료됐으면 아이콘.
             const cover = group.items.find((item) => item.imagesAvailable && item.imageCount > 0);
             return (
               <button
-                key={group.filename}
+                key={group.key}
                 type="button"
                 onClick={() => {
                   onLoadGroup(group);
