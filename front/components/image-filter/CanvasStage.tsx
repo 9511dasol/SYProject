@@ -190,7 +190,7 @@ export default function CanvasStage({
         {/* 요소를 아직 안 찾았을 때의 힌트 — 대화 열의 버튼을 가리킨다 */}
         {!elements && !statusText && (
           <p className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[11px] text-fg-subtle bg-surface/90 rounded-full px-3 py-1.5 border border-border-soft">
-            대화 열의 <strong className="font-semibold text-fg-muted">요소 찾기</strong>를 누르면
+            입력창 옆 <strong className="font-semibold text-fg-muted">+ 도구 › 요소 찾기</strong>를 누르면
             수정할 부분을 이 이미지 위에서 바로 고를 수 있어요
           </p>
         )}

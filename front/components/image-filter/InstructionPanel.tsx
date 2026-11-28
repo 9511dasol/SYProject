@@ -38,6 +38,8 @@ function sinceText(iso: string): string {
 
 
 interface InstructionPanelProps {
+  /** 좁은 화면에서 캔버스를 보고 있는 동안에는 대화 열을 숨긴다 (lg 이상은 늘 보임) */
+  mobileHidden: boolean;
   /** 이 작업의 대화 스레드 — 스크롤 영역 맨 위에 선다 (보낸 지시 · 돌아온 시안) */
   thread?: ReactNode;
   instructions: Instruction[];
@@ -80,8 +82,14 @@ interface InstructionPanelProps {
   /** 이미지 보관 일수 — 서버 설정이 단일 출처, 고지 문구가 어긋나지 않게 받는다 */
   retentionDays: number;
 
+  /** 도구 묶음(요소 찾기 · 배경 시안 · 지난 기록 · 출력 설정)이 열려 있는가 —
+   *  툴바의 출력 칩에서도 열어야 해서 상위가 들고 있다 */
+  toolsOpen: boolean;
+  onToggleTools: () => void;
+
   sending: boolean;
-  onSend: () => void;
+  /** 입력칸에 쓰던 글이 있으면 함께 넘긴다 — 그 글도 이번 전송에 포함된다 */
+  onSend: (extraText?: string) => void;
   onCancel: () => void;
   /** AI 작업이 하나라도 돌고 있는 상태 — 이미지를 바꾸는 동작만 막는다 */
   aiBusy: boolean;
@@ -92,8 +100,8 @@ interface InstructionPanelProps {
 /**
  * 대화 스레드 · 보낼 지시 · 도구를 모아 둔 대화 열 (데스크톱에서는 캔버스 왼쪽).
  *
- * DM 의 대화창에 해당한다 — 위에서부터 지금까지의 대화, 아직 안 보낸 지시,
- * 도구 섹션이 한 스크롤로 흐르고, 입력칸과 전송 버튼은 아래에 고정된다.
+ * DM 의 대화창에 해당한다 — 스크롤 영역은 대화(스레드)만 흐르고, 아래 고정
+ * 영역에 도구 묶음(+ 로 여닫음) · 아직 안 보낸 지시 · 입력칸 · 전송이 선다.
  *
  * 예전에는 요소 선택 · 출력 설정 · 배경 시안이 모두 화면 맨 아래 입력 독 안의
  * 320px 스크롤 박스(`ComposerPanel`)에 들어 있었다. 세 개가 한 자리를 돌려
@@ -110,6 +118,7 @@ interface InstructionPanelProps {
  * 남긴다 — 되돌리는 게 아니라 양쪽의 장점을 합치는 구성이다.
  */
 export default function InstructionPanel({
+  mobileHidden,
   thread,
   instructions,
   elements,
@@ -136,6 +145,8 @@ export default function InstructionPanel({
   onFormatChange,
   onVariantCountChange,
   retentionDays,
+  toolsOpen,
+  onToggleTools,
   sending,
   onSend,
   onCancel,
@@ -211,6 +222,20 @@ export default function InstructionPanel({
     setDraft('');
   };
 
+  /**
+   * 전송 (전송 버튼 · Ctrl/⌘+Enter 공통).
+   *
+   * 입력칸에 쓰던 글이 있으면 그것까지 함께 보낸다 — 버튼을 눌렀는데 눈앞의 글만
+   * 빠지고 나가면 DM 의 "보내기"로 읽히지 않는다. 추가와 전송을 따로 부르면 같은
+   * 틱이라 방금 추가한 지시가 전송 목록에 아직 없으므로, 글을 전송 쪽에 넘긴다.
+   */
+  const submit = () => {
+    if (!canSubmit) return;
+    const text = draft.trim().replace(/\s+/g, ' ');
+    onSend(text || undefined);
+    setDraft('');
+  };
+
   const hasElement = (id: number) => !!elements?.some((el) => el.id === id);
   // needsTarget: 저장소에서 복구된 지시 — 요소 id 를 믿을 수 없어 대상을 다시 골라야 한다
   const missingTarget = (ins: Instruction) =>
@@ -227,6 +252,10 @@ export default function InstructionPanel({
     sendable.filter((ins) => ins.targetElementId !== null).map((ins) => ins.targetElementId),
   ).size;
 
+  /** 지금 전송을 누르면 나갈 건수 — 입력칸에 쓰던 글도 한 건으로 센다 */
+  const submitCount = sendable.length + (draft.trim() ? 1 : 0);
+  const canSubmit = submitCount > 0 && !aiBusy;
+
   const width = parseInt(form.targetWidth, 10) || 0;
   const height = parseInt(form.targetHeight, 10) || 0;
   const sizeLabel = width > 0 && height > 0 ? `${width}×${height}` : '원본 크기';
@@ -237,417 +266,19 @@ export default function InstructionPanel({
 
   return (
     <aside
-      className="flex flex-col w-full lg:w-[420px] xl:w-[440px] shrink-0 min-h-0 border-t lg:border-t-0 lg:border-r lg:order-first border-border bg-surface"
+      className={`${
+        mobileHidden ? 'hidden lg:flex' : 'flex'
+      } flex-col w-full max-lg:flex-1 lg:w-[420px] xl:w-[440px] shrink-0 min-h-0 lg:border-r lg:order-first border-border bg-surface`}
       aria-label="편집 지시"
     >
       {/* ── 스크롤 영역 ── */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {/* 대화 — 지금까지 보낸 것과 받은 것. 아래 지시 목록은 "아직 안 보낸 것"이다 */}
         {thread}
-
-        {/* 지시 목록 */}
-        <div className="p-3 space-y-2">
-          <div className="flex items-center gap-2">
-            <h2 className="text-xs font-semibold text-fg-muted uppercase tracking-wider">
-              보낼 지시
-            </h2>
-            {instructions.length > 0 && (
-              <span className="text-[11px] text-fg-subtle">
-                {sendable.length}/{instructions.length} 전송
-              </span>
-            )}
-          </div>
-
-          {instructions.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-border px-3 py-6 text-center text-xs text-fg-subtle leading-relaxed">
-              아직 지시가 없어요.
-              <br />
-              아래 입력칸에 바로 쓰거나, 이미지 위의 요소를 눌러 그 부분만 고쳐 보세요.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {instructions.map((ins) => (
-                <InstructionCard
-                  key={ins.id}
-                  instruction={ins}
-                  element={elementOf(ins)}
-                  missingTarget={missingTarget(ins)}
-                  onToggle={() => onToggleInstruction(ins.id)}
-                  onEdit={() => onEditInstruction(ins.id)}
-                  onDelete={() => onDeleteInstruction(ins.id)}
-                  disabled={sending}
-                />
-              ))}
-            </ul>
-          )}
-
-        </div>
-
-        {/* 요소 */}
-        <Section
-          icon="bx-scan"
-          title="요소 찾기"
-          badge="Gemini"
-          summary={
-            elements === null
-              ? '아직 분석 안 함'
-              : elements.length
-                ? `${elements.length}개 찾음`
-                : '찾은 요소 없음'
-          }
-          open={openSection === 'elements'}
-          onToggle={() => onOpenSection(openSection === 'elements' ? null : 'elements')}
-        >
-          <div className="space-y-3">
-            <p className="text-[11px] text-fg-subtle leading-relaxed">
-              이미지 속 문구·로고·제품을 찾아 이름을 붙여 줍니다. 찾은 뒤에는 캔버스에서
-              그 부분만 골라 수정할 수 있어요.
-            </p>
-
-            {elements === null || !elements.length ? (
-              <Button
-                tone="indigo"
-                variant="outline"
-                size="sm"
-                onClick={onAnalyze}
-                isLoading={analyzing}
-                disabled={aiBusy}
-              >
-                <i className="bx bx-scan text-base" />
-                {elements === null ? '요소 찾기' : '다시 찾기'}
-              </Button>
-            ) : (
-              <>
-                <div className="flex flex-wrap gap-1.5">
-                  {elements.map((el) => {
-                    const written = instructedIds.has(el.id);
-                    return (
-                      <button
-                        key={el.id}
-                        type="button"
-                        onClick={() => onPickElement(el.id)}
-                        disabled={sending}
-                        title={written ? '지시를 써 뒀습니다 — 눌러서 수정' : '이 부분만 수정하기'}
-                        className={[
-                          'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors',
-                          'disabled:opacity-50 disabled:pointer-events-none',
-                          written
-                            ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-medium'
-                            : 'border-border bg-surface-2 text-fg-muted hover:border-indigo-300 hover:text-fg',
-                        ].join(' ')}
-                      >
-                        {written && <i className="bx bxs-edit text-[10px]" />}
-                        {el.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={onAnalyze}
-                  isLoading={analyzing}
-                  disabled={aiBusy}
-                >
-                  <i className="bx bx-refresh text-base" />
-                  다시 찾기
-                </Button>
-              </>
-            )}
-          </div>
-        </Section>
-
-        {/* 배경 시안 */}
-        <Section
-          icon="bx-landscape"
-          title="배경 시안"
-          badge="Gemini"
-          summary={`${totalStyles}종 선택`}
-          open={openSection === 'backgrounds'}
-          onToggle={() => onOpenSection(openSection === 'backgrounds' ? null : 'backgrounds')}
-        >
-          <div className="space-y-3">
-            <p className="text-[11px] text-fg-subtle leading-relaxed">
-              피사체(제품·인물·문구)는 그대로 두고 배경만 바꾼 시안을 만듭니다.
-              <strong className="text-fg-muted font-medium">
-                {' '}
-                고른 스타일 하나당 AI 이미지 생성이 1회 호출
-              </strong>
-              되니 필요한 것만 고르세요.
-            </p>
-
-            {!backgroundStyles.length && (
-              <p className="text-[11px] text-fg-subtle">스타일 목록을 불러오지 못했습니다.</p>
-            )}
-
-            <div className="flex flex-wrap gap-1.5">
-              {backgroundStyles.map((style) => {
-                const picked = effectiveStyles.includes(style.key);
-                return (
-                  <button
-                    key={style.key}
-                    type="button"
-                    disabled={aiBusy}
-                    onClick={() =>
-                      setPickedStyles((prev) => {
-                        const base = prev.length ? prev : effectiveStyles;
-                        return base.includes(style.key)
-                          ? base.filter((k) => k !== style.key)
-                          : [...base, style.key];
-                      })
-                    }
-                    className={[
-                      'inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs transition-colors',
-                      'disabled:opacity-50 disabled:pointer-events-none',
-                      picked
-                        ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-medium'
-                        : 'border-border bg-surface-2 text-fg-muted hover:border-indigo-200 dark:hover:border-indigo-700',
-                    ].join(' ')}
-                  >
-                    <i className={`bx ${picked ? 'bxs-check-circle' : 'bx-circle'} text-sm`} />
-                    {style.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* 직접 입력 — 프리셋 네 가지로는 "우리 제품에 어울리는 배경"을 못 적는다 */}
-            <div className="space-y-1.5 rounded-xl border border-border-soft bg-surface-2/50 p-2.5">
-              <label
-                htmlFor="custom-bg-input"
-                className="block text-[11px] font-semibold text-fg-muted"
-              >
-                배경 직접 입력{' '}
-                <span className="font-normal text-fg-subtle">
-                  — 엔터를 누르면 추가됩니다 (최대 {MAX_CUSTOM_BACKGROUNDS}개)
-                </span>
-              </label>
-
-              <div className="flex items-center gap-1.5">
-                <input
-                  id="custom-bg-input"
-                  type="text"
-                  value={customDraft}
-                  maxLength={MAX_CUSTOM_BACKGROUND_LENGTH}
-                  placeholder="예: 벚꽃이 흩날리는 봄 공원"
-                  disabled={aiBusy}
-                  onChange={(event) => {
-                    setCustomDraft(event.target.value);
-                    setCustomNotice(null);
-                  }}
-                  // 한글 입력 중의 엔터는 조합을 확정하는 키다 — isComposing 을 보지
-                  // 않으면 마지막 글자를 확정하는 순간 그대로 추가돼 버린다.
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
-                    event.preventDefault();
-                    commitCustom();
-                  }}
-                  className={`${controlClassName} min-w-0 flex-1 px-3 py-2 text-xs`}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={commitCustom}
-                  disabled={aiBusy || !customDraft.trim()}
-                  aria-label="직접 입력한 배경 추가"
-                  className="shrink-0"
-                >
-                  <i className="bx bx-plus text-base" />
-                </Button>
-              </div>
-
-              {customNotice && <p className="text-[11px] text-amber-600 dark:text-amber-400">{customNotice}</p>}
-
-              {customStyles.length > 0 && (
-                <ul className="flex flex-wrap gap-1.5 pt-0.5">
-                  {customStyles.map((text) => (
-                    <li key={text}>
-                      {/* 직접 적은 건 켜고 끄는 대상이 아니다 — 지우는 것으로 충분하다 */}
-                      <span className="inline-flex max-w-full items-center gap-1 rounded-lg border border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/50 pl-2.5 pr-1 py-1 text-xs text-indigo-600 dark:text-indigo-400 font-medium">
-                        <span className="truncate" title={text}>
-                          {text}
-                        </span>
-                        <button
-                          type="button"
-                          disabled={aiBusy}
-                          onClick={() => {
-                            setCustomStyles((prev) => prev.filter((item) => item !== text));
-                            setCustomNotice(null);
-                          }}
-                          aria-label={`"${text}" 배경 지우기`}
-                          className="shrink-0 rounded p-0.5 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 disabled:opacity-50 disabled:pointer-events-none transition-colors"
-                        >
-                          <i className="bx bx-x text-sm block" />
-                        </button>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              <Button
-                tone="indigo"
-                size="sm"
-                onClick={() => onSuggestBackgrounds(effectiveStyles, customStyles)}
-                isLoading={bgLoading}
-                disabled={aiBusy || !totalStyles}
-              >
-                <i className="bx bx-images text-base" />
-                {totalStyles}종 생성
-              </Button>
-              <span className="text-[11px] text-fg-subtle">
-                AI 호출 {totalStyles}회 · 수십 초 소요
-              </span>
-            </div>
-          </div>
-        </Section>
-
-        {/* 지난 기록 — 열 때만 불러온다. 화면을 열 때마다 조회하면 쓰지도 않는
-            사람에게 매번 요청이 나간다. */}
-        <Section
-          icon="bx-history"
-          title="지난 기록"
-          summary={history === null ? '아직 안 불러옴' : `${history.length}건`}
-          open={openSection === 'history'}
-          onToggle={() => onOpenSection(openSection === 'history' ? null : 'history')}
-        >
-          <div className="space-y-2">
-            <p className="text-[11px] text-fg-subtle leading-relaxed">
-              내가 보낸 편집 지시입니다. 눌러서 입력칸에 그대로 불러올 수 있어요.
-            </p>
-
-            {historyError && (
-              <p className="text-[11px] text-amber-600 dark:text-amber-400">{historyError}</p>
-            )}
-
-            {history === null ? (
-              <p className="text-[11px] text-fg-subtle">불러오는 중…</p>
-            ) : !history.length ? (
-              <p className="text-[11px] text-fg-subtle">아직 보낸 지시가 없어요.</p>
-            ) : (
-              <ul className="space-y-1.5">
-                {history.map((record) => {
-                  const text = readableLogPrompt(record.prompt);
-                  return (
-                    <li key={record.id}>
-                      <button
-                        type="button"
-                        onClick={() => setDraft(text.slice(0, MAX_INSTRUCTION_LENGTH))}
-                        disabled={sending}
-                        title="입력칸에 불러오기"
-                        className={[
-                          'w-full rounded-xl border border-border bg-surface-2 px-2.5 py-2 text-left',
-                          'hover:border-indigo-200 dark:hover:border-indigo-700 transition-colors',
-                          'disabled:opacity-50 disabled:pointer-events-none',
-                        ].join(' ')}
-                      >
-                        <span className="flex items-center gap-1.5 text-[10px] text-fg-subtle">
-                          <i className="bx bx-time-five" />
-                          {sinceText(record.created_at)}
-                          {record.image_filename && (
-                            <span className="truncate">· {record.image_filename}</span>
-                          )}
-                        </span>
-                        {/* 좌표 설명이 붙은 긴 지시도 있어 세 줄에서 자른다 */}
-                        <span className="mt-0.5 block text-xs text-fg-body line-clamp-3 wrap-break-word">
-                          {text}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </Section>
-
-        {/* 출력 설정 */}
-        <Section
-          icon="bx-slider-alt"
-          title="출력 설정"
-          summary={`${sizeLabel} · ${form.outputFormat.toUpperCase()}`}
-          open={openSection === 'settings'}
-          onToggle={() => onOpenSection(openSection === 'settings' ? null : 'settings')}
-        >
-          {originalDimensions ? (
-            <div className="space-y-5">
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-fg-muted">
-                  리사이즈 크기{' '}
-                  <span className="font-normal text-fg-subtle">— 편집 완료 후 이 크기로 변환</span>
-                </p>
-                <DimensionInputs
-                  targetWidth={form.targetWidth}
-                  targetHeight={form.targetHeight}
-                  keepAspectRatio={form.keepAspectRatio}
-                  originalDimensions={originalDimensions}
-                  onWidthChange={onWidthChange}
-                  onHeightChange={onHeightChange}
-                  onToggleAspectRatio={onToggleAspectRatio}
-                  disabled={sending}
-                />
-              </div>
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-fg-muted">출력 포맷</p>
-                <FormatSelector
-                  value={form.outputFormat}
-                  onChange={onFormatChange}
-                  disabled={sending}
-                />
-              </div>
-
-              {/* 시안 장수 — 한 장이 이미지 생성 1회다. 올리면 비용이 같이 오른다는
-                  사실을 숫자 옆에 바로 붙여 둔다(전송 전 요약에서 한 번 더 보여 준다). */}
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-fg-muted">
-                  시안 장수{' '}
-                  <span className="font-normal text-fg-subtle">
-                    — 같은 지시로 여러 장을 만들어 고릅니다
-                  </span>
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {Array.from({ length: MAX_EDIT_VARIANTS }, (_, i) => i + 1).map((n) => {
-                    const picked = form.variantCount === n;
-                    return (
-                      <button
-                        key={n}
-                        type="button"
-                        onClick={() => onVariantCountChange(n)}
-                        disabled={sending}
-                        aria-pressed={picked}
-                        title={`${n}장 — AI 호출 ${n}회`}
-                        className={[
-                          'w-9 rounded-lg border py-1.5 text-xs tabular-nums transition-colors',
-                          'disabled:opacity-50 disabled:pointer-events-none',
-                          picked
-                            ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-semibold'
-                            : 'border-border bg-surface-2 text-fg-muted hover:border-indigo-200 dark:hover:border-indigo-700',
-                        ].join(' ')}
-                      >
-                        {n}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="text-[11px] text-fg-subtle leading-relaxed">
-                  한 장이 AI 이미지 생성 1회입니다 —{' '}
-                  <strong className="text-fg-muted font-medium">
-                    {form.variantCount}장이면 토큰도 {form.variantCount}배
-                  </strong>{' '}
-                  듭니다.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-fg-subtle">이미지 크기를 재는 중입니다…</p>
-          )}
-        </Section>
       </div>
 
       {/* ── 전송 영역 (스크롤되지 않는다) ── */}
-      <div className="shrink-0 border-t border-border bg-surface-2/60 p-3 space-y-2.5">
+      <div className="shrink-0 max-h-[75%] overflow-y-auto border-t border-border bg-surface-2/60 p-3 space-y-2.5">
         {lastError && (
           <div className="flex items-start gap-2 rounded-xl border border-badge-danger-bdr bg-badge-danger-bg px-3 py-2.5">
             <i className="bx bx-error-circle text-badge-danger-fg text-base shrink-0 mt-px" />
@@ -663,11 +294,420 @@ export default function InstructionPanel({
           </div>
         )}
 
-        {/* 상설 입력칸 — 모달을 열지 않고 바로 쓴다.
-            스크롤 영역이 아니라 고정 푸터에 둔 이유: 예전에는 `지시 추가` 버튼이
-            지시 목록 아래에 있어서 지시가 쌓이면 버튼이 스크롤 밖으로 밀렸다. */}
+        {/* 도구 — DM 의 "+" 메뉴 자리. 대화 흐름에 끼지 않게 입력창 위에서만 열린다.
+            예전에는 대화 스크롤 안에 늘 펼쳐져 있어 말풍선이 쌓일수록 아래로 밀렸다. */}
+        {toolsOpen && (
+          <div className="max-h-[38vh] overflow-y-auto rounded-xl border border-border bg-surface [&>div:first-child]:border-t-0">
+          {/* 요소 */}
+          <Section
+            icon="bx-scan"
+            title="요소 찾기"
+            badge="Gemini"
+            summary={
+              elements === null
+                ? '아직 분석 안 함'
+                : elements.length
+                  ? `${elements.length}개 찾음`
+                  : '찾은 요소 없음'
+            }
+            open={openSection === 'elements'}
+            onToggle={() => onOpenSection(openSection === 'elements' ? null : 'elements')}
+          >
+            <div className="space-y-3">
+              <p className="text-[11px] text-fg-subtle leading-relaxed">
+                이미지 속 문구·로고·제품을 찾아 이름을 붙여 줍니다. 찾은 뒤에는 캔버스에서
+                그 부분만 골라 수정할 수 있어요.
+              </p>
+
+              {elements === null || !elements.length ? (
+                <Button
+                  tone="indigo"
+                  variant="outline"
+                  size="sm"
+                  onClick={onAnalyze}
+                  isLoading={analyzing}
+                  disabled={aiBusy}
+                >
+                  <i className="bx bx-scan text-base" />
+                  {elements === null ? '요소 찾기' : '다시 찾기'}
+                </Button>
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-1.5">
+                    {elements.map((el) => {
+                      const written = instructedIds.has(el.id);
+                      return (
+                        <button
+                          key={el.id}
+                          type="button"
+                          onClick={() => onPickElement(el.id)}
+                          disabled={sending}
+                          title={written ? '지시를 써 뒀습니다 — 눌러서 수정' : '이 부분만 수정하기'}
+                          className={[
+                            'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors',
+                            'disabled:opacity-50 disabled:pointer-events-none',
+                            written
+                              ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-medium'
+                              : 'border-border bg-surface-2 text-fg-muted hover:border-indigo-300 hover:text-fg',
+                          ].join(' ')}
+                        >
+                          {written && <i className="bx bxs-edit text-[10px]" />}
+                          {el.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onAnalyze}
+                    isLoading={analyzing}
+                    disabled={aiBusy}
+                  >
+                    <i className="bx bx-refresh text-base" />
+                    다시 찾기
+                  </Button>
+                </>
+              )}
+            </div>
+          </Section>
+
+          {/* 배경 시안 */}
+          <Section
+            icon="bx-landscape"
+            title="배경 시안"
+            badge="Gemini"
+            summary={`${totalStyles}종 선택`}
+            open={openSection === 'backgrounds'}
+            onToggle={() => onOpenSection(openSection === 'backgrounds' ? null : 'backgrounds')}
+          >
+            <div className="space-y-3">
+              <p className="text-[11px] text-fg-subtle leading-relaxed">
+                피사체(제품·인물·문구)는 그대로 두고 배경만 바꾼 시안을 만듭니다.
+                <strong className="text-fg-muted font-medium">
+                  {' '}
+                  고른 스타일 하나당 AI 이미지 생성이 1회 호출
+                </strong>
+                되니 필요한 것만 고르세요.
+              </p>
+
+              {!backgroundStyles.length && (
+                <p className="text-[11px] text-fg-subtle">스타일 목록을 불러오지 못했습니다.</p>
+              )}
+
+              <div className="flex flex-wrap gap-1.5">
+                {backgroundStyles.map((style) => {
+                  const picked = effectiveStyles.includes(style.key);
+                  return (
+                    <button
+                      key={style.key}
+                      type="button"
+                      disabled={aiBusy}
+                      onClick={() =>
+                        setPickedStyles((prev) => {
+                          const base = prev.length ? prev : effectiveStyles;
+                          return base.includes(style.key)
+                            ? base.filter((k) => k !== style.key)
+                            : [...base, style.key];
+                        })
+                      }
+                      className={[
+                        'inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs transition-colors',
+                        'disabled:opacity-50 disabled:pointer-events-none',
+                        picked
+                          ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-medium'
+                          : 'border-border bg-surface-2 text-fg-muted hover:border-indigo-200 dark:hover:border-indigo-700',
+                      ].join(' ')}
+                    >
+                      <i className={`bx ${picked ? 'bxs-check-circle' : 'bx-circle'} text-sm`} />
+                      {style.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* 직접 입력 — 프리셋 네 가지로는 "우리 제품에 어울리는 배경"을 못 적는다 */}
+              <div className="space-y-1.5 rounded-xl border border-border-soft bg-surface-2/50 p-2.5">
+                <label
+                  htmlFor="custom-bg-input"
+                  className="block text-[11px] font-semibold text-fg-muted"
+                >
+                  배경 직접 입력{' '}
+                  <span className="font-normal text-fg-subtle">
+                    — 엔터를 누르면 추가됩니다 (최대 {MAX_CUSTOM_BACKGROUNDS}개)
+                  </span>
+                </label>
+
+                <div className="flex items-center gap-1.5">
+                  <input
+                    id="custom-bg-input"
+                    type="text"
+                    value={customDraft}
+                    maxLength={MAX_CUSTOM_BACKGROUND_LENGTH}
+                    placeholder="예: 벚꽃이 흩날리는 봄 공원"
+                    disabled={aiBusy}
+                    onChange={(event) => {
+                      setCustomDraft(event.target.value);
+                      setCustomNotice(null);
+                    }}
+                    // 한글 입력 중의 엔터는 조합을 확정하는 키다 — isComposing 을 보지
+                    // 않으면 마지막 글자를 확정하는 순간 그대로 추가돼 버린다.
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                      event.preventDefault();
+                      commitCustom();
+                    }}
+                    className={`${controlClassName} min-w-0 flex-1 px-3 py-2 text-xs`}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={commitCustom}
+                    disabled={aiBusy || !customDraft.trim()}
+                    aria-label="직접 입력한 배경 추가"
+                    className="shrink-0"
+                  >
+                    <i className="bx bx-plus text-base" />
+                  </Button>
+                </div>
+
+                {customNotice && <p className="text-[11px] text-amber-600 dark:text-amber-400">{customNotice}</p>}
+
+                {customStyles.length > 0 && (
+                  <ul className="flex flex-wrap gap-1.5 pt-0.5">
+                    {customStyles.map((text) => (
+                      <li key={text}>
+                        {/* 직접 적은 건 켜고 끄는 대상이 아니다 — 지우는 것으로 충분하다 */}
+                        <span className="inline-flex max-w-full items-center gap-1 rounded-lg border border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/50 pl-2.5 pr-1 py-1 text-xs text-indigo-600 dark:text-indigo-400 font-medium">
+                          <span className="truncate" title={text}>
+                            {text}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={aiBusy}
+                            onClick={() => {
+                              setCustomStyles((prev) => prev.filter((item) => item !== text));
+                              setCustomNotice(null);
+                            }}
+                            aria-label={`"${text}" 배경 지우기`}
+                            className="shrink-0 rounded p-0.5 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+                          >
+                            <i className="bx bx-x text-sm block" />
+                          </button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  tone="indigo"
+                  size="sm"
+                  onClick={() => onSuggestBackgrounds(effectiveStyles, customStyles)}
+                  isLoading={bgLoading}
+                  disabled={aiBusy || !totalStyles}
+                >
+                  <i className="bx bx-images text-base" />
+                  {totalStyles}종 생성
+                </Button>
+                <span className="text-[11px] text-fg-subtle">
+                  AI 호출 {totalStyles}회 · 수십 초 소요
+                </span>
+              </div>
+            </div>
+          </Section>
+
+          {/* 지난 기록 — 열 때만 불러온다. 화면을 열 때마다 조회하면 쓰지도 않는
+              사람에게 매번 요청이 나간다. */}
+          <Section
+            icon="bx-history"
+            title="지난 기록"
+            summary={history === null ? '아직 안 불러옴' : `${history.length}건`}
+            open={openSection === 'history'}
+            onToggle={() => onOpenSection(openSection === 'history' ? null : 'history')}
+          >
+            <div className="space-y-2">
+              <p className="text-[11px] text-fg-subtle leading-relaxed">
+                내가 보낸 편집 지시입니다. 눌러서 입력칸에 그대로 불러올 수 있어요.
+              </p>
+
+              {historyError && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400">{historyError}</p>
+              )}
+
+              {history === null ? (
+                <p className="text-[11px] text-fg-subtle">불러오는 중…</p>
+              ) : !history.length ? (
+                <p className="text-[11px] text-fg-subtle">아직 보낸 지시가 없어요.</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {history.map((record) => {
+                    const text = readableLogPrompt(record.prompt);
+                    return (
+                      <li key={record.id}>
+                        <button
+                          type="button"
+                          onClick={() => setDraft(text.slice(0, MAX_INSTRUCTION_LENGTH))}
+                          disabled={sending}
+                          title="입력칸에 불러오기"
+                          className={[
+                            'w-full rounded-xl border border-border bg-surface-2 px-2.5 py-2 text-left',
+                            'hover:border-indigo-200 dark:hover:border-indigo-700 transition-colors',
+                            'disabled:opacity-50 disabled:pointer-events-none',
+                          ].join(' ')}
+                        >
+                          <span className="flex items-center gap-1.5 text-[10px] text-fg-subtle">
+                            <i className="bx bx-time-five" />
+                            {sinceText(record.created_at)}
+                            {record.image_filename && (
+                              <span className="truncate">· {record.image_filename}</span>
+                            )}
+                          </span>
+                          {/* 좌표 설명이 붙은 긴 지시도 있어 세 줄에서 자른다 */}
+                          <span className="mt-0.5 block text-xs text-fg-body line-clamp-3 wrap-break-word">
+                            {text}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </Section>
+
+          {/* 출력 설정 */}
+          <Section
+            icon="bx-slider-alt"
+            title="출력 설정"
+            summary={`${sizeLabel} · ${form.outputFormat.toUpperCase()}`}
+            open={openSection === 'settings'}
+            onToggle={() => onOpenSection(openSection === 'settings' ? null : 'settings')}
+          >
+            {originalDimensions ? (
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-fg-muted">
+                    리사이즈 크기{' '}
+                    <span className="font-normal text-fg-subtle">— 편집 완료 후 이 크기로 변환</span>
+                  </p>
+                  <DimensionInputs
+                    targetWidth={form.targetWidth}
+                    targetHeight={form.targetHeight}
+                    keepAspectRatio={form.keepAspectRatio}
+                    originalDimensions={originalDimensions}
+                    onWidthChange={onWidthChange}
+                    onHeightChange={onHeightChange}
+                    onToggleAspectRatio={onToggleAspectRatio}
+                    disabled={sending}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-fg-muted">출력 포맷</p>
+                  <FormatSelector
+                    value={form.outputFormat}
+                    onChange={onFormatChange}
+                    disabled={sending}
+                  />
+                </div>
+
+                {/* 시안 장수 — 한 장이 이미지 생성 1회다. 올리면 비용이 같이 오른다는
+                    사실을 숫자 옆에 바로 붙여 둔다(전송 전 요약에서 한 번 더 보여 준다). */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-fg-muted">
+                    시안 장수{' '}
+                    <span className="font-normal text-fg-subtle">
+                      — 같은 지시로 여러 장을 만들어 고릅니다
+                    </span>
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Array.from({ length: MAX_EDIT_VARIANTS }, (_, i) => i + 1).map((n) => {
+                      const picked = form.variantCount === n;
+                      return (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => onVariantCountChange(n)}
+                          disabled={sending}
+                          aria-pressed={picked}
+                          title={`${n}장 — AI 호출 ${n}회`}
+                          className={[
+                            'w-9 rounded-lg border py-1.5 text-xs tabular-nums transition-colors',
+                            'disabled:opacity-50 disabled:pointer-events-none',
+                            picked
+                              ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-semibold'
+                              : 'border-border bg-surface-2 text-fg-muted hover:border-indigo-200 dark:hover:border-indigo-700',
+                          ].join(' ')}
+                        >
+                          {n}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] text-fg-subtle leading-relaxed">
+                    한 장이 AI 이미지 생성 1회입니다 —{' '}
+                    <strong className="text-fg-muted font-medium">
+                      {form.variantCount}장이면 토큰도 {form.variantCount}배
+                    </strong>{' '}
+                    듭니다.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-fg-subtle">이미지 크기를 재는 중입니다…</p>
+            )}
+          </Section>
+          </div>
+        )}
+
+        {/* 보낼 지시 — 아직 안 보낸 것. 체크를 끈 지시는 전송되지 않는다.
+            입력창 바로 위에 두는 이유: 무엇이 함께 나가는지가 전송 버튼 옆에서 보여야 한다. */}
+        {instructions.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="flex items-center gap-2 text-[11px] font-semibold text-fg-muted">
+              보낼 지시
+              <span className="font-normal text-fg-subtle">
+                {sendable.length}/{instructions.length} 전송
+              </span>
+            </p>
+            <ul className="max-h-36 overflow-y-auto space-y-1.5 pr-0.5">
+              {instructions.map((ins) => (
+                <InstructionCard
+                  key={ins.id}
+                  instruction={ins}
+                  element={elementOf(ins)}
+                  missingTarget={missingTarget(ins)}
+                  onToggle={() => onToggleInstruction(ins.id)}
+                  onEdit={() => onEditInstruction(ins.id)}
+                  onDelete={() => onDeleteInstruction(ins.id)}
+                  disabled={sending}
+                />
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* 컴포저 — [도구] [입력칸] [전송]. 스크롤되지 않는 자리에 고정된다. */}
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onToggleTools}
+              aria-expanded={toolsOpen}
+              aria-label={toolsOpen ? '도구 닫기' : '도구 열기'}
+              title="도구 — 요소 찾기 · 배경 시안 · 지난 기록 · 출력 설정"
+              className={[
+                'flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors',
+                toolsOpen
+                  ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400'
+                  : 'border-border bg-surface text-fg-muted hover:text-fg hover:border-indigo-300',
+              ].join(' ')}
+            >
+              <i className={`bx ${toolsOpen ? 'bx-x' : 'bx-plus'} text-lg`} />
+            </button>
+
             <input
               ref={draftRef}
               id="instruction-draft-input"
@@ -680,27 +720,49 @@ export default function InstructionPanel({
               onChange={(event) => setDraft(event.target.value)}
               // 한글 입력 중의 엔터는 조합을 확정하는 키다 — isComposing 을 보지
               // 않으면 마지막 글자를 확정하는 순간 그대로 추가돼 버린다.
+              //
+              // 엔터는 "보낼 지시에 추가"이고 전송이 아니다 — 전송 1회가 AI 이미지
+              // 생성(과금)이라, DM 처럼 엔터로 바로 나가면 오타 한 번이 비용이 된다.
+              // 바로 보내려면 Ctrl/⌘+Enter 나 전송 버튼을 쓴다.
               onKeyDown={(event) => {
                 if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
                 event.preventDefault();
-                commitDraft();
+                if (event.ctrlKey || event.metaKey) submit();
+                else commitDraft();
               }}
-              className={`${controlClassName} min-w-0 flex-1 px-3 py-2 text-xs`}
+              className={`${controlClassName} min-w-0 flex-1 rounded-full px-4 py-2 text-xs`}
             />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={commitDraft}
-              disabled={sending || !draft.trim()}
-              aria-label="지시 추가"
-              className="shrink-0"
-            >
-              <i className="bx bx-plus text-base" />
-            </Button>
+
+            {aiBusy ? (
+              <button
+                type="button"
+                onClick={onCancel}
+                aria-label="작업 중지"
+                title="작업 중지"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-surface text-fg-body hover:border-red-300 hover:text-red-500 transition-colors"
+              >
+                <i className="bx bx-stop text-lg" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={submit}
+                disabled={!canSubmit}
+                aria-label={`전송 (${submitCount}건)`}
+                title={
+                  canSubmit
+                    ? `지시 ${submitCount}건을 한 번에 적용합니다`
+                    : '보낼 지시가 없습니다 — 지시를 적거나 체크를 켜 주세요'
+                }
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-600 dark:bg-indigo-500 text-white hover:bg-indigo-700 dark:hover:bg-indigo-600 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+              >
+                <i className="bx bx-up-arrow-alt text-xl" />
+              </button>
+            )}
           </div>
 
           <p className="flex items-center gap-1 text-[11px] text-fg-subtle">
-            엔터로 추가됩니다 · 이미지 전체에 적용
+            엔터: 지시 추가 · Ctrl+Enter: 바로 전송
             <span className="flex-1" />
             {/* 긴 글·대상 지정은 모달로 — 기본 동선에서는 빠진다 */}
             <button
@@ -717,12 +779,12 @@ export default function InstructionPanel({
 
         {/* 전송 전 요약 — 비용이 드는 행동 앞에 비용을 보여 준다 */}
         <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-fg-subtle">
-          <span className="font-semibold text-fg-muted">지시 {sendable.length}건</span>
+          <span className="font-semibold text-fg-muted">지시 {submitCount}건</span>
           {targetCount > 0 && <>· 대상 {targetCount}곳</>}
           <>
             · {sizeLabel} {form.outputFormat.toUpperCase()}
           </>
-          {sendable.length > 0 && (
+          {submitCount > 0 && (
             <span className="text-indigo-600 dark:text-indigo-400 font-medium">
               · 시안 {form.variantCount}장 · AI 호출 {form.variantCount}회 · 5~10초
             </span>
@@ -737,29 +799,6 @@ export default function InstructionPanel({
           보관</strong>된 뒤 자동 삭제돼요 — 기록에서 다시 보고, 언제든 직접 지울 수 있어요.
           올린 원본은 저장하지 않습니다.
         </p>
-
-        {sending ? (
-          <Button variant="outline" size="lg" onClick={onCancel} className="w-full">
-            <i className="bx bx-stop text-lg" />
-            작업 중지
-          </Button>
-        ) : (
-          <Button
-            tone="indigo"
-            size="lg"
-            onClick={onSend}
-            disabled={!sendable.length || aiBusy}
-            className="w-full"
-            title={
-              !sendable.length
-                ? '보낼 지시가 없습니다 — 지시를 추가하거나 체크를 켜 주세요'
-                : `지시 ${sendable.length}건을 한 번에 적용합니다`
-            }
-          >
-            <i className="bx bx-up-arrow-alt text-lg" />
-            전송{sendable.length > 0 && ` (${sendable.length}건)`}
-          </Button>
-        )}
       </div>
     </aside>
   );

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { groupHistory, sinceText } from '@/lib/imageFilterHistory';
 import type { HistoryGroup } from '@/lib/imageFilterHistory';
 import { editHistoryImageUrl } from '@/lib/imageFilterClient';
@@ -15,7 +16,54 @@ interface HistoryRailProps {
   selectedFilename: string | null;
   /** 앱 사이드바가 접혀 있는가 — 펼쳐져 있으면 자리가 좁아 더 넓은 화면에서만 선다 */
   sidebarCollapsed: boolean;
+  /** 레일이 설 자리가 없는 폭에서 서랍으로 열려 있는가 */
+  drawerOpen: boolean;
+  onCloseDrawer: () => void;
   disabled: boolean;
+}
+
+/**
+ * 레일이 서는 폭 기준 — 사이드바가 접혀 있으면 lg, 펼쳐져 있으면 1400px.
+ * 클래스 이름을 조립하지 않고 통째로 적어 둔다(Tailwind 는 소스의 완성된 문자열만 읽는다).
+ */
+function railClasses(sidebarCollapsed: boolean) {
+  return sidebarCollapsed
+    ? {
+        show: 'lg:flex',
+        hide: 'lg:hidden',
+        dock: 'lg:static lg:z-auto lg:w-60 lg:max-w-none lg:shadow-none',
+      }
+    : {
+        show: 'min-[1400px]:flex',
+        hide: 'min-[1400px]:hidden',
+        dock: 'min-[1400px]:static min-[1400px]:z-auto min-[1400px]:w-60 min-[1400px]:max-w-none min-[1400px]:shadow-none',
+      };
+}
+
+/**
+ * 대화 목록 서랍을 여는 버튼 — 레일이 숨는 폭에서만 보인다.
+ * 첫 화면 · 지난 대화 헤더 · 작업 툴바 세 곳에 같은 모양으로 선다.
+ */
+export function HistoryDrawerButton({
+  sidebarCollapsed,
+  onClick,
+  className = '',
+}: {
+  sidebarCollapsed: boolean;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="지난 작업 목록 열기"
+      title="지난 작업 목록"
+      className={`${railClasses(sidebarCollapsed).hide} inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-fg-muted hover:text-fg hover:border-indigo-300 transition-colors ${className}`}
+    >
+      <i className="bx bx-conversation text-base" />
+    </button>
+  );
 }
 
 /**
@@ -27,6 +75,9 @@ interface HistoryRailProps {
  * 예전에는 앱 사이드바를 접었을 때만 나타났다. 지금은 늘 서 있되, 사이드바가
  * 펼쳐져 있으면 256px 을 이미 내준 상태라 1400px 이상에서만 선다 — 그보다 좁은
  * 화면에서 목록까지 세우면 캔버스가 400px 아래로 줄어든다.
+ *
+ * 레일이 서지 못하는 폭에서는 같은 목록이 왼쪽에서 나오는 서랍이 된다
+ * (`drawerOpen`). 대화를 고르거나 밖을 누르거나 Esc 를 누르면 닫힌다.
  */
 export default function HistoryRail({
   history,
@@ -34,20 +85,53 @@ export default function HistoryRail({
   onLoadGroup,
   selectedFilename,
   sidebarCollapsed,
+  drawerOpen,
+  onCloseDrawer,
   disabled,
 }: HistoryRailProps) {
   const groups = history ? groupHistory(history) : null;
+  const bp = railClasses(sidebarCollapsed);
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCloseDrawer();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [drawerOpen, onCloseDrawer]);
 
   return (
+    <>
+    {drawerOpen && (
+      <div
+        aria-hidden
+        onClick={onCloseDrawer}
+        className={`${bp.hide} fixed inset-0 z-[var(--z-modal)] bg-black/40`}
+      />
+    )}
     <aside
       aria-label="지난 작업"
-      className={`hidden ${
-        sidebarCollapsed ? 'lg:flex' : 'min-[1400px]:flex'
-      } w-60 shrink-0 flex-col border-r border-border bg-surface`}
+      className={`${
+        drawerOpen
+          ? `flex fixed inset-y-0 left-0 z-[var(--z-modal)] w-72 max-w-[85vw] shadow-overlay ${bp.dock}`
+          : `hidden ${bp.show} w-60`
+      } shrink-0 flex-col border-r border-border bg-surface`}
     >
       <p className="flex items-center gap-1.5 px-4 h-11 shrink-0 border-b border-border-soft text-[11px] font-semibold text-fg-muted uppercase tracking-wider">
         <i className="bx bx-history text-sm" />
         지난 작업
+        <span className="flex-1" />
+        {drawerOpen && (
+          <button
+            type="button"
+            onClick={onCloseDrawer}
+            aria-label="지난 작업 목록 닫기"
+            className={`${bp.hide} flex h-7 w-7 items-center justify-center rounded-lg text-fg-subtle hover:bg-surface-2 hover:text-fg transition-colors`}
+          >
+            <i className="bx bx-x text-lg" />
+          </button>
+        )}
       </p>
 
       <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
@@ -74,7 +158,10 @@ export default function HistoryRail({
               <button
                 key={group.filename}
                 type="button"
-                onClick={() => onLoadGroup(group)}
+                onClick={() => {
+                  onLoadGroup(group);
+                  onCloseDrawer();
+                }}
                 disabled={disabled}
                 title="누르면 그때의 대화 기록이 열립니다"
                 className={[
@@ -126,5 +213,6 @@ export default function HistoryRail({
         )}
       </div>
     </aside>
+    </>
   );
 }

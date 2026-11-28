@@ -9,6 +9,10 @@ interface SessionThreadProps {
   versions: ImageVersion[];
   activeId: string;
   onSelectVersion: (id: string) => void;
+  /** 시안을 원본 해상도로 크게 본다 (그 버전을 고른 뒤 확대 창을 연다) */
+  onZoom: (id: string) => void;
+  /** 시안 한 장을 파일로 저장한다 — 캔버스로 옮겨 가지 않고 말풍선에서 바로 */
+  onDownload: (version: ImageVersion) => void;
   /** 이 작업이 이어받은 지난 대화 — 스레드에서 이미지를 올려 시작했을 때만 있다 */
   past: HistoryGroup | null;
   retentionDays: number;
@@ -79,6 +83,8 @@ export default function SessionThread({
   versions,
   activeId,
   onSelectVersion,
+  onZoom,
+  onDownload,
   past,
   retentionDays,
   pendingText,
@@ -145,6 +151,8 @@ export default function SessionThread({
           version={original}
           selected={original.id === activeId}
           onSelect={onSelectVersion}
+          onZoom={onZoom}
+          onDownload={onDownload}
           disabled={disabled}
           className="rounded-2xl rounded-br-md"
           size="h-24 w-24"
@@ -184,6 +192,8 @@ export default function SessionThread({
                   version={version}
                   selected={version.id === activeId}
                   onSelect={onSelectVersion}
+                  onZoom={onZoom}
+                  onDownload={onDownload}
                   disabled={disabled}
                   className="rounded-lg"
                   size="h-20 w-20"
@@ -224,6 +234,8 @@ function ThumbButton({
   version,
   selected,
   onSelect,
+  onZoom,
+  onDownload,
   disabled,
   className,
   size,
@@ -232,33 +244,70 @@ function ThumbButton({
   version: ImageVersion;
   selected: boolean;
   onSelect: (id: string) => void;
+  onZoom: (id: string) => void;
+  onDownload: (version: ImageVersion) => void;
   disabled: boolean;
   className: string;
   size: string;
   showLabel?: boolean;
 }) {
+  const actionClass =
+    'flex h-6 w-6 items-center justify-center rounded-md bg-black/60 text-white hover:bg-black/80 transition-colors disabled:opacity-50 disabled:pointer-events-none';
+
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(version.id)}
-      disabled={disabled}
-      aria-pressed={selected}
-      title={selected ? `${version.label} — 캔버스에 표시 중` : `${version.label} — 눌러서 캔버스에 보기`}
+    // 버튼 안에 버튼을 넣을 수 없어 바깥을 div 로 두고, 고르기 버튼과 메뉴를 형제로 둔다
+    <div
       className={[
-        'relative overflow-hidden transition-shadow',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-        'disabled:opacity-60 disabled:pointer-events-none',
+        'group/thumb relative overflow-hidden transition-shadow',
         selected ? 'ring-2 ring-indigo-400' : 'ring-1 ring-border hover:ring-indigo-300',
         className,
       ].join(' ')}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={version.url} alt={version.label} className={`block ${size} object-cover bg-surface-3`} />
-      {showLabel && (
-        <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-white">
-          {version.label}
-        </span>
-      )}
-    </button>
+      <button
+        type="button"
+        onClick={() => onSelect(version.id)}
+        disabled={disabled}
+        aria-pressed={selected}
+        title={
+          selected ? `${version.label} — 캔버스에 표시 중` : `${version.label} — 눌러서 캔버스에 보기`
+        }
+        className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary disabled:opacity-60 disabled:pointer-events-none"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={version.url}
+          alt={version.label}
+          className={`block ${size} object-cover bg-surface-3`}
+        />
+        {showLabel && (
+          <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-white">
+            {version.label}
+          </span>
+        )}
+      </button>
+
+      {/* 말풍선 메뉴 — 마우스를 올리면 나타난다. 터치 화면에는 호버가 없어 늘 보인다. */}
+      <span className="absolute right-1 top-1 flex gap-1 opacity-0 transition-opacity group-hover/thumb:opacity-100 group-focus-within/thumb:opacity-100 max-lg:opacity-100">
+        <button
+          type="button"
+          onClick={() => onZoom(version.id)}
+          disabled={disabled}
+          aria-label={`${version.label} 크게 보기`}
+          title="크게 보기"
+          className={actionClass}
+        >
+          <i className="bx bx-expand-alt text-sm" />
+        </button>
+        <button
+          type="button"
+          onClick={() => onDownload(version)}
+          aria-label={`${version.label} 저장`}
+          title="저장"
+          className={actionClass}
+        >
+          <i className="bx bx-download text-sm" />
+        </button>
+      </span>
+    </div>
   );
 }

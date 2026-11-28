@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import CanvasStage from '@/components/image-filter/CanvasStage';
 import EmptyCanvas from '@/components/image-filter/EmptyCanvas';
 import FilterToolbar from '@/components/image-filter/FilterToolbar';
-import HistoryRail from '@/components/image-filter/HistoryRail';
+import HistoryRail, { HistoryDrawerButton } from '@/components/image-filter/HistoryRail';
 import ImageLightbox from '@/components/image-filter/ImageLightbox';
 import InstructionEditorModal from '@/components/image-filter/InstructionEditorModal';
 import type { InstructionPatch } from '@/components/image-filter/InstructionEditorModal';
@@ -113,6 +113,14 @@ export default function ImageFilterClient() {
   >({});
 
   const [openSection, setOpenSection] = useState<PanelSection | null>('elements');
+  /** 컴포저의 + 도구 묶음 — 평소에는 닫혀 있어 대화 열이 대화로만 채워진다 */
+  const [toolsOpen, setToolsOpen] = useState(false);
+  /** 좁은 화면(lg 미만)에서 보고 있는 쪽 — DM 처럼 대화가 기본이고, 시안을 누르면
+   *  캔버스가 화면을 채운다. lg 이상에서는 둘이 나란히 서므로 이 값은 쓰이지 않는다 */
+  const [mobileView, setMobileView] = useState<'chat' | 'canvas'>('chat');
+  /** 대화 목록 서랍 — 레일이 설 자리가 없는 폭에서만 쓰인다 */
+  const [railOpen, setRailOpen] = useState(false);
+  const closeRail = useCallback(() => setRailOpen(false), []);
   const [zoomOpen, setZoomOpen] = useState(false);
   const [editing, setEditing] = useState<EditingState | null>(null);
   /**
@@ -396,6 +404,7 @@ export default function ImageFilterClient() {
       setForm((prev) => ({ ...prev, targetWidth: '', targetHeight: '' }));
       setLastError(null);
       setEditing(null);
+      setMobileView('chat');
       // 스레드 안에서 올렸든 어디서 올렸든, 첨부되면 열람은 끝나고 작업이 시작된다.
       // 스레드에서 시작한 작업이면 그 대화를 작업 화면으로 넘겨 이어서 보여 준다.
       // 작업 중에 이미지를 바꾼 경우(activeId 있음)는 다른 대화라 넘기지 않는다.
@@ -424,6 +433,7 @@ export default function ImageFilterClient() {
     setZoomOpen(false);
     setSeed([]);
     setPastThread(null);
+    setMobileView('chat');
     setOpenSection('elements');
     // 사용자가 직접 비운 것이므로 저장해 둔 초안도 같이 버린다 —
     // 안 그러면 방금 치운 지시가 복구 배너로 다시 올라온다
@@ -492,10 +502,22 @@ export default function ImageFilterClient() {
   }, [active, aiBusy, toast, updateInstructions]);
 
   /* ── 편집 요청 전송 ─────────────────────────────────────────── */
-  const handleSend = useCallback(async () => {
+  const handleSend = useCallback(async (extraText?: string) => {
     if (!active || aiBusy) return;
     const versionId = active.id;
-    const list = instructionsByVersion[versionId] ?? [];
+    let list = instructionsByVersion[versionId] ?? [];
+
+    // 입력칸에 쓰던 글을 함께 보낸다. 목록에도 올려 두는 이유: 실패하면 다른
+    // 지시와 똑같이 "실패" 표시로 남아야 하고, 성공하면 함께 빠져야 한다 —
+    // 목록 밖에서 따로 다루면 실패했을 때 쓴 글이 사라진다.
+    const typed =
+      typeof extraText === 'string' ? extraText.trim().slice(0, MAX_INSTRUCTION_LENGTH) : '';
+    if (typed) {
+      insSeqRef.current += 1;
+      const created = makeInstruction(insSeqRef.current, null, typed);
+      list = [...list, created];
+      updateInstructions(versionId, (prev) => [...prev, created]);
+    }
     const versionElements = elementsByVersion[versionId] ?? null;
 
     // 체크를 켠 지시만 보낸다. 예전에는 써 둔 지시가 전부 함께 전송돼, 써 두고
@@ -941,7 +963,7 @@ export default function ImageFilterClient() {
   return (
     <div
       {...handlers}
-      className="flex flex-col lg:h-[calc(100dvh-var(--header-h))] lg:overflow-hidden bg-bg"
+      className="flex flex-col h-[calc(100dvh-var(--header-h))] overflow-hidden bg-bg"
     >
       {/* 드래그 중 오버레이 */}
       {isDragging && (
@@ -962,23 +984,48 @@ export default function ImageFilterClient() {
           onLoadGroup={handleLoadGroup}
           selectedFilename={threadGroup?.filename ?? pastThread?.filename ?? null}
           sidebarCollapsed={sidebarCollapsed}
+          drawerOpen={railOpen}
+          onCloseDrawer={closeRail}
           disabled={aiBusy}
         />
 
-        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+        <div className="relative flex-1 min-w-0 min-h-0 flex flex-col">
       {active && original ? (
         <>
           <FilterToolbar
+            leading={
+              <HistoryDrawerButton
+                sidebarCollapsed={sidebarCollapsed}
+                onClick={() => setRailOpen(true)}
+              />
+            }
             original={original}
             form={form}
-            onOpenSettings={() => setOpenSection('settings')}
+            onOpenSettings={() => {
+              setOpenSection('settings');
+              setToolsOpen(true);
+            }}
             onReplace={handleAttach}
             onReset={handleReset}
             locked={aiBusy}
           />
 
           <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
-            <div className="flex min-h-[55vh] lg:min-h-0 flex-1 min-w-0">
+            {/* 좁은 화면에서는 대화와 캔버스 중 한쪽만 보인다 — 시안을 누르면 캔버스로 */}
+            <div
+              className={`${
+                mobileView === 'canvas' ? 'flex' : 'hidden'
+              } lg:flex flex-col flex-1 min-h-0 min-w-0`}
+            >
+              <button
+                type="button"
+                onClick={() => setMobileView('chat')}
+                className="lg:hidden flex shrink-0 items-center gap-1 border-b border-border bg-surface px-3 py-2 text-xs font-medium text-fg-muted hover:text-fg transition-colors"
+              >
+                <i className="bx bx-chevron-left text-lg" />
+                대화로 돌아가기
+              </button>
+              <div className="flex flex-1 min-h-0 min-w-0">
               <CanvasStage
                 versions={versions}
                 active={active}
@@ -992,14 +1039,24 @@ export default function ImageFilterClient() {
                 onZoom={() => setZoomOpen(true)}
                 onDownload={() => triggerDownload(active.file, active.filename)}
               />
+              </div>
             </div>
 
             <InstructionPanel
+              mobileHidden={mobileView === 'canvas'}
               thread={
                 <SessionThread
                   versions={versions}
                   activeId={active.id}
-                  onSelectVersion={handleSelectVersion}
+                  onSelectVersion={(id) => {
+                    handleSelectVersion(id);
+                    setMobileView('canvas');
+                  }}
+                  onZoom={(id) => {
+                    handleSelectVersion(id);
+                    setZoomOpen(true);
+                  }}
+                  onDownload={(version) => triggerDownload(version.file, version.filename)}
                   past={pastThread}
                   retentionDays={retentionDays}
                   pendingText={sending || bgLoading ? statusText : null}
@@ -1035,6 +1092,8 @@ export default function ImageFilterClient() {
                 setForm((prev) => ({ ...prev, variantCount }))
               }
               retentionDays={retentionDays}
+              toolsOpen={toolsOpen}
+              onToggleTools={() => setToolsOpen((prev) => !prev)}
               sending={sending}
               onSend={handleSend}
               onCancel={handleCancel}
@@ -1047,6 +1106,12 @@ export default function ImageFilterClient() {
       ) : (
         threadGroup ? (
         <ThreadView
+          leading={
+            <HistoryDrawerButton
+              sidebarCollapsed={sidebarCollapsed}
+              onClick={() => setRailOpen(true)}
+            />
+          }
           group={threadGroup}
           retentionDays={retentionDays}
           onAttach={handleAttach}
@@ -1056,6 +1121,13 @@ export default function ImageFilterClient() {
           disabled={aiBusy}
         />
       ) : (
+        <>
+        {/* 첫 화면에는 헤더가 없어 목록 버튼을 구석에 띄운다 */}
+        <HistoryDrawerButton
+          sidebarCollapsed={sidebarCollapsed}
+          onClick={() => setRailOpen(true)}
+          className="absolute left-3 top-3 z-10"
+        />
         <EmptyCanvas
           onAttach={handleAttach}
           seed={seed}
@@ -1068,6 +1140,7 @@ export default function ImageFilterClient() {
           sidebarCollapsed={sidebarCollapsed}
           error={lastError}
         />
+        </>
       ))}
         </div>
       </div>

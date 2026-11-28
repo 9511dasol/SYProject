@@ -1,12 +1,15 @@
 'use client';
 
 import { useRef } from 'react';
+import type { ReactNode } from 'react';
 import { sinceText } from '@/lib/imageFilterHistory';
 import type { HistoryEntry, HistoryGroup } from '@/lib/imageFilterHistory';
 import { editHistoryImageUrl } from '@/lib/imageFilterClient';
 import { ACCEPTED_IMAGE_HINT } from '@/lib/imageFile';
 
 interface ThreadViewProps {
+  /** 헤더 맨 앞자리 — 좁은 화면에서 대화 목록을 여는 버튼이 들어온다 */
+  leading?: ReactNode;
   group: HistoryGroup;
   /** 보관 일수 — 만료 안내 문구가 서버 설정과 어긋나지 않게 내려받는다 */
   retentionDays: number;
@@ -32,6 +35,7 @@ interface ThreadViewProps {
  * 전체 드래그 앤 드롭·붙여넣기(Ctrl+V)는 페이지 공통 핸들러가 이미 받는다.
  */
 export default function ThreadView({
+  leading,
   group,
   retentionDays,
   onAttach,
@@ -48,6 +52,7 @@ export default function ThreadView({
     <div className="flex-1 min-h-0 flex flex-col">
       {/* ── 스레드 헤더 ── */}
       <div className="h-11 shrink-0 px-4 flex items-center gap-2 border-b border-border bg-surface">
+        {leading}
         <i className="bx bx-image-alt text-base text-indigo-400 shrink-0" />
         <span className="text-sm font-semibold text-fg truncate" title={group.filename}>
           {group.filename}
